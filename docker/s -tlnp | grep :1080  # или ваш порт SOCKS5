@@ -1,0 +1,33 @@
+Feb 22 17:33:24 qa2a-server systemd[1]: Starting SOCKS (v4 and v5) proxy daemon (danted)...
+Feb 22 17:33:24 qa2a-server systemd[1]: Started SOCKS (v4 and v5) proxy daemon (danted).
+Feb 22 17:33:24 qa2a-server danted[1753]: Feb 22 14:33:24 (1771770804.759213) danted[1753]: warning: checkconfig(): no socks authentication methods enabled.  This means all socks requests will be blocked after negotiation.  Perhaps this is not intended?
+Feb 22 17:33:24 qa2a-server danted[1753]: Feb 22 14:33:24 (1771770804.759874) danted[1753]: error: checkconfig(): no internal address given for server to listen for clients on
+Feb 22 17:33:24 qa2a-server danted[1753]: Feb 22 14:33:24 (1771770804.759971) danted[1753]: alert: mother[1/1]: shutting down
+Feb 22 17:33:24 qa2a-server systemd[1]: [0;1;39m[0;1;31m[0;1;39mdanted.service: Main process exited, code=exited, status=1/FAILURE[0m
+Feb 22 17:33:24 qa2a-server systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mdanted.service: Failed with result 'exit-code'.[0m
+Feb 22 17:34:18 qa2a-server systemd[1]: Starting SOCKS (v4 and v5) proxy daemon (danted)...
+Feb 22 17:34:18 qa2a-server systemd[1]: Started SOCKS (v4 and v5) proxy daemon (danted).
+Feb 22 17:34:18 qa2a-server danted[1812]: Feb 22 14:34:18 (1771770858.353093) danted[1812]: warning: openlogfile(): could not open or create logfile "/var/log/danted.log" for writing: Read-only file system
+Feb 22 17:34:18 qa2a-server danted[1812]: Feb 22 14:34:18 (1771770858.353530) danted[1812]: alert: configparsing(): could not (re)open logfile "/var/log/danted.log": Read-only file system
+Feb 22 17:34:18 qa2a-server danted[1812]: Feb 22 14:34:18 (1771770858.354144) danted[1812]: warning: checkconfig(): setting the unprivileged uid to 0 is not recommended for security reasons
+Feb 22 19:52:38 qa2a-server systemd[1]: [0;1;39m[0;1;31m[0;1;39mdanted.service: A process of this unit has been killed by the OOM killer.[0m
+Feb 22 19:52:38 qa2a-server systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mdanted.service: Failed with result 'oom-kill'.[0m
+Feb 22 19:52:38 qa2a-server systemd[1]: danted.service: Consumed 2min 18.172s CPU time.
+[0;1;39m-- Boot 7c8bbd5e83f14ccdad0b08d6881beae5 --[0m
+Feb 22 19:54:50 qa2a-server systemd[1]: Starting SOCKS (v4 and v5) proxy daemon (danted)...
+Feb 22 19:54:50 qa2a-server systemd[1]: Started SOCKS (v4 and v5) proxy daemon (danted).
+Feb 22 19:54:50 qa2a-server danted[607]: Feb 22 16:54:50 (1771779290.933208) danted[607]: warning: openlogfile(): could not open or create logfile "/var/log/danted.log" for writing: Read-only file system
+Feb 22 19:54:50 qa2a-server danted[607]: Feb 22 16:54:50 (1771779290.934034) danted[607]: alert: configparsing(): could not (re)open logfile "/var/log/danted.log": Read-only file system
+Feb 22 19:54:50 qa2a-server danted[607]: Feb 22 16:54:50 (1771779290.936555) danted[607]: warning: checkconfig(): setting the unprivileged uid to 0 is not recommended for security reasons
+Feb 22 19:57:44 qa2a-server systemd[1]: [0;1;39m[0;1;31m[0;1;39mdanted.service: A process of this unit has been killed by the OOM killer.[0m
+Feb 22 19:57:45 qa2a-server systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mdanted.service: Failed with result 'oom-kill'.[0m
+Feb 22 19:57:45 qa2a-server systemd[1]: danted.service: Consumed 1min 37.186s CPU time.
+[0;1;39m-- Boot 544f57c32a424394ae4605a19880ece5 --[0m
+Feb 22 20:14:06 qa2a-server systemd[1]: Starting SOCKS (v4 and v5) proxy daemon (danted)...
+Feb 22 20:14:06 qa2a-server systemd[1]: Started SOCKS (v4 and v5) proxy daemon (danted).
+Feb 22 20:14:06 qa2a-server danted[607]: Feb 22 17:14:06 (1771780446.905336) danted[607]: warning: openlogfile(): could not open or create logfile "/var/log/danted.log" for writing: Read-only file system
+Feb 22 20:14:06 qa2a-server danted[607]: Feb 22 17:14:06 (1771780446.905930) danted[607]: alert: configparsing(): could not (re)open logfile "/var/log/danted.log": Read-only file system
+Feb 22 20:14:06 qa2a-server danted[607]: Feb 22 17:14:06 (1771780446.907076) danted[607]: warning: checkconfig(): setting the unprivileged uid to 0 is not recommended for security reasons
+Feb 22 20:46:03 qa2a-server systemd[1]: [0;1;39m[0;1;31m[0;1;39mdanted.service: A process of this unit has been killed by the OOM killer.[0m
+Feb 22 20:46:04 qa2a-server systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mdanted.service: Failed with result 'oom-kill'.[0m
+Feb 22 20:46:04 qa2a-server systemd[1]: danted.service: Consumed 5min 16.296s CPU time.
