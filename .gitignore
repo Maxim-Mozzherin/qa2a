@@ -1,0 +1,7 @@
+.env
+qa2a-server
+*.db
+*.log
+.DS_Store
+/bin
+/tmp
