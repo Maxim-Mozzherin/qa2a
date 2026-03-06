@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>QA2A</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css?v=4.0">
+</head>
+<body>
+    <header><h1 onclick="openDrawer('switcher')" style="cursor:pointer">QA2A ▾</h1></header>
+
+    <div id="onboarding" style="display:none; padding: 100px 20px; text-align: center;">
+        <h2>Добро пожаловать</h2>
+        <button class="btn-main" onclick="createNewBusiness()">Создать бизнес</button>
+        <button class="btn-main" onclick="joinByCode()" style="margin-top:15px; background:var(--surface); border: 1px solid var(--border);">Ввести код</button>
+    </div>
+
+    <div id="main-app" style="display:none;">
+        <div class="app-container">
+            <div id="tab-team" class="tab-content" style="display:none">
+                <div class="section">
+                <div class="section-title">Ваша команда</div>
+                <div id="memberList"></div>
+            <div style="margin-top:30px; padding:20px; background:var(--surface); border-radius:12px; border:1px dashed var(--accent); text-align:center;">
+                    <span style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:10px;">Код для приглашения сотрудников:</span>
+                    <b id="displayInviteCode" style="font-size:20px; color:var(--accent); letter-spacing:2px;">---</b>
+            </div>
+        </div>
+    </div>
+            <div class="hero-spacer"></div>
+            <div id="tab-home" class="tab-content">
+                <div class="section">
+                    <div class="section-title" id="orgName">Загрузка...</div>
+                    <div class="actions-grid">
+                        <div class="card" onclick="openDrawer('writeoff')"><span class="card-icon">📉</span><span class="card-title">Списание</span></div>
+                        <div class="card" onclick="switchTab('stock')"><span class="card-icon">📦</span><span class="card-title">Остатки</span></div>
+                        <div class="card" onclick="openDrawer('request')"><span class="card-icon">📝</span><span class="card-title">Заявка</span></div>
+                        <div class="card" onclick="openDrawer('transfer')"><span class="card-icon">🔄</span><span class="card-title">Перенос</span></div>
+                    </div>
+                </div>
+                <div class="section"><div class="section-title">История</div><div id="historyFeed"></div></div>
+            </div>
+            <div id="tab-stock" class="tab-content" style="display:none"><div class="section"><div id="stockList"></div></div></div>
+            <div id="tab-admin" class="tab-content" style="display:none">
+                <div class="section"><div class="section-title">Склады</div><div id="adminLocationList"></div><button class="btn-main" onclick="openDrawer('add_loc')">+ Склад</button></div>
+                <div class="section"><div class="section-title">Товары</div><div id="adminPositionList"></div><button class="btn-main" onclick="openDrawer('add_pos')">+ Товар</button></div>
+            </div>
+        </div>
+        <nav class="nav-bar">
+            <a href="javascript:void(0)" class="nav-item active" id="nav-home" onclick="switchTab('home')"><span>🏠</span>Главная</a>
+            <a href="javascript:void(0)" class="nav-item" id="nav-stock" onclick="switchTab('stock')"><span>📦</span>Склад</a>
+            <a href="javascript:void(0)" class="nav-item" id="nav-admin" onclick="switchTab('admin')"><span>⚙️</span>Админ</a>
+            <a href="javascript:void(0)" class="nav-item" onclick="showInviteCode()"><span>👥</span>Код</a>
+        </nav>
+    </div>
+
+    <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+    <!-- ШТОРКА: ПЕРЕКЛЮЧАТЕЛЬ И ВСТУПЛЕНИЕ -->
+        <div class="drawer" id="drawer_switcher">
+        <h3 style="margin-bottom:20px">Ваши заведения</h3>
+        <div id="companyList"></div>
+        <hr style="margin:20px 0; border:0; border-top:1px solid var(--border);">
+        <button class="btn-main" onclick="joinByCode()" style="background:var(--accent); color:white;">+ Вступить по коду</button>
+        <button class="btn-main" onclick="openDrawer('create_biz')" style="margin-top:10px; background:var(--surface); color:var(--text); border:1px solid var(--border);">+ Создать новый бизнес</button>
+    </div>
+
+    <!-- Новая шторка: СОЗДАТЬ БИЗНЕС -->
+    <div class="drawer" id="drawer_create_biz">
+        <h3>Новый бизнес</h3>
+        <input type="text" id="new_biz_name" placeholder="Название заведения">
+        <button class="btn-main" onclick="submitCreateBusiness()">Создать</button>
+    </div>
+
+    <!-- Новая шторка: СОЗДАТЬ БИЗНЕС -->
+    <div class="drawer" id="drawer_create_biz">
+        <h3>Новый бизнес</h3>
+        <input type="text" id="new_biz_name" placeholder="Название заведения">
+        <button class="btn-main" onclick="submitCreateBusiness()">Создать</button>
+    </div>
+    
+    <div class="drawer" id="drawer_writeoff">
+        <h3>Списание</h3>
+        <div class="input-group">
+            <label>Товар</label>
+            <input type="text" id="w_search" oninput="filterSearch('w')" placeholder="Поиск...">
+            <div id="w_results" class="search-results"></div>
+            <input type="hidden" id="w_name">
+        </div>
+        <div style="display:flex; gap:10px"><input type="number" id="w_qty" placeholder="0.00" style="flex:2"><div id="w_unit_display" style="flex:1; padding:15px; background:var(--bg); border-radius:12px; text-align:center">...</div></div>
+        <div class="input-group" style="margin-top:10px"><label>Склад</label><select id="w_location"></select></div>
+        <button class="btn-main" onclick="submitOperation('writeoff', 'w')">Сохранить</button>
+    </div>
+
+    <div class="drawer" id="drawer_add_pos">
+        <h3>Новый товар</h3>
+        <input type="text" id="p_name" placeholder="Название">
+        <select id="p_unit"><option>шт</option><option>кг</option><option>л</option></select>
+        <div class="input-group"><label>Склад для остатка</label><select id="p_location"></select></div>
+        <input type="number" id="p_init_qty" placeholder="Начальный остаток">
+        <button class="btn-main" onclick="submitNewPosition()">Создать</button>
+    </div>
+
+    <div class="drawer" id="drawer_add_loc"><h3>Склад</h3><input type="text" id="loc_name" placeholder="Название"><button class="btn-main" onclick="submitNewLocation()">Добавить</button></div>
+
+    <script src="/static/js/app.js?v=4.0"></script>
+</body>
+</html>

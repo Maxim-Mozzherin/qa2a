@@ -1,0 +1,49 @@
+:root {
+    --bg: #F8FAFC; --surface: #FFFFFF; --primary: #1E293B;
+    --text: #0F172A; --text-muted: #64748B; --border: #E2E8F0;
+    --accent: #2563EB; --radius: 20px; --tab-height: 75px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #020617; --surface: #0F172A; --text: #F8FAFC; --text-muted: #94A3B8; --border: #1E293B; --primary: #F8FAFC; }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { background-color: var(--bg); color: var(--text); font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 0; height: 100vh; overflow: hidden; }
+
+header { height: 60px; display: flex; align-items: center; justify-content: center; position: fixed; top: 0; width: 100%; z-index: 1000; background: var(--bg); border-bottom: 1px solid var(--border); }
+header h1 { font-size: 16px; font-weight: 800; letter-spacing: 1px; color: var(--primary); margin: 0; }
+
+.app-container { height: 100vh; padding-top: 60px; padding-bottom: var(--tab-height); overflow-y: auto; display: flex; flex-direction: column; }
+.hero-spacer { flex: 0 0 8vh; } /* УВЕЛИЧЕННЫЙ ОТСТУП СВЕРХУ */
+
+.actions-grid { padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 15px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+.card:active { transform: scale(0.96); background: var(--bg); }
+.card-icon { font-size: 24px; margin-bottom: 8px; display: block; }
+.card-title { font-weight: 600; font-size: 13px; }
+
+.section { padding: 0 20px 25px; }
+.section-title { font-size: 11px; font-weight: 800; color: var(--text-muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+
+#historyFeed { max-height: 250px; overflow-y: auto; margin-bottom: 10px; } /* Ограничение истории, чтобы не выталкивала кнопки */
+
+.pulse-item { background: var(--surface); padding: 12px 14px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border: 1px solid var(--border); }
+.pulse-info div { font-weight: 600; font-size: 13px; }
+.pulse-info span { font-size: 10px; color: var(--text-muted); }
+.pulse-val { font-weight: 700; font-size: 13px; }
+
+.nav-bar { position: fixed; bottom: 0; left: 0; right: 0; height: var(--tab-height); background: var(--surface); border-top: 1px solid var(--border); display: grid; grid-template-columns: repeat(4, 1fr); z-index: 2000; padding-bottom: env(safe-area-inset-bottom); }
+.nav-item { display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); font-size: 10px; font-weight: 500; text-decoration: none; gap: 4px; }
+.nav-item.active { color: var(--accent); font-weight: 700; }
+.nav-item span { font-size: 18px; }
+
+.drawer { position: fixed; bottom: -100%; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--border); border-radius: 24px 24px 0 0; padding: 30px 20px; z-index: 5000; transition: 0.4s cubic-bezier(0.32, 0.72, 0, 1); }
+.drawer.open { bottom: 0; }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; z-index: 4500; backdrop-filter: blur(2px); }
+
+input, select { width: 100%; background: var(--bg); border: 1px solid var(--border); padding: 14px; border-radius: 12px; color: var(--text); font-size: 15px; margin-bottom: 12px; }
+.btn-main { width: 100%; background: var(--accent); color: white; border: none; padding: 16px; border-radius: 12px; font-weight: 700; font-size: 15px; }
+
+.search-results { position: absolute; top: 100%; left: 0; right: 0; background: var(--surface); border: 2px solid var(--accent); border-radius: 12px; max-height: 180px; overflow-y: auto; z-index: 9999; display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+.search-item { padding: 15px; border-bottom: 1px solid var(--border); font-size: 14px; font-weight: 600; }
+
+.btn-tiny { border:1px solid var(--accent); background:none; color:var(--accent); padding:5px 10px; border-radius:8px; font-size:10px; font-weight:700; }

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"qa2a/internal/models"
 	"github.com/jmoiron/sqlx"
 )
@@ -12,23 +13,15 @@ type Repository struct {
 func New(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
 }
-func (r *Repository) GetMembershipsByUserID(userID int) ([]models.Membership, error) {
-	var m []models.Membership
-	err := r.db.Select(&m, "SELECT user_id, company_id, role FROM memberships WHERE user_id = $1", userID)
-	return m, err
-}
-func (r *Repository) CreateOperation(op *models.Operation) error {
-    query := `INSERT INTO operations (company_id, user_id, type, position_name, quantity, unit, status) 
-              VALUES (:company_id, :user_id, :type, :position_name, :quantity, :unit, :status)`
-    _, err := r.db.NamedExec(query, op)
-    return err
-}
-// CreateUser создает пользователя и возвращает его
+
+// ===== USERS & AUTH =====
+
 func (r *Repository) CreateUser(tgID int64, username, fullName string) (*models.User, error) {
-	// Исправленный SQL с учетом структуры таблицы
 	query := `INSERT INTO users (tg_id, username, full_name) 
 	          VALUES ($1, $2, $3) 
-	          ON CONFLICT (tg_id) DO UPDATE SET username = EXCLUDED.username 
+	          ON CONFLICT (tg_id) DO UPDATE SET 
+                  username = EXCLUDED.username, 
+                  full_name = EXCLUDED.full_name 
 	          RETURNING id, tg_id, username, full_name, created_at`
 	
 	var user models.User
@@ -36,22 +29,145 @@ func (r *Repository) CreateUser(tgID int64, username, fullName string) (*models.
 	return &user, err
 }
 
-// CreateCompany создает компанию и возвращает ID
+func (r *Repository) GetUserByTgID(tgID int64) (*models.User, error) {
+	var user models.User
+	err := r.db.Get(&user, "SELECT * FROM users WHERE tg_id = $1", tgID)
+	return &user, err
+}
+
+// ===== COMPANIES & MEMBERSHIPS =====
+
 func (r *Repository) CreateCompany(name string) (int, error) {
 	var id int
 	err := r.db.QueryRow("INSERT INTO companies (name) VALUES ($1) RETURNING id", name).Scan(&id)
 	return id, err
 }
-func (r *Repository) UpdateBalance(companyID int, posName string, quantity float64, unit string) error {
-    query := `INSERT INTO balances (company_id, position_name, quantity, unit) 
-              VALUES ($1, $2, $3, $4)
-              ON CONFLICT (company_id, position_name) 
-              DO UPDATE SET quantity = balances.quantity + EXCLUDED.quantity`
-    _, err := r.db.Exec(query, companyID, posName, quantity, unit)
-    return err
-}
-// AddMember добавляет юзера в компанию с ролью
-func (r *Repository) AddMember(userID, companyID int, role string) error {
-	_, err := r.db.Exec("INSERT INTO memberships (user_id, company_id, role) VALUES ($1, $2, $3)", userID, companyID, role)
+
+func (r *Repository) SetInviteCode(companyID int, code string) error {
+	_, err := r.db.Exec("UPDATE companies SET invite_code = $1 WHERE id = $2", code, companyID)
 	return err
+}
+
+func (r *Repository) AddMember(userID, companyID int, role string) error {
+	_, err := r.db.Exec("INSERT INTO memberships (user_id, company_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", userID, companyID, role)
+	return err
+}
+
+func (r *Repository) GetMembershipsByUserID(userID int) ([]models.Membership, error) {
+	m := []models.Membership{} // Принудительно создаем пустой список, а не nil
+	query := `SELECT m.user_id, m.company_id, m.role, c.name as company_name 
+              FROM memberships m JOIN companies c ON m.company_id = c.id WHERE m.user_id = $1`
+	err := r.db.Select(&m, query, userID)
+	return m, err
+}
+
+func (r *Repository) JoinCompanyByCode(userID int, code string) (string, error) {
+	var company struct {
+		ID   int    `db:"id"`
+		Name string `db:"name"`
+	}
+	err := r.db.Get(&company, "SELECT id, name FROM companies WHERE invite_code = $1", code)
+	if err != nil {
+		return "", fmt.Errorf("код не найден")
+	}
+
+	_, err = r.db.Exec("INSERT INTO memberships (user_id, company_id, role) VALUES ($1, $2, 'user') ON CONFLICT DO NOTHING", userID, company.ID)
+	return company.Name, err
+}
+
+// Хелпер для получения кода (который ругался в ошибке)
+func (r *Repository) GetInviteCodeRaw(query string, userID int, dest *string) error {
+	return r.db.Get(dest, query, userID)
+}
+
+// ===== OPERATIONS & BALANCES =====
+
+func (r *Repository) ExecuteInTx(fn func(*sqlx.Tx) error) error {
+	tx, err := r.db.Beginx()
+	if err != nil { return err }
+	defer tx.Rollback()
+	if err := fn(tx); err != nil { return err }
+	return tx.Commit()
+}
+
+func (r *Repository) CreateOperationTx(tx *sqlx.Tx, op *models.Operation) error {
+	query := `INSERT INTO operations (company_id, location_id, user_id, type, position_name, quantity, unit, status) 
+	          VALUES (:company_id, :location_id, :user_id, :type, :position_name, :quantity, :unit, :status)`
+	_, err := tx.NamedExec(query, op)
+	return err
+}
+
+func (r *Repository) UpdateBalanceTx(tx *sqlx.Tx, companyID int, locationID int, posName string, qty float64, unit string) error {
+	query := `INSERT INTO balances (company_id, location_id, position_name, quantity, unit) 
+	          VALUES ($1, $2, $3, $4, $5)
+	          ON CONFLICT (company_id, location_id, position_name) 
+	          DO UPDATE SET quantity = balances.quantity + EXCLUDED.quantity`
+	_, err := tx.Exec(query, companyID, locationID, posName, qty, unit)
+	return err
+}
+
+func (r *Repository) GetBalancesByCompany(companyID int) ([]models.Balance, error) {
+	balances := []models.Balance{} 
+	err := r.db.Select(&balances, "SELECT * FROM balances WHERE company_id = $1 ORDER BY position_name ASC", companyID)
+	return balances, err
+}
+
+func (r *Repository) GetOperationsByCompany(companyID int, limit int) ([]models.Operation, error) {
+	ops := []models.Operation{}
+	query := `SELECT o.*, COALESCE(u.full_name, u.username, 'Система') as user_name 
+              FROM operations o LEFT JOIN users u ON o.user_id = u.id 
+              WHERE o.company_id = $1 ORDER BY o.created_at DESC LIMIT $2`
+	err := r.db.Select(&ops, query, companyID, limit)
+	return ops, err
+}
+// Создание локации (склада)
+func (r *Repository) CreateLocation(companyID int, name string) error {
+	_, err := r.db.Exec("INSERT INTO locations (company_id, name) VALUES ($1, $2)", companyID, name)
+	return err
+}
+
+// Создание категории
+func (r *Repository) CreateCategory(companyID int, name string) error {
+	_, err := r.db.Exec("INSERT INTO categories (company_id, name) VALUES ($1, $2)", companyID, name)
+	return err
+}
+
+// Создание позиции номенклатуры
+func (r *Repository) CreatePosition(p *models.Position) error {
+	// Мы вставляем только те поля, которые точно есть. 
+	// category_id оставляем в покое (он будет NULL в базе)
+	query := `INSERT INTO positions (company_id, name, unit, supplier) 
+              VALUES ($1, $2, $3, $4)`
+	_, err := r.db.Exec(query, p.CompanyID, p.Name, p.Unit, p.Supplier)
+	return err
+}
+
+// Получение списка локаций компании
+func (r *Repository) GetLocations(companyID int) ([]models.Location, error) {
+	locs := []models.Location{}
+	err := r.db.Select(&locs, "SELECT * FROM locations WHERE company_id = $1", companyID)
+	return locs, err
+}
+func (r *Repository) GetPositions(companyID int) ([]models.Position, error) {
+	pos := []models.Position{}
+	err := r.db.Select(&pos, "SELECT * FROM positions WHERE company_id = $1 ORDER BY name", companyID)
+	return pos, err
+}
+func (r *Repository) GetMembershipsByCompanyID(companyID int) ([]models.MemberInfo, error) {
+	var members []models.MemberInfo
+	// Поля здесь должны идеально совпадать с полями в MemberInfo
+	query := `
+		SELECT 
+			m.user_id, 
+			m.company_id, 
+			m.role, 
+			c.name as company_name, 
+			COALESCE(u.full_name, u.username) as user_name
+		FROM memberships m 
+		JOIN companies c ON m.company_id = c.id 
+		JOIN users u ON m.user_id = u.id
+		WHERE m.company_id = $1`
+		
+	err := r.db.Select(&members, query, companyID)
+	return members, err
 }

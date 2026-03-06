@@ -1,0 +1,11 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+[remote "origin"]
+	url = https://Maxim-Mozzherin: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@github.com/Maxim-Mozzherin/qa2a.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "main"]
+	remote = origin
+	merge = refs/heads/main
