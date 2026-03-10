@@ -1,12 +1,14 @@
 package handlers
 import (
 	"encoding/json"
+	
 	"log" 
 	"net/http"
 	"net/url"
 	"strconv"
 	"qa2a/internal/models"
 	"qa2a/internal/service"
+	"github.com/gorilla/mux" // <-- ВОТ ЭТА СТРОКА ДОЛЖНА БЫТЬ
 )
 type Handler struct {
 authService *service.AuthService
@@ -32,13 +34,35 @@ w.Header().Set("Content-Type", "application/json")
 json.NewEncoder(w).Encode(res)
 }
 func (h *Handler) CreateOperationHandler(w http.ResponseWriter, r *http.Request) {
-cID, _ := strconv.Atoi(r.Header.Get("X-Company-ID"))
-tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
-user, _ := h.authService.GetUserByTgID(tID)
-var req struct { Pos string `json:"position_name"`; Qty float64 `json:"quantity"`; Unit string `json:"unit"`; Type string `json:"type"`; Loc int `json:"location_id"` }
-json.NewDecoder(r.Body).Decode(&req)
-h.inventoryService.WriteOff(user.ID, cID, req.Pos, req.Qty, req.Unit, req.Loc)
-w.WriteHeader(201)
+	cID, _ := strconv.Atoi(r.Header.Get("X-Company-ID"))
+	tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
+	user, _ := h.authService.GetUserByTgID(tID)
+
+	var req struct {
+		Pos        string  `json:"position_name"`
+		Qty        float64 `json:"quantity"`
+		Unit       string  `json:"unit"`
+		Type       string  `json:"type"`
+		Loc    	   int     `json:"location_id"`
+		ToLoc 	   int     `json:"to_location_id"` // <-- Добавили целевой склад
+		IsUnlisted bool    `json:"is_unlisted"` // <-- Флаг призрака
+		Comment    string  `json:"comment"`     // <-- Причина
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	var err error
+	if req.Type == "transfer" {
+		err = h.inventoryService.Transfer(user.ID, cID, req.Pos, req.Qty, req.Unit, req.Loc, req.ToLoc)
+	} else {
+		// По умолчанию считаем, что это writeoff (списание)
+		err = h.inventoryService.WriteOff(user.ID, cID, req.Pos, req.Qty, req.Unit, req.Loc, req.IsUnlisted, req.Comment)
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
 }
 func (h *Handler) GetBalancesHandler(w http.ResponseWriter, r *http.Request) {
 cID, _ := strconv.Atoi(r.Header.Get("X-Company-ID"))
@@ -68,14 +92,36 @@ res, _ := h.inventoryService.GetPositions(cID)
 json.NewEncoder(w).Encode(res)
 }
 func (h *Handler) CreatePositionHandler(w http.ResponseWriter, r *http.Request) {
-cID, _ := strconv.Atoi(r.Header.Get("X-Company-ID"))
-tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
-user, _ := h.authService.GetUserByTgID(tID)
-var req struct { Name string; Unit string; InitQty float64 `json:"initial_quantity"`; Loc int `json:"location_id"` }
-json.NewDecoder(r.Body).Decode(&req)
-h.inventoryService.CreatePosition(&models.Position{CompanyID: cID, Name: req.Name, Unit: req.Unit})
-if req.InitQty > 0 && req.Loc > 0 { h.inventoryService.WriteOff(user.ID, cID, req.Name, -req.InitQty, req.Unit, req.Loc) }
-w.WriteHeader(201)
+	cID, _ := strconv.Atoi(r.Header.Get("X-Company-ID"))
+	tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
+	user, _ := h.authService.GetUserByTgID(tID)
+
+	// ДОБАВЛЕНО ПОЛЕ Supplier
+	var req struct {
+		Name     string  `json:"name"`
+		Unit     string  `json:"unit"`
+		Supplier string  `json:"supplier"`
+		InitQty  float64 `json:"initial_quantity"`
+		Loc      int     `json:"location_id"`
+	}
+	
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+
+	// ТЕПЕРЬ МЫ ПЕРЕДАЕМ ИМЯ ПОСТАВЩИКА В БАЗУ
+	h.inventoryService.CreatePosition(&models.Position{
+		CompanyID: cID, 
+		Name:      req.Name, 
+		Unit:      req.Unit, 
+		Supplier:  req.Supplier, // <-- Вот оно!
+	})
+	
+	if req.InitQty > 0 && req.Loc > 0 {
+		h.inventoryService.WriteOff(user.ID, cID, req.Name, -req.InitQty, req.Unit, req.Loc, false, "Начальный остаток при создании")
+	}
+	w.WriteHeader(http.StatusCreated)
 }
 func (h *Handler) CreateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
@@ -86,18 +132,45 @@ id, _ := h.authService.CreateCompany(user.ID, req.Name)
 json.NewEncoder(w).Encode(map[string]int{"id": id})
 }
 func (h *Handler) JoinCompanyHandler(w http.ResponseWriter, r *http.Request) {
-tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
-user, _ := h.authService.GetUserByTgID(tID)
-var req struct { Code string `json:"code"` }
-json.NewDecoder(r.Body).Decode(&req)
-name, _ := h.authService.JoinCompanyByCode(user.ID, req.Code)
-json.NewEncoder(w).Encode(map[string]string{"company": name})
+	tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
+	user, _ := h.authService.GetUserByTgID(tID)
+
+	// Ожидаем поле "code" как в app.js
+	var req struct {
+		Code string `json:"code"` 
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", 400)
+		return
+	}
+
+	if req.Code == "" {
+		http.Error(w, "Code is required", 400)
+		return
+	}
+
+	// Вызываем сервис
+	name, err := h.authService.JoinCompanyByCode(user.ID, req.Code)
+	if err != nil {
+		// Если код не найден или ошибка БД — вернем 400
+		http.Error(w, err.Error(), 400)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"company": name})
 }
 func (h *Handler) GetInviteCodeHandler(w http.ResponseWriter, r *http.Request) {
-tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
-user, _ := h.authService.GetUserByTgID(tID)
-code, _ := h.authService.GetInviteCode(user.ID)
-json.NewEncoder(w).Encode(map[string]string{"code": code})
+    tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
+    cID, _ := strconv.Atoi(r.Header.Get("X-Company-ID")) // Получаем ID компании
+    user, _ := h.authService.GetUserByTgID(tID)
+    
+    // Передаем cID в сервис
+    code, err := h.authService.GetInviteCode(user.ID, cID)
+    if err != nil {
+        http.Error(w, "Код не найден", 404)
+        return
+    }
+    json.NewEncoder(w).Encode(map[string]string{"code": code})
 }
 func (h *Handler) GetMembersHandler(w http.ResponseWriter, r *http.Request) {
     // 1. Получаем ID компании из заголовка
@@ -120,4 +193,112 @@ func (h *Handler) GetMembersHandler(w http.ResponseWriter, r *http.Request) {
     // 3. Отдаем JSON
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(members)
+}
+// ===== ЗАЯВКИ (PROCUREMENT) =====
+
+func (h *Handler) CreateProcurementHandler(w http.ResponseWriter, r *http.Request) {
+	cID, _ := strconv.Atoi(r.Header.Get("X-Company-ID"))
+	tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
+	user, _ := h.authService.GetUserByTgID(tID)
+
+	var req struct {
+		Items []models.ProcurementItem `json:"items"` // ProcurementItem должен иметь поле IsUnlisted
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.inventoryService.CreateProcurementRequest(cID, user.ID, req.Items); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (h *Handler) GetProcurementsHandler(w http.ResponseWriter, r *http.Request) {
+	cID, _ := strconv.Atoi(r.Header.Get("X-Company-ID"))
+	status := r.URL.Query().Get("status")
+	if status == "" {
+		status = "pending" // По умолчанию отдаем ожидающие
+	}
+
+	requests, err := h.inventoryService.GetProcurementRequests(cID, status)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(requests)
+}
+
+func (h *Handler) UpdateProcurementStatusHandler(w http.ResponseWriter, r *http.Request) {
+	tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
+	admin, _ := h.authService.GetUserByTgID(tID)
+
+	var req struct {
+		RequestID int    `json:"request_id"`
+		Status    string `json:"status"` // "approved" или "rejected"
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	if err := h.inventoryService.UpdateProcurementStatus(req.RequestID, req.Status, admin.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+func (h *Handler) GetUnlistedItemsHandler(w http.ResponseWriter, r *http.Request) {
+    cIDStr := r.Header.Get("X-Company-ID")
+    cID, _ := strconv.Atoi(cIDStr)
+    
+    // Используем сервис, а не repo!
+    items, err := h.inventoryService.GetGhostItems(cID)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(items)
+}
+func (h *Handler) UpdateMemberRoleHandler(w http.ResponseWriter, r *http.Request) {
+    cID, _ := strconv.Atoi(r.Header.Get("X-Company-ID"))
+    tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
+    actor, _ := h.authService.GetUserByTgID(tID)
+
+    var req struct {
+        UserID      int    `json:"user_id"`
+        Role        string `json:"role"`
+        CustomTitle string `json:"custom_title"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, "Invalid JSON", 400)
+        return
+    }
+
+    // Вызываем сервис с проверкой прав
+    err := h.authService.UpdateMemberRole(cID, actor.ID, req.UserID, req.Role, req.CustomTitle)
+    if err != nil {
+        http.Error(w, err.Error(), 403) // 403 Forbidden если прав не хватило
+        return
+    }
+    w.WriteHeader(http.StatusOK)
+}
+func (h *Handler) RemoveMemberHandler(w http.ResponseWriter, r *http.Request) {
+    cID, _ := strconv.Atoi(r.Header.Get("X-Company-ID"))
+    tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
+    actor, _ := h.authService.GetUserByTgID(tID)
+    
+    // Получаем ID из URL
+    vars := mux.Vars(r)
+    targetUserID, _ := strconv.Atoi(vars["id"])
+
+    err := h.authService.RemoveMember(cID, actor.ID, targetUserID)
+    if err != nil {
+        http.Error(w, err.Error(), 403)
+        return
+    }
+    w.WriteHeader(http.StatusOK)
 }

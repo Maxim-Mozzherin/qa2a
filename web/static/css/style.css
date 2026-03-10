@@ -36,14 +36,68 @@ header h1 { font-size: 16px; font-weight: 800; letter-spacing: 1px; color: var(-
 .nav-item.active { color: var(--accent); font-weight: 700; }
 .nav-item span { font-size: 18px; }
 
-.drawer { position: fixed; bottom: -100%; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--border); border-radius: 24px 24px 0 0; padding: 30px 20px; z-index: 5000; transition: 0.4s cubic-bezier(0.32, 0.72, 0, 1); }
-.drawer.open { bottom: 0; }
-.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; z-index: 4500; backdrop-filter: blur(2px); }
+/* ПОЛНОЭКРАННЫЕ ШТОРКИ */
+.drawer {
+    position: fixed;
+    top: 100%; /* Прячем внизу экрана */
+    left: 0; right: 0; bottom: 0; height: 100vh;
+    background: var(--bg);
+    border-radius: 0;
+    padding: 0; /* Отступы теперь внутри контента */
+    z-index: 5000;
+    transition: top 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+    overflow-y: auto;
+    pointer-events: auto;
+}
+.drawer.open { top: 0; }
+
+.drawer-header {
+    position: sticky; top: 0; left: 0; right: 0; height: 60px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; background: var(--surface); border-bottom: 1px solid var(--border);
+    z-index: 5010;
+}
+.drawer-header h3 { margin: 0; font-size: 16px; color: var(--text); font-weight: 800;}
+.btn-close {
+    background: var(--bg); border: 1px solid var(--border);
+    width: 32px; height: 32px; border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-weight: 800; font-size: 14px; cursor: pointer;
+}
+.drawer-content { padding: 20px; padding-bottom: 100px; }
+.overlay { position: fixed; pointer-events: none; inset: 0; background: rgba(0,0,0,0.4); display: none; z-index: 4500; backdrop-filter: blur(2px); }
 
 input, select { width: 100%; background: var(--bg); border: 1px solid var(--border); padding: 14px; border-radius: 12px; color: var(--text); font-size: 15px; margin-bottom: 12px; }
+input[readonly] { background: var(--surface); color: var(--text-muted); cursor: not-allowed; }
+.input-group { position: relative; }
 .btn-main { width: 100%; background: var(--accent); color: white; border: none; padding: 16px; border-radius: 12px; font-weight: 700; font-size: 15px; }
 
 .search-results { position: absolute; top: 100%; left: 0; right: 0; background: var(--surface); border: 2px solid var(--accent); border-radius: 12px; max-height: 180px; overflow-y: auto; z-index: 9999; display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
 .search-item { padding: 15px; border-bottom: 1px solid var(--border); font-size: 14px; font-weight: 600; }
 
 .btn-tiny { border:1px solid var(--accent); background:none; color:var(--accent); padding:5px 10px; border-radius:8px; font-size:10px; font-weight:700; }
+.overlay.visible {
+    pointer-events: auto;
+    display: block;
+}
+.role-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 9px;
+    font-weight: 800;
+    text-transform: uppercase;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--accent);
+    margin-left: 8px;
+}
+.sticky-actions {
+    position: sticky;
+    bottom: 0; /* Приклеиваем к низу скроллируемого контейнера */
+    background: var(--bg); /* Чтобы текст истории скрывался под кнопками, а не просвечивал */
+    padding: 10px 20px 20px 20px; 
+    z-index: 100;
+    /* Небольшой градиент сверху, чтобы было видно, что история уходит "под" блок */
+    box-shadow: 0 -10px 20px -10px var(--bg);
+}

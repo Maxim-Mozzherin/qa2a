@@ -5,15 +5,36 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>QA2A</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="/static/css/style.css?v=6.5">
+    <link rel="stylesheet" href="/static/css/style.css?v=6.9.2">
 </head>
 <body>
     <header><h1 onclick="openDrawer('switcher')">QA2A ▾</h1></header>
 
-    <div id="onboarding" style="display:none; padding: 120px 20px; text-align: center;">
-        <h2 style="margin-bottom: 30px;">Добро пожаловать</h2>
-        <button class="btn-main" onclick="createNewBusiness()">Создать новый бизнес</button>
-        <button class="btn-main" onclick="joinByCode()" style="margin-top:15px; background:var(--surface); color:var(--text); border: 1px solid var(--border);">Ввести код</button>
+    <div id="onboarding" style="display:none; padding: 60px 20px 40px;">
+        <div style="text-align: center; margin-bottom: 40px;">
+            <h2 style="margin-bottom: 10px; font-size: 24px;">Добро пожаловать в QA2A</h2>
+            <p style="color: var(--text-muted); font-size: 14px;">Создайте новый бизнес или присоединитесь к существующему</p>
+        </div>
+
+        <!-- Создание нового бизнеса -->
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                <span style="font-size: 24px;">🏢</span>
+                <h3 style="margin: 0; font-size: 16px; font-weight: 700;">Создать новый бизнес</h3>
+            </div>
+            <input type="text" id="onboarding_biz_name" placeholder="Название заведения" style="margin-bottom: 15px;">
+            <button class="btn-main" onclick="createNewBusinessFromOnboarding()">Создать</button>
+        </div>
+
+        <!-- Вступление по коду -->
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 20px;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                <span style="font-size: 24px;">🔑</span>
+                <h3 style="margin: 0; font-size: 16px; font-weight: 700;">Присоединиться по коду</h3>
+            </div>
+            <input type="text" id="onboarding_invite_code" placeholder="Введите код доступа" style="margin-bottom: 15px; text-transform: uppercase; letter-spacing: 2px; text-align: center; font-weight: 700;">
+            <button class="btn-main" onclick="joinByCodeFromOnboarding()" style="background: var(--bg); color: var(--text); border: 1px solid var(--border);">Присоединиться</button>
+        </div>
     </div>
 
     <div id="main-app" style="display:none;">
@@ -26,13 +47,14 @@
                     <div class="section-title" id="orgName">Загрузка...</div>
                 </div>
                 
-                <!-- ИСТОРИЯ ТЕПЕРЬ НАД КНОПКАМИ -->
-                <div class="section">
+                <!-- ИСТОРИЯ (Пульс) -->
+                <div class="section" style="padding-bottom: 0;">
                     <div class="section-title">Пульс заведения</div>
                     <div id="historyFeed"></div>
                 </div>
 
-                <div class="section">
+                <!-- ЗАКРЕПЛЕННЫЕ КНОПКИ -->
+                <div class="sticky-actions">
                     <div class="actions-grid">
                         <div class="card" onclick="openDrawer('writeoff')"><span class="card-icon">📉</span><span class="card-title">Списание</span></div>
                         <div class="card" onclick="switchTab('stock')"><span class="card-icon">📦</span><span class="card-title">Остатки</span></div>
@@ -50,9 +72,20 @@
             <!-- ВКЛАДКА: АДМИН -->
             <div id="tab-admin" class="tab-content" style="display:none">
                 <div class="section">
+                    <div class="section-title">Входящие заявки</div>
+                    <div id="adminPendingRequests">Загрузка...</div>
+                </div>
+    
+                <div class="section" id="ghost_section">
+                    <div class="section-title" style="color:#D97706">⚠️ Товары отсутствуют в базе:</div>
+                    <div id="adminGhostList"></div>
+                </div>
+    
+                <div class="section">
                     <div class="section-title">Склады</div><div id="adminLocationList"></div>
                     <button class="btn-main" onclick="openDrawer('add_loc')">+ Склад</button>
                 </div>
+
                 <div class="section">
                     <div class="section-title">Товары</div><div id="adminPositionList"></div>
                     <button class="btn-main" onclick="openDrawer('add_pos')">+ Товар</button>
@@ -83,13 +116,148 @@
         </nav>
     </div>
 
-    <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
-    <div class="drawer" id="drawer_switcher"><h3>Бизнесы</h3><div id="companyList"></div><hr style="margin:15px 0; border:0; border-top:1px solid var(--border);"><button class="btn-main" onclick="joinByCode()">+ Вступить по коду</button><button class="btn-main" onclick="openDrawer('create_biz')" style="margin-top:10px; background:var(--bg); border:1px solid var(--border);">+ Создать новый</button></div>
-    <div class="drawer" id="drawer_create_biz"><h3>Новый бизнес</h3><input type="text" id="new_biz_name" placeholder="Название заведения"><button class="btn-main" onclick="submitCreateBusiness()">Создать</button></div>
-    <div class="drawer" id="drawer_add_pos"><h3>Товар</h3><input type="text" id="p_name" placeholder="Название"><div style="display:flex; gap:10px"><select id="p_unit"><option>шт</option><option>кг</option><option>л</option></select><input type="text" id="p_supplier" placeholder="Поставщик"></div><div class="input-group"><label>Склад и начальный остаток</label><div style="display:flex; gap:10px"><input type="number" id="p_init_qty" placeholder="0.00" style="flex:1"><select id="p_location" style="flex:1"></select></div></div><button class="btn-main" onclick="submitNewPosition()">Создать</button></div>
-    <div class="drawer" id="drawer_add_loc"><h3>Новый склад</h3><input type="text" id="loc_name" placeholder="Название"><button class="btn-main" onclick="submitNewLocation()">Добавить</button></div>
-    <div class="drawer" id="drawer_writeoff"><h3>Списание</h3><div class="input-group"><label>Товар</label><input type="text" id="w_search" oninput="filterSearch('w')" placeholder="Поиск..."><div id="w_results" class="search-results"></div><input type="hidden" id="w_name"></div><div style="display:flex; gap:10px"><input type="number" id="w_qty" placeholder="0.00" style="flex:2"><div id="w_unit_display" style="flex:1; padding:15px; background:var(--bg); text-align:center; border-radius:12px; font-weight:800">...</div></div><div class="input-group" style="margin-top:15px"><label>Склад</label><select id="w_location"></select></div><button class="btn-main" onclick="submitOperation('writeoff', 'w')">Сохранить</button></div>
+    
+    <!-- 1. ВЫБОР БИЗНЕСА -->
+    <div class="drawer" id="drawer_switcher">
+        <div class="drawer-header"><h3>Бизнесы</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
+        <div class="drawer-content">
+            <div id="companyList"></div>
+            <hr style="margin:25px 0; border:0; border-top:1px solid var(--border);">
+            <button class="btn-main" onclick="joinByCode()" style="margin-bottom: 15px;">+ Вступить по коду</button>
+            <button class="btn-main" onclick="openDrawer('create_biz')" style="background:var(--bg); color:var(--text); border:1px solid var(--border);">+ Создать новый</button>
+        </div>
+    </div>
 
-    <script src="/static/js/app.js?v=6.5"></script>
+    <!-- 2. СОЗДАНИЕ БИЗНЕСА -->
+    <div class="drawer" id="drawer_create_biz">
+        <div class="drawer-header"><h3>Новый бизнес</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
+        <div class="drawer-content">
+            <input type="text" id="new_biz_name" placeholder="Название заведения">
+            <button class="btn-main" onclick="createNewBusiness()">Создать</button>
+        </div>
+    </div>
+
+    <!-- 3. ДОБАВЛЕНИЕ ТОВАРА (АДМИН) -->
+    <div class="drawer" id="drawer_add_pos">
+        <div class="drawer-header"><h3>Новый товар</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
+        <div class="drawer-content">
+            <input type="text" id="p_name" placeholder="Название">
+            <div style="display:flex; gap:10px">
+                <select id="p_unit"><option>шт</option><option>кг</option><option>л</option><option>порц</option><option>бут</option></select>
+                <input type="text" id="p_supplier" placeholder="Поставщик">
+            </div>
+            <div class="input-group">
+                <label>Склад и начальный остаток</label>
+                <div style="display:flex; gap:10px">
+                    <input type="number" id="p_init_qty" placeholder="0.00" style="flex:1">
+                    <select id="p_location" style="flex:1"></select>
+                </div>
+            </div>
+            <button class="btn-main" onclick="submitNewPosition()" style="margin-top:15px;">Создать в каталоге</button>
+        </div>
+    </div>
+
+    <!-- 4. ДОБАВЛЕНИЕ СКЛАДА (АДМИН) -->
+    <div class="drawer" id="drawer_add_loc">
+        <div class="drawer-header"><h3>Новый склад</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
+        <div class="drawer-content">
+            <input type="text" id="loc_name" placeholder="Название">
+            <button class="btn-main" onclick="submitNewLocation()">Добавить</button>
+        </div>
+    </div>
+
+    <!-- 5. СПИСАНИЕ -->
+    <div class="drawer" id="drawer_writeoff">
+        <div class="drawer-header"><h3>Списание</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
+        <div class="drawer-content">
+            <div class="input-group">
+                <label>Товар</label>
+                <input type="text" id="w_search" oninput="filterSearch('w')" placeholder="Поиск...">
+                <div id="w_results" class="search-results"></div>
+                <input type="hidden" id="w_name">
+            </div>
+            <div style="display:flex; gap:10px">
+                <input type="number" id="w_qty" placeholder="0.00" style="flex:2">
+                <input type="text" id="w_unit_display" readonly placeholder="ед." style="flex:1; text-align:center; font-weight:800; background:var(--surface);">
+            </div>
+            <div class="input-group" style="margin-top:15px">
+                <label>Склад</label>
+                <select id="w_location"></select>
+            </div>
+            <div id="w_ghost_warning" style="display:none; background-color: rgba(245, 158, 11, 0.1); color: #D97706; padding: 12px; border-radius: 8px; font-size: 11px; margin-top: 15px; border: 1px solid rgba(245, 158, 11, 0.3); line-height: 1.4;">
+                ⚠️ <b>Этого товара нет в каталоге!</b><br>Он будет записан как "Неучтенка".
+            </div>
+            <button class="btn-main" onclick="submitOperation('writeoff', 'w')" style="margin-top:15px;">Сохранить</button>
+        </div>
+    </div>
+
+    <!-- 6. ПЕРЕНОС -->
+    <div class="drawer" id="drawer_transfer">
+        <div class="drawer-header"><h3>Перемещение</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
+        <div class="drawer-content">
+            <div class="input-group">
+                <label>Товар</label>
+                <input type="text" id="tr_search" oninput="filterSearch('tr')" placeholder="Поиск...">
+                <div id="tr_results" class="search-results"></div>
+                <input type="hidden" id="tr_name">
+            </div>
+            <div style="display:flex; gap:10px">
+                <input type="number" id="tr_qty" placeholder="0.00" style="flex:2">
+                <input type="text" id="tr_unit_display" readonly placeholder="ед." style="flex:1; text-align:center; font-weight:800; background:var(--surface);">
+            </div>
+            <div class="input-group" style="margin-top:15px">
+                <label>Откуда</label><select id="tr_location"></select>
+            </div>
+            <div class="input-group" style="margin-top:15px">
+                <label>Куда</label><select id="tr_to_location"></select>
+            </div>
+            <button class="btn-main" onclick="submitOperation('transfer', 'tr')" style="margin-top:15px;">Переместить</button>
+        </div>
+    </div>
+
+    <!-- 7. ЗАЯВКА -->
+    <div class="drawer" id="drawer_request">
+        <div class="drawer-header"><h3>Новая заявка</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
+        <div class="drawer-content">
+            <div style="background: var(--surface); padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid var(--border);">
+                <div class="input-group">
+                    <label>Поиск товара</label>
+                    <input type="text" id="req_search" oninput="filterSearch('req')" placeholder="Название...">
+                    <div id="req_results" class="search-results"></div>
+                    <input type="hidden" id="req_name">
+                </div>
+                <div style="display:flex; gap:10px; margin-top:10px">
+                    <input type="number" id="req_qty" placeholder="Кол-во" style="flex:2; margin-bottom:0;">
+                    <input type="text" id="req_unit_display" readonly placeholder="ед." style="flex:1; margin-bottom:0; text-align:center; background:var(--bg);">
+                </div>
+                <button class="btn-main" onclick="addReqItemToCart()" style="margin-top:15px;">+ В список</button>
+            </div>
+            <div class="section-title">Список к закупке:</div>
+            <div id="requestCartList" style="max-height: 200px; overflow-y: auto; margin-bottom: 15px;">
+                <div style="text-align:center; color:var(--text-muted); font-size:12px; margin: 10px 0;">Список пуст</div>
+            </div>
+            <button class="btn-main" onclick="submitProcurementRequest()" id="btnSubmitRequest" style="display:none;">Отправить на подтверждение</button>
+        </div>
+    </div>
+    <!-- 8. Кастом роли -->
+    <div class="drawer" id="drawer_change_role">
+        <div class="drawer-header"><h3>Настройка роли</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
+        <div class="drawer-content">
+            <input type="hidden" id="target_user_id">
+            <label>Роль</label>
+            <select id="new_role_select">
+                <option value="owner">Владелец</option>
+                <option value="manager">Менеджер</option>
+                <option value="admin">Администратор</option>
+                <option value="user">Сотрудник</option>
+            </select>
+            <label>Должность (напр. Су-шеф)</label>
+            <input type="text" id="new_title_input" placeholder="Введите название должности">
+            <button class="btn-main" onclick="submitRoleChange()">Сохранить</button>
+            <button class="btn-main" style="background:#EF4444; margin-top: 20px;" onclick="removeMember()">Удалить участника</button>
+        </div>
+    </div>
+    <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+    <script src="/static/js/app.js?v=6.9.2"></script>
 </body>
 </html>

@@ -61,10 +61,13 @@ func main() {
 
 	// 🔓 ПУБЛИЧНЫЕ: Вход через Telegram
 	api.HandleFunc("/auth", h.AuthHandler).Methods("POST", "OPTIONS")
+	api.HandleFunc("/join", h.JoinCompanyHandler).Methods("POST", "OPTIONS")
+	api.HandleFunc("/companies", h.CreateCompanyHandler).Methods("POST")
 
 	// 🔒 ЗАЩИЩЕННЫЕ: Требуют X-Telegram-ID в заголовке
 	protected := api.PathPrefix("/").Subrouter()
 	protected.Use(middleware.AuthMiddleware(repo))
+	
 
 	// Операции и остатки
 	protected.HandleFunc("/operations", h.CreateOperationHandler).Methods("POST", "OPTIONS")
@@ -78,6 +81,16 @@ func main() {
 	protected.HandleFunc("/positions", h.GetPositionsHandler).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/positions", h.CreatePositionHandler).Methods("POST", "OPTIONS")
 	protected.HandleFunc("/members", h.GetMembersHandler).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/members", h.UpdateMemberRoleHandler).Methods("PUT", "OPTIONS")
+	protected.HandleFunc("/members/{id:[0-9]+}", h.RemoveMemberHandler).Methods("DELETE", "OPTIONS")
+	// Заявки
+	protected.HandleFunc("/procurements", h.CreateProcurementHandler).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/procurements", h.GetProcurementsHandler).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/procurements/status", h.UpdateProcurementStatusHandler).Methods("PUT", "OPTIONS")
+	protected.HandleFunc("/operations", h.CreateOperationHandler).Methods("POST", "OPTIONS")
+	// В блоке API РОУТЫ:
+	protected.HandleFunc("/unlisted", h.GetUnlistedItemsHandler).Methods("GET", "OPTIONS")
+
 	// 5. Запуск сервера
 	fmt.Println("-----------------------------------------------")
 	fmt.Printf("🚀 QA2A Server started on :%s\n", cfg.Port)

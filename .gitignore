@@ -1,7 +1,5 @@
-.env
 qa2a-server
-*.db
 *.log
-.DS_Store
-/bin
-/tmp
+.env
+.env.*
+.tmp.driveupload/
