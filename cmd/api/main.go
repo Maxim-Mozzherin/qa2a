@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-
+	"os"
 	"github.com/gorilla/mux"
 
 	"qa2a/internal/config"
@@ -16,6 +16,12 @@ import (
 )
 
 func main() {
+	os.Chdir("/opt/qa2a-reboot")
+	os.Setenv("GOFPDF_FONTPATH", "/opt/qa2a-reboot/fonts")
+	err := os.Chdir("/opt/qa2a-reboot")
+    if err != nil {
+        log.Printf("⚠️ Внимание: не удалось сменить директорию: %v", err)
+    }
 	// 1. Загрузка конфигурации
 	cfg, err := config.Load()
 	if err != nil {
@@ -33,7 +39,8 @@ func main() {
 	repo := repository.New(db)
 	authSvc := service.NewAuthService(repo)
 	invSvc := service.NewInventoryService(repo)
-	h := handlers.New(authSvc, invSvc, cfg.BotToken)
+	repSvc := service.NewReportService(repo) // Инициализируем
+	h := handlers.New(authSvc, invSvc, repSvc, cfg.BotToken) // Передаем 3-м аргументом!
 
 	// 4. Создание главного роутера
 	r := mux.NewRouter()
@@ -83,6 +90,7 @@ func main() {
 	protected.HandleFunc("/members", h.GetMembersHandler).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/members", h.UpdateMemberRoleHandler).Methods("PUT", "OPTIONS")
 	protected.HandleFunc("/members/{id:[0-9]+}", h.RemoveMemberHandler).Methods("DELETE", "OPTIONS")
+	protected.HandleFunc("/procurements/download/{id:[0-9]+}", h.DownloadProcurementPDFHandler).Methods("GET", "OPTIONS")
 	// Заявки
 	protected.HandleFunc("/procurements", h.CreateProcurementHandler).Methods("POST", "OPTIONS")
 	protected.HandleFunc("/procurements", h.GetProcurementsHandler).Methods("GET", "OPTIONS")

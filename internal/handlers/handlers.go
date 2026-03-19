@@ -1,23 +1,61 @@
 package handlers
+
 import (
 	"encoding/json"
 	
-	"log" 
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
+	
+
+	"github.com/gorilla/mux"
 	"qa2a/internal/models"
 	"qa2a/internal/service"
-	"github.com/gorilla/mux" // <-- ВОТ ЭТА СТРОКА ДОЛЖНА БЫТЬ
 )
+
 type Handler struct {
-authService *service.AuthService
-inventoryService *service.InventoryService
-botToken string
+	authService      *service.AuthService
+	inventoryService *service.InventoryService
+	reportService    *service.ReportService // Добавляем поле для ReportService
+	botToken         string
 }
-func New(as *service.AuthService, is *service.InventoryService, t string) *Handler {
-return &Handler{authService: as, inventoryService: is, botToken: t}
+
+func New(as *service.AuthService, is *service.InventoryService, rs *service.ReportService, t string) *Handler {
+    if rs == nil {
+        panic("CRITICAL: reportService is NIL in handlers.New!")
+    }
+    return &Handler{
+        authService:      as,
+        inventoryService: is,
+        reportService:    rs,
+        botToken:         t,
+    }
 }
+func (h *Handler) DownloadProcurementPDFHandler(w http.ResponseWriter, r *http.Request) {
+	if h.reportService == nil {
+		log.Printf("❌ CRITICAL: reportService is nil!")
+		http.Error(w, "PDF service not configured", http.StatusInternalServerError)
+		return
+	}
+
+	vars := mux.Vars(r)
+	reqID, _ := strconv.Atoi(vars["id"])
+	cID, _ := strconv.Atoi(r.URL.Query().Get("c_id"))
+	if cID == 0 {
+		cID, _ = strconv.Atoi(r.Header.Get("X-Company-ID"))
+	}
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", "inline; filename=\"request.pdf\"")
+
+	err := h.reportService.GenerateProcurementPDF(reqID, cID, w)
+	if err != nil {
+		log.Printf("❌ ГЕНЕРАЦИЯ PDF ПРОВАЛИЛАСЬ: %v", err)
+		return
+	}
+}
+
 func (h *Handler) AuthHandler(w http.ResponseWriter, r *http.Request) {
 var req struct { InitData string `json:"initData"`; DemoID int64 `json:"demo_id"`; DemoName string `json:"demo_name"` }
 json.NewDecoder(r.Body).Decode(&req)

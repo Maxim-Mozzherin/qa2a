@@ -408,6 +408,7 @@ async function submitNewLocation() {
 }
 
 async function loadAdminLists() {
+    // Вызываем существующие загрузки
     document.getElementById('adminLocationList').innerHTML = (locations || []).map(l => `<div class="pulse-item"><div>${l.name}</div></div>`).join('') || "Нет складов";
     
     const resP = await fetch(API + '/positions', { headers: getHeaders() });
@@ -421,8 +422,69 @@ async function loadAdminLists() {
             </div>
         </div>
     `).join('') || "Нет товаров";
-}
 
+    // Добавляем загрузку ИСТОРИИ заявок (одобренных)
+    loadApprovedRequests();
+}
+async function loadApprovedRequests() {
+    const container = document.getElementById('adminApprovedRequests');
+    if (!container) return;
+
+    try {
+        const res = await fetch(API + '/procurements?status=approved', { headers: getHeaders() });
+        const requests = await res.json() || [];
+
+        if (requests.length === 0) {
+            container.innerHTML = '<div style="font-size:12px; color:var(--text-muted);">Архив пуст</div>';
+            return;
+        }
+
+        container.innerHTML = requests.map(req => `
+            <div class="pulse-item">
+                <div class="pulse-info">
+                    <div>Заявка #${req.id}</div>
+                    <span>${new Date(req.created_at).toLocaleDateString()} • ${req.user_name}</span>
+                </div>
+                <button class="btn-tiny" onclick="downloadPDF(${req.id})">PDF</button>
+            </div>
+        `).join('');
+    } catch (e) { console.error(e); }
+}
+/*
+function downloadPDF(id) {
+    const url = `${API}/procurements/download/${id}`;
+    // В Telegram WebApp лучше открывать через скачивание ссылки
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    // Добавляем заголовки через URL если нужно, но у нас AuthMiddleware проверяет Header. 
+    // ВНИМАНИЕ: Обычный <a> не пробросит Header X-Telegram-ID.
+    // Решение: Используем fetch + Blob для сохранения.
+    
+    fetch(url, { headers: getHeaders() })
+        .then(res => res.blob())
+        .then(blob => {
+            const blobUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = `Заявка_${id}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        })
+        .catch(err => alert("Ошибка при скачивании"));
+}*/
+function downloadPDF(id) {
+    // Формируем прямую ссылку с параметрами авторизации
+    const url = `${API}/procurements/download/${id}?tg_id=${userToken}&c_id=${currentCompanyId}`;
+    
+    // Используем нативный метод Telegram: он откроет системный просмотрщик поверх приложения
+    if (tg.openLink) {
+        tg.openLink(url);
+    } else {
+        // Запасной вариант для работы в обычном браузере на ПК
+        window.open(url, '_blank');
+    }
+}
 async function loadTeamData() {
     const listEl = document.getElementById('memberList');
     if (!listEl) return;
@@ -794,10 +856,7 @@ async function loadPendingRequests() {
 
         listEl.innerHTML = requests.map(req => {
             const itemsHtml = req.items.map(i => {
-                const badge = i.is_unlisted 
-                    ? ` <button class="btn-tiny" onclick="openDrawer('add_pos'); 
-                document.getElementById('p_name').value='${i.position_name}';">Добавить</button>` 
-                    : '';
+                const badge = i.is_unlisted ? ` <button class="btn-tiny" onclick="openDrawer('add_pos'); document.getElementById('p_name').value='${i.position_name}';">Добавить</button>` : '';
                 return `• ${i.position_name}${badge}: <b>${i.quantity} ${i.unit}</b>`;
             }).join('<br>');
             return `
@@ -814,9 +873,7 @@ async function loadPendingRequests() {
                 </div>
             `;
         }).join('');
-    } catch (e) {
-        listEl.innerHTML = "Ошибка загрузки";
-    }
+    } catch (e) { console.error(e); }
 }
 
 async function updateReqStatus(reqId, status) {
