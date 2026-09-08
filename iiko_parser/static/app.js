@@ -346,7 +346,7 @@ if (els.btnParse) {
 
 async function executeParseWithFile(fileObj) {
     if (!fileObj) {
-        alert("рџ“Ћ РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ РёР»Рё РїРµСЂРµС‚Р°С‰РёС‚Рµ PDF С„Р°Р№Р» РЅР°РєР»Р°РґРЅРѕР№!");
+        alert("Пожалуйста, выберите файл накладной (PDF или фото)");
         return;
     }
 
@@ -413,8 +413,11 @@ if (els.dropZone) {
 
         if (files.length > 0) {
             const file = files[0];
-            if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-                alert("вљ пёЏ Р”РѕРїСѓСЃРєР°РµС‚СЃСЏ Р·Р°РіСЂСѓР·РєР° С‚РѕР»СЊРєРѕ РґРѕРєСѓРјРµРЅС‚РѕРІ РІ С„РѕСЂРјР°С‚Рµ PDF!");
+            const validExts = [".pdf", ".png", ".jpg", ".jpeg", ".webp"];
+            const isValid = validExts.some(ext => file.name.toLowerCase().endsWith(ext)) || file.type.startsWith("image/") || file.type === "application/pdf";
+            
+            if (!isValid) {
+                alert("Пожалуйста, выберите файл накладной (PDF или фото)");
                 return;
             }
 

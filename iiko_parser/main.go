@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -556,46 +557,65 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 
 	cleanFileName := filepath.Base(header.Filename)
 	tempBase := fmt.Sprintf("upd_%d_%d_%s", companyID, time.Now().UnixNano(), cleanFileName)
-	pdfPath := filepath.Join("temp", tempBase)
-	txtPath := pdfPath + ".txt"
-
+	filePath := filepath.Join("temp", tempBase)
+	
 	defer func() {
-		_ = os.Remove(pdfPath)
-		_ = os.Remove(txtPath)
+		matches, _ := filepath.Glob(filePath + "*")
+		for _, m := range matches {
+			_ = os.Remove(m)
+		}
 	}()
 
-	out, err := os.Create(pdfPath)
+	out, err := os.Create(filePath)
 	if err != nil {
-		http.Error(w, "Ошибка сохранения временного файла на сервере", http.StatusInternalServerError)
+		http.Error(w, "Ошибка создания временного файла на сервере", http.StatusInternalServerError)
 		return
 	}
 	if _, err = io.Copy(out, file); err != nil {
 		out.Close()
-		http.Error(w, "Ошибка записи файла", http.StatusInternalServerError)
+		http.Error(w, "Ошибка при сохранении", http.StatusInternalServerError)
 		return
 	}
 	out.Close()
 
-	ctxCmd, cancelCmd := context.WithTimeout(context.Background(), 30*time.Second)
+	ext := strings.ToLower(filepath.Ext(cleanFileName))
+	var textBytes []byte
+	var imagesBase64 []string
+
+	ctxCmd, cancelCmd := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancelCmd()
 
-	cmd := exec.CommandContext(ctxCmd, "pdftotext", "-layout", pdfPath, txtPath)
-	if err := cmd.Run(); err != nil {
-		if ctxCmd.Err() == context.DeadlineExceeded {
-			http.Error(w, "Таймаут: слишком большой или сложный PDF файл", http.StatusRequestTimeout)
-			return
+	if ext == ".pdf" {
+		txtPath := filePath + ".txt"
+		cmdTxt := exec.CommandContext(ctxCmd, "pdftotext", "-layout", filePath, txtPath)
+		_ = cmdTxt.Run()
+		textBytes, _ = os.ReadFile(txtPath)
+
+		imgPrefix := filePath + "_img"
+		cmdImg := exec.CommandContext(ctxCmd, "pdftoppm", "-jpeg", "-f", "1", "-l", "10", filePath, imgPrefix)
+		if err := cmdImg.Run(); err != nil {
+			log.Printf("pdftoppm error: %v", err)
 		}
-		http.Error(w, "Сбой утилиты pdftotext. Убедитесь, что пакет poppler-utils установлен на сервере", http.StatusInternalServerError)
-		return
+
+		matches, _ := filepath.Glob(imgPrefix + "-*.jpg")
+		for _, m := range matches {
+			imgBytes, err := os.ReadFile(m)
+			if err == nil {
+				imagesBase64 = append(imagesBase64, base64.StdEncoding.EncodeToString(imgBytes))
+			}
+		}
+	} else if ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp" {
+		imgBytes, err := os.ReadFile(filePath)
+		if err == nil {
+			imagesBase64 = append(imagesBase64, base64.StdEncoding.EncodeToString(imgBytes))
+		}
+	} else {
+		// Даже если неизвестный формат, попытаемся прочитать как текст (вдруг это txt или csv)
+		tb, _ := os.ReadFile(filePath)
+		textBytes = tb
 	}
 
-	textBytes, err := os.ReadFile(txtPath)
-	if err != nil {
-		http.Error(w, "Ошибка чтения распознанного текста", http.StatusInternalServerError)
-		return
-	}
-
-	aiData, err := parseWithClaude(string(textBytes))
+	aiData, err := parseWithClaude(string(textBytes), imagesBase64)
 	if err != nil {
 		http.Error(w, "Сбой распознавания AI: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1426,7 +1446,7 @@ func fetchIikoSuppliers(host, token string) ([]IikoSupplier, error) {
 // НЕЙРОСЕТЕВОЙ ПАРСИНГ AI (ПРОМПТ И ИНТЕГРАЦИЯ)
 // ============================================================================
 
-func parseWithClaude(text string) (*AiResponse, error) {
+func parseWithClaude(text string, imagesBase64 []string) (*AiResponse, error) {
 	prompt := `Ты — автоматический парсер накладных. Твоя задача: найти поставщика, получателя (грузополучателя), номер документа (УПД/ТОРГ-12) и все товары.
 ОЧЕНЬ ВАЖНО: В названиях часто указана сложная фасовка (коробки, упаковки, граммы). Тебе нужно вычислить коэффициент перевода в базовые единицы (кг, литры или штуки) и вернуть его в поле ai_multiplier.
 
@@ -1488,9 +1508,12 @@ func parseWithClaude(text string) (*AiResponse, error) {
 
 19. Чистая категория (для аналитики рынка):
     - Выдели чистую категорию товара (clean_category). ВНИМАНИЕ: Категория ДОЛЖНА БЫТЬ СТРОГО одной из следующего списка: "Мясо и птица", "Рыба и морепродукты", "Овощи и фрукты", "Молочные продукты", "Бакалея", "Консервы", "Напитки", "Хозяйственные товары", "Прочее". Если товар не подходит ни под одну, пиши "Без категории".
-    - Выдели бренд или производителя (brand), если он указан в названии (Пример: "Мираторг", "Hochland", "Borealis"). Если бренда нет, верни пустую строку "".
+    - Выведи бренд или производителя (brand), если он есть в названии (пример: "Мираторг", "Hochland", "Borealis"). Если бренда нет, оставь пустую строку "".
 
-Верни ТОЛЬКО валидный JSON-объект без markdown и без вводных слов:
+20. Игнорируй пометки ручкой, закорючки и прочий визуальный шум на сканах или фото.
+21. Если документ обрезан или является только частью накладной (например, нет итоговой суммы), просто извлеки те товары, которые видны на изображении.
+
+Верни строго только JSON-объект без markdown и без пояснений:
 {
   "vendor_name": "Название поставщика",
   "doc_number": "Номер документа",
@@ -1501,6 +1524,20 @@ func parseWithClaude(text string) (*AiResponse, error) {
   ]
 }`
 
+	var contentParts []map[string]interface{}
+	contentParts = append(contentParts, map[string]interface{}{
+		"type": "text",
+		"text": prompt + "\n\nТекст накладной (может быть пустым, если это скан):\n" + text,
+	})
+	for _, b64 := range imagesBase64 {
+		contentParts = append(contentParts, map[string]interface{}{
+			"type": "image_url",
+			"image_url": map[string]string{
+				"url": "data:image/jpeg;base64," + b64,
+			},
+		})
+	}
+
 	payload := map[string]interface{}{
 		"model":            aiModel,
 		"stream":           false,
@@ -1508,8 +1545,8 @@ func parseWithClaude(text string) (*AiResponse, error) {
 		"temperature":      0.1,
 		"reasoning_effort": "none",
 		"thinking_config":  map[string]int{"thinking_budget": 0},
-		"messages": []map[string]string{
-			{"role": "user", "content": prompt + "\n\nТЕКСТ НАКЛАДНОЙ:\n" + text},
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": contentParts},
 		},
 	}
 

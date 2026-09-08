@@ -57,7 +57,7 @@ func handleMarketDossier(w http.ResponseWriter, r *http.Request) {
 		Name  string  `json:"name"`
 		Total float64 `json:"total"`
 	}
-	var suppliers []SupplierStat
+	suppliers := make([]SupplierStat, 0)
 	rows, err := db.Query(`
 		SELECT MAX(supplier_name) as display_name, SUM(total_sum) as total
 		FROM purchase_history
@@ -80,7 +80,7 @@ func handleMarketDossier(w http.ResponseWriter, r *http.Request) {
 		Name  string  `json:"name"`
 		Total float64 `json:"total"`
 	}
-	var categories []CategoryStat
+	categories := make([]CategoryStat, 0)
 	rowsCat, err := db.Query(`
 		SELECT CASE WHEN clean_category = '' THEN 'Без категории' ELSE clean_category END as cat, SUM(total_sum) as total
 		FROM purchase_history
@@ -108,7 +108,7 @@ func handleMarketDossier(w http.ResponseWriter, r *http.Request) {
 		AvgPrice      float64 `json:"avg_price"`
 		TotalSum      float64 `json:"total_sum"`
 	}
-	var topItems []TopItem
+	topItems := make([]TopItem, 0)
 	rowsTop, err := db.Query(`
 		SELECT 
 			product_name_in_invoice, 
@@ -201,7 +201,7 @@ func handleMarketArbitrage(w http.ResponseWriter, r *http.Request) {
 		InvoiceDate     string  `json:"invoice_date"`
 	}
 
-	var results []ArbitrageRecord
+	results := make([]ArbitrageRecord, 0)
 	rows, err := db.Query(query, days)
 	if err == nil {
 		defer rows.Close()
@@ -236,7 +236,7 @@ func handleMarketSupplierDossier(w http.ResponseWriter, r *http.Request) {
 		RestaurantName string  `json:"restaurant_name"`
 		TotalSum       float64 `json:"total_sum"`
 	}
-	var clients []ClientStat
+	clients := make([]ClientStat, 0)
 	var totalTurnover float64
 
 	rows, err := db.Query(`
@@ -266,7 +266,7 @@ func handleMarketSupplierDossier(w http.ResponseWriter, r *http.Request) {
 		Name     string  `json:"name"`
 		TotalSum float64 `json:"total_sum"`
 	}
-	var topItems []TopItem
+	topItems := make([]TopItem, 0)
 	rowsTop, _ := db.Query(`
 		SELECT product_name_in_invoice, COALESCE(SUM(total_sum), 0) as total
 		FROM purchase_history
@@ -339,7 +339,7 @@ func handleMarketInflation(w http.ResponseWriter, r *http.Request) {
 		Inflation   float64 `json:"inflation_percent"`
 	}
 
-	var results []InflationRecord
+	results := make([]InflationRecord, 0)
 	rows, err := db.Query(query, days)
 	if err == nil {
 		defer rows.Close()
@@ -384,7 +384,7 @@ func handleMarketVolume(w http.ResponseWriter, r *http.Request) {
 		AvgPrice     float64 `json:"avg_market_price"`
 	}
 
-	var results []VolumeRecord
+	results := make([]VolumeRecord, 0)
 	rows, err := db.Query(query, days)
 	if err == nil {
 		defer rows.Close()
@@ -443,7 +443,7 @@ func handleMarketDumping(w http.ResponseWriter, r *http.Request) {
 		InvoiceDate     string  `json:"invoice_date"`
 	}
 
-	var results []DumpingRecord
+	results := make([]DumpingRecord, 0)
 	rows, err := db.Query(query, "%"+itemName+"%", days, targetPrice)
 	if err == nil {
 		defer rows.Close()
@@ -503,7 +503,7 @@ func handleMarketDependency(w http.ResponseWriter, r *http.Request) {
 		DependencyPct  float64 `json:"dependency_percent"`
 	}
 
-	var results []DependencyRecord
+	results := make([]DependencyRecord, 0)
 	rows, err := db.Query(query, days)
 	if err == nil {
 		defer rows.Close()
@@ -546,7 +546,7 @@ func handleMarketLogistics(w http.ResponseWriter, r *http.Request) {
 		TotalTurnover  float64 `json:"total_turnover"`
 	}
 
-	var results []LogisticsRecord
+	results := make([]LogisticsRecord, 0)
 	rows, err := db.Query(query, days)
 	if err == nil {
 		defer rows.Close()
@@ -585,7 +585,7 @@ func handleMarketShare(w http.ResponseWriter, r *http.Request) {
 		MarketShare  float64 `json:"market_share"`
 	}
 
-	var results []ShareRecord
+	results := make([]ShareRecord, 0)
 	rows, err := db.Query(query, days)
 	if err == nil {
 		defer rows.Close()
@@ -612,7 +612,7 @@ func handleMarketCompanies(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var list []Company
+	list := make([]Company, 0)
 	for rows.Next() {
 		var c Company
 		if rows.Scan(&c.ID, &c.Name) == nil {
