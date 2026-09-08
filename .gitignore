@@ -7,3 +7,4 @@ qa2a-server
 server.log
 *.sql
 test_iiko.go
+db_backup_before_iiko_integration.sql
