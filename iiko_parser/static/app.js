@@ -30,7 +30,6 @@ const els = {
     resDocdate: document.getElementById('res-docdate'),
     resConsignee: document.getElementById('res-consignee'),
     resShipper: document.getElementById('res-shipper'),
-    resShipper: document.getElementById('res-shipper'),
     tbody: document.getElementById('items-tbody'),
     btnImport: document.getElementById('btn-import'),
     loaderImport: document.getElementById('import-loader'),
@@ -342,12 +341,12 @@ if (els.btnCatalog) {
 if (els.btnParse) {
     els.btnParse.addEventListener('click', (e) => {
         e.preventDefault();
-        executeParseWithFile(els.file.files[0]);
+        executeParseWithFiles(els.file.files);
     });
 }
 
-async function executeParseWithFile(fileObj) {
-    if (!fileObj) {
+async function executeParseWithFiles(fileObjs) {
+    if (!fileObjs || fileObjs.length === 0) {
         alert("Пожалуйста, выберите файл накладной (PDF или фото)");
         return;
     }
@@ -359,7 +358,7 @@ async function executeParseWithFile(fileObj) {
     }
 
     const formData = new FormData();
-    formData.append('pdf', fileObj, fileObj.name);
+    for(let i=0; i<fileObjs.length; i++) { formData.append('pdf', fileObjs[i], fileObjs[i].name); }
     formData.append('company_id', companyId);
 
     els.btnParse.disabled = true;
@@ -424,7 +423,7 @@ if (els.dropZone) {
             }
 
             els.file.files = files;
-            executeParseWithFile(file);
+            executeParseWithFiles(files);
         }
     }, false);
 

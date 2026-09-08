@@ -532,8 +532,8 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseMultipartForm(15 << 20); err != nil {
-		http.Error(w, "Файл слишком большой (максимум 15 МБ) или неверный формат", http.StatusBadRequest)
+	if err := r.ParseMultipartForm(100 << 20); err != nil {
+		http.Error(w, "Too large (max 100 MB per batch)", http.StatusBadRequest)
 		return
 	}
 
@@ -549,71 +549,81 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, header, err := r.FormFile("pdf")
-	if err != nil {
-		http.Error(w, "Ошибка чтения загруженного файла", http.StatusBadRequest)
+	files := r.MultipartForm.File["pdf"]
+	if len(files) == 0 {
+		http.Error(w, "Files not found", http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
 
-	cleanFileName := filepath.Base(header.Filename)
-	tempBase := fmt.Sprintf("upd_%d_%d_%s", companyID, time.Now().UnixNano(), cleanFileName)
-	filePath := filepath.Join("temp", tempBase)
-	
-	defer func() {
-		matches, _ := filepath.Glob(filePath + "*")
-		for _, m := range matches {
-			_ = os.Remove(m)
-		}
-	}()
-
-	out, err := os.Create(filePath)
-	if err != nil {
-		http.Error(w, "Ошибка создания временного файла на сервере", http.StatusInternalServerError)
-		return
-	}
-	if _, err = io.Copy(out, file); err != nil {
-		out.Close()
-		http.Error(w, "Ошибка при сохранении", http.StatusInternalServerError)
-		return
-	}
-	out.Close()
-
-	ext := strings.ToLower(filepath.Ext(cleanFileName))
 	var textBytes []byte
 	var imagesBase64 []string
 
-	ctxCmd, cancelCmd := context.WithTimeout(context.Background(), 60*time.Second)
+	ctxCmd, cancelCmd := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancelCmd()
 
-	if ext == ".pdf" {
-		txtPath := filePath + ".txt"
-		cmdTxt := exec.CommandContext(ctxCmd, "pdftotext", "-layout", filePath, txtPath)
-		_ = cmdTxt.Run()
-		textBytes, _ = os.ReadFile(txtPath)
-
-		imgPrefix := filePath + "_img"
-		cmdImg := exec.CommandContext(ctxCmd, "pdftoppm", "-jpeg", "-f", "1", "-l", "10", filePath, imgPrefix)
-		if err := cmdImg.Run(); err != nil {
-			log.Printf("pdftoppm error: %v", err)
+	for i, header := range files {
+		file, err := header.Open()
+		if err != nil {
+			log.Printf("Error opening file %s: %v", header.Filename, err)
+			continue
 		}
 
-		matches, _ := filepath.Glob(imgPrefix + "-*.jpg")
-		for _, m := range matches {
-			imgBytes, err := os.ReadFile(m)
+		cleanFileName := filepath.Base(header.Filename)
+		tempBase := fmt.Sprintf("upd_%d_%d_%d_%s", companyID, time.Now().UnixNano(), i, cleanFileName)
+		filePath := filepath.Join("temp", tempBase)
+
+		out, err := os.Create(filePath)
+		if err != nil {
+			file.Close()
+			http.Error(w, "Temp file creation error", http.StatusInternalServerError)
+			return
+		}
+		if _, err = io.Copy(out, file); err != nil {
+			out.Close()
+			file.Close()
+			http.Error(w, "Save error", http.StatusInternalServerError)
+			return
+		}
+		out.Close()
+		file.Close()
+
+		ext := strings.ToLower(filepath.Ext(cleanFileName))
+
+		if ext == ".pdf" {
+			txtPath := filePath + ".txt"
+			cmdTxt := exec.CommandContext(ctxCmd, "pdftotext", "-layout", filePath, txtPath)
+			_ = cmdTxt.Run()
+			tb, _ := os.ReadFile(txtPath)
+			textBytes = append(textBytes, tb...)
+			textBytes = append(textBytes, []byte("\n\n")...)
+
+			imgPrefix := filePath + "_img"
+			cmdImg := exec.CommandContext(ctxCmd, "pdftoppm", "-jpeg", "-f", "1", "-l", "10", filePath, imgPrefix)
+			if err := cmdImg.Run(); err != nil {
+				log.Printf("pdftoppm error: %v", err)
+			}
+
+			matches, _ := filepath.Glob(imgPrefix + "-*.jpg")
+			for _, m := range matches {
+				imgBytes, err := os.ReadFile(m)
+				if err == nil {
+					imagesBase64 = append(imagesBase64, base64.StdEncoding.EncodeToString(imgBytes))
+				}
+				os.Remove(m)
+			}
+			os.Remove(txtPath)
+		} else if ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp" {
+			imgBytes, err := os.ReadFile(filePath)
 			if err == nil {
 				imagesBase64 = append(imagesBase64, base64.StdEncoding.EncodeToString(imgBytes))
 			}
+		} else {
+			tb, _ := os.ReadFile(filePath)
+			textBytes = append(textBytes, tb...)
+			textBytes = append(textBytes, []byte("\n\n")...)
 		}
-	} else if ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp" {
-		imgBytes, err := os.ReadFile(filePath)
-		if err == nil {
-			imagesBase64 = append(imagesBase64, base64.StdEncoding.EncodeToString(imgBytes))
-		}
-	} else {
-		// Даже если неизвестный формат, попытаемся прочитать как текст (вдруг это txt или csv)
-		tb, _ := os.ReadFile(filePath)
-		textBytes = tb
+
+		os.Remove(filePath)
 	}
 
 	aiData, err := parseWithClaude(string(textBytes), imagesBase64)
