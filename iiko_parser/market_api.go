@@ -51,17 +51,18 @@ func handleMarketDossier(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Поставщики
+	// GROUP SUPPLIERS BY UUID to merge "ООО РЕМО" and "Общество с ограниченной..."
+	// We use MAX(supplier_name) for display name
 	type SupplierStat struct {
 		Name  string  `json:"name"`
 		Total float64 `json:"total"`
 	}
 	var suppliers []SupplierStat
 	rows, err := db.Query(`
-		SELECT supplier_name, SUM(total_sum) as total
+		SELECT MAX(supplier_name) as display_name, SUM(total_sum) as total
 		FROM purchase_history
 		WHERE company_id = $1 AND invoice_date >= NOW() - INTERVAL '1 day' * $2
-		GROUP BY supplier_name
+		GROUP BY supplier_uuid
 		ORDER BY total DESC
 	`, companyIDStr, days)
 	if err == nil {
@@ -97,7 +98,7 @@ func handleMarketDossier(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// ТОП-20 позиций по затратам (Парето)
+	// Топ-20 товаров по объему (затратам)
 	type TopItem struct {
 		Name          string  `json:"name"`
 		Category      string  `json:"category"`
@@ -140,6 +141,19 @@ func handleMarketDossier(w http.ResponseWriter, r *http.Request) {
 		"categories":  categories,
 		"top_items":   topItems,
 	})
+}
+
+// Утилита для очистки (вызывается один раз)
+func handleMarketCleanup(w http.ResponseWriter, r *http.Request) {
+	if !checkMarketAuth(r) { sendMarketError(w, "Unauthorized", http.StatusUnauthorized); return }
+	
+	res, err := db.Exec("DELETE FROM purchase_history WHERE clean_category IN ('Без категории', 'Глутамат натрия', '')")
+	if err != nil {
+		sendMarketError(w, err.Error(), 500)
+		return
+	}
+	affected, _ := res.RowsAffected()
+	w.Write([]byte(fmt.Sprintf("Deleted %d test rows", affected)))
 }
 
 // 2. Радар маржинального арбитража (Arbitrage)
@@ -229,7 +243,10 @@ func handleMarketSupplierDossier(w http.ResponseWriter, r *http.Request) {
 		SELECT c.name, COALESCE(SUM(ph.total_sum), 0) as total
 		FROM purchase_history ph
 		JOIN companies c ON ph.company_id = c.id
-		WHERE ph.supplier_name ILIKE $1 AND ph.invoice_date >= NOW() - INTERVAL '1 day' * $2
+		WHERE (
+			ph.supplier_uuid IN (SELECT supplier_uuid FROM purchase_history WHERE supplier_name ILIKE $1 AND supplier_uuid != '')
+			OR ph.supplier_name ILIKE $1
+		) AND ph.invoice_date >= NOW() - INTERVAL '1 day' * $2
 		GROUP BY c.name
 		ORDER BY total DESC
 	`, "%"+supplierName+"%", days)
@@ -253,7 +270,10 @@ func handleMarketSupplierDossier(w http.ResponseWriter, r *http.Request) {
 	rowsTop, _ := db.Query(`
 		SELECT product_name_in_invoice, COALESCE(SUM(total_sum), 0) as total
 		FROM purchase_history
-		WHERE supplier_name ILIKE $1 AND invoice_date >= NOW() - INTERVAL '1 day' * $2
+		WHERE (
+			supplier_uuid IN (SELECT supplier_uuid FROM purchase_history WHERE supplier_name ILIKE $1 AND supplier_uuid != '')
+			OR supplier_name ILIKE $1
+		) AND invoice_date >= NOW() - INTERVAL '1 day' * $2
 		GROUP BY product_name_in_invoice
 		ORDER BY total DESC
 		LIMIT 10
@@ -457,10 +477,10 @@ func handleMarketDependency(w http.ResponseWriter, r *http.Request) {
 			GROUP BY company_id
 		),
 		supplier_totals AS (
-			SELECT company_id, supplier_name, SUM(total_sum) as supp_total
+			SELECT company_id, supplier_uuid, MAX(supplier_name) as supplier_name, SUM(total_sum) as supp_total
 			FROM purchase_history
 			WHERE invoice_date >= NOW() - INTERVAL '1 day' * $1
-			GROUP BY company_id, supplier_name
+			GROUP BY company_id, supplier_uuid
 		)
 		SELECT 
 			c.name as restaurant_name,
@@ -508,13 +528,13 @@ func handleMarketLogistics(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT 
-			supplier_name,
+			MAX(supplier_name) as display_name,
 			COUNT(DISTINCT invoice_number) as total_deliveries,
 			SUM(total_sum) / NULLIF(COUNT(DISTINCT invoice_number), 0) as avg_invoice_sum,
 			SUM(total_sum) as total_turnover
 		FROM purchase_history
 		WHERE invoice_date >= NOW() - INTERVAL '1 day' * $1
-		GROUP BY supplier_name
+		GROUP BY supplier_uuid
 		ORDER BY total_deliveries DESC
 		LIMIT 50
 	`
@@ -551,11 +571,11 @@ func handleMarketShare(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT 
-			supplier_name,
+			MAX(supplier_name) as display_name,
 			SUM(total_sum) as market_share
 		FROM purchase_history
 		WHERE invoice_date >= NOW() - INTERVAL '1 day' * $1
-		GROUP BY supplier_name
+		GROUP BY supplier_uuid
 		ORDER BY market_share DESC
 		LIMIT 20
 	`

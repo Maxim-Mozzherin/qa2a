@@ -267,6 +267,7 @@ func main() {
 	mux.HandleFunc("/api/market/dossier", handleMarketDossier)
 	mux.HandleFunc("/api/market/arbitrage", handleMarketArbitrage)
 	mux.HandleFunc("/api/market/supplier-dossier", handleMarketSupplierDossier)
+	mux.HandleFunc("/api/market/cleanup", handleMarketCleanup)
 	mux.HandleFunc("/api/market/inflation", handleMarketInflation)
 	mux.HandleFunc("/api/market/volume", handleMarketVolume)
 	mux.HandleFunc("/api/market/dumping", handleMarketDumping)
