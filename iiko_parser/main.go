@@ -83,6 +83,7 @@ type AiResponse struct {
 	DocNumber  string   `json:"doc_number"`
 	DocDate    string   `json:"doc_date"`
 	Consignee  string   `json:"consignee"`
+	Shipper    string   `json:"shipper"`
 	Items      []AiItem `json:"items"`
 }
 
@@ -768,6 +769,7 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 		"doc_number":           aiData.DocNumber,
 		"doc_date":             aiData.DocDate,
 		"consignee":            aiData.Consignee,
+		"shipper":              aiData.Shipper,
 		"mapped_supplier_uuid": mappedSupplierUUID,
 		"mapped_store_uuid":    mappedStoreUUID,
 		"items":                resultItems,
@@ -786,6 +788,7 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 		SupplierUUID  string `json:"supplier_uuid"`
 		VendorName    string `json:"vendor_name"`
 		Consignee     string `json:"consignee"`
+		Shipper       string `json:"shipper"`
 		InvoiceNumber string `json:"invoice_number"`
 		InvoiceDate   string `json:"invoice_date"`
 		Items         []struct {
@@ -857,10 +860,12 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 			_, err = tx.Exec(`
 				INSERT INTO purchase_history (
 					company_id, invoice_date, invoice_number, supplier_uuid, supplier_name,
-					iiko_product_uuid, iiko_product_name, product_name_in_invoice, clean_category, brand, quantity, multiplier, total_sum, price_per_base_unit
-				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+					iiko_product_uuid, iiko_product_name, product_name_in_invoice, clean_category, brand, quantity, multiplier, total_sum, price_per_base_unit,
+					consignee, shipper
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
 				req.CompanyID, dbInvoiceDate, req.InvoiceNumber, req.SupplierUUID, req.VendorName,
-				item.MappedUUID, item.MappedName, item.Name, item.CleanCategory, item.Brand, item.Quantity, item.Multiplier, item.Sum, pricePerUnit)
+				item.MappedUUID, item.MappedName, item.Name, item.CleanCategory, item.Brand, item.Quantity, item.Multiplier, item.Sum, pricePerUnit,
+				req.Consignee, req.Shipper)
 
 			if err != nil {
 				http.Error(w, "Ошибка записи истории закупок (Аналитика): "+err.Error(), http.StatusInternalServerError)
@@ -1472,8 +1477,9 @@ func parseWithClaude(text string, imagesBase64 []string) (*AiResponse, error) {
 8. ЦЕНА (price) и СУММА (sum):
    Обязательно выгружай цену и итоговую сумму С УЧЕТОМ НДС (Всего с НДС / Сумма к оплате). Это критически важно!
 
-9. ГРУЗОПОЛУЧАТЕЛЬ И ЕГО АДРЕС (consignee):
-   Найди в тексте накладной строку "Грузополучатель и его адрес" или адрес доставки. Скопируй её максимально полно.
+9. Грузополучатель (consignee) и Грузоотправитель (shipper):
+   - shipper: Ищи поле "Грузоотправитель и его адрес". Запиши в максимально полном виде.
+   - consignee: Ищи поле "Грузополучатель и его адрес" или "Покупатель". Запиши в максимально полном виде.
 
 10. ПРАВИЛО ДЛЯ ЛИСТОВЫХ ТОВАРОВ (Нори и т.д.):
     - Если в названии указано количество листов в пачке (нори 100л), а ед. измерения 'шт', то ai_multiplier = 100.0.
@@ -1518,7 +1524,8 @@ func parseWithClaude(text string, imagesBase64 []string) (*AiResponse, error) {
   "vendor_name": "Название поставщика",
   "doc_number": "Номер документа",
   "doc_date": "YYYY-MM-DD",
-  "consignee": "Грузополучатель и его адрес полностью",
+  "consignee": "Грузополучатель и его адрес или Покупатель",
+  "shipper": "Грузоотправитель и его адрес",
   "items": [
     {"name": "Название полностью", "clean_category": "Картофель фри", "brand": "Фритто Аппетито", "quantity": 10.0, "price": 120.0, "sum": 1200.0, "sum_without_nds": 1000.0, "nds_percent": 20.0, "ai_multiplier": 0.55, "ai_tip": "1 шт = 550г"}
   ]

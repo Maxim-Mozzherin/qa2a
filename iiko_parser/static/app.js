@@ -29,6 +29,8 @@ const els = {
     resDocnum: document.getElementById('res-docnum'),
     resDocdate: document.getElementById('res-docdate'),
     resConsignee: document.getElementById('res-consignee'),
+    resShipper: document.getElementById('res-shipper'),
+    resShipper: document.getElementById('res-shipper'),
     tbody: document.getElementById('items-tbody'),
     btnImport: document.getElementById('btn-import'),
     loaderImport: document.getElementById('import-loader'),
@@ -449,6 +451,10 @@ function renderTable(data) {
         els.resConsignee.innerText = data.consignee || "Грузополучатель не распознан";
         els.resConsignee.title = data.consignee || "";
     }
+    if (els.resShipper) {
+        els.resShipper.innerText = data.shipper || "Грузоотправитель не распознан";
+        els.resShipper.title = data.shipper || "";
+    }
 
     const companyId = els.company.value;
 
@@ -703,6 +709,7 @@ if (els.btnImport) {
             supplier_uuid: supplierUuid,
             vendor_name: currentDocData.vendor_name,
             consignee: currentDocData.consignee,
+            shipper: currentDocData.shipper,
             invoice_number: currentDocData.doc_number,
             invoice_date: els.resDocdate ? els.resDocdate.value.trim() : "",
             items: itemsToImport

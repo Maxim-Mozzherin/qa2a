@@ -202,7 +202,7 @@
                     </div>
 
                     <!-- Карточка метаданных накладной -->
-                    <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 bg-[#090d16] p-4 rounded-xl border border-slate-800/80">
+                    <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4 bg-[#090d16] p-4 rounded-xl border border-slate-800/80">
                         <div class="space-y-1">
                             <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Поставщик (УПД)</span>
                             <div id="res-vendor" class="font-bold text-slate-300 text-xs truncate"></div>
@@ -215,7 +215,10 @@
                             <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Дата документа</span>
                             <input type="date" id="res-docdate" class="block w-full font-bold text-slate-300 border border-slate-800 rounded-lg px-2.5 py-1 text-xs bg-[#111827] outline-none focus:border-brand-500 transition-all-300">
                         </div>
-                        <!-- Адрес доставки занимает 2 колонки и переносится без обрезания -->
+                        <div class="space-y-1 lg:col-span-2">
+                            <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Адрес отправления (Грузоотправитель)</span>
+                            <div id="res-shipper" class="font-semibold text-slate-400 text-xs leading-relaxed italic bg-slate-900/50 p-2.5 rounded-lg border border-slate-800/30 whitespace-normal break-words"></div>
+                        </div>
                         <div class="space-y-1 lg:col-span-2">
                             <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Адрес доставки (Грузополучатель)</span>
                             <div id="res-consignee" class="font-semibold text-slate-400 text-xs leading-relaxed italic bg-slate-900/50 p-2.5 rounded-lg border border-slate-800/30 whitespace-normal break-words"></div>
