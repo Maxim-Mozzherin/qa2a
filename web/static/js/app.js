@@ -181,7 +181,8 @@ async function initApp() {
 
         const data = await res.json();
         currentUser = data.user;
-        userToken = data.token || currentUser.tg_id;
+        // КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: берем подписанный сервером токен, а не просто tg_id
+        userToken = data.token; 
         allMemberships = data.memberships || [];
 
         if (allMemberships.length === 0) {
@@ -2040,7 +2041,7 @@ async function createNewBusiness() {
     if (!name) return;
     const res = await fetch(API + '/companies', { 
         method: 'POST', 
-        headers: { 'Content-Type': 'application/json', 'X-Telegram-ID': String(userToken) }, 
+        headers: getHeaders(), // Теперь getHeaders использует Signed Token
         body: JSON.stringify({ name }) 
     });
     if (res.ok) location.reload(); else alert("Ошибка создания заведения");
@@ -2188,4 +2189,52 @@ window.updateTransferFakeDate = updateTransferFakeDate;
 window.updateEditFakeDate = updateEditFakeDate;
 window.escapeHtml = escapeHtml;
 
+// ============================================================================
+// SUPPLIER PORTAL & MARKETPLACE STUBS
+// ============================================================================
+function openSupplierPortal() {
+    document.getElementById("onboarding").style.display = "none";
+    document.getElementById("main-app").style.display = "none";
+    document.getElementById("supplier-portal").style.display = "block";
+    document.getElementById("orgName").innerText = "Кабинет Партнера";
+}
 
+function closeSupplierPortal() {
+    document.getElementById("supplier-portal").style.display = "none";
+    document.getElementById("onboarding").style.display = "block";
+    document.getElementById("orgName").innerText = "QA2A";
+}
+
+function openSupplierOfferModal() {
+    openDrawer("drawer_supplier_offer");
+}
+
+function saveSupplierOffer() {
+    // Stub
+    Telegram.WebApp.showAlert("Предложение сохранено (демо)");
+    closeDrawer();
+}
+
+function renderSpecialOffers(offers) {
+    const sec = document.getElementById("special_offers_section");
+    const container = document.getElementById("offers_carousel");
+    if (!offers || offers.length === 0) {
+        sec.style.display = "none";
+        return;
+    }
+    sec.style.display = "block";
+    container.innerHTML = "";
+    offers.forEach(o => {
+        const card = document.createElement("div");
+        card.style.cssText = "min-width: 240px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 15px; scroll-snap-align: start;";
+        card.innerHTML = `
+            <div style="font-weight: 700; font-size: 15px; margin-bottom: 5px;">${o.title}</div>
+            <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 10px;">${o.desc}</div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-weight: 800; color: var(--primary);">${o.priceStr}</span>
+                <button class="btn-tiny" style="background:var(--accent); color:white; border:none;" onclick="Telegram.WebApp.showAlert('Связываемся с поставщиком...')">Запросить</button>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}

@@ -46,6 +46,14 @@
             <input type="text" id="onboarding_invite_code" placeholder="Введите код (напр. QA-1234)" style="margin-bottom: 15px; text-transform: uppercase; letter-spacing: 2px; text-align: center; font-weight: 700;" autocomplete="off">
             <button type="button" class="btn-main" onclick="joinByCodeFromOnboarding()" style="background: var(--bg); color: var(--text); border: 1px solid var(--border);">Присоединиться</button>
         </div>
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-top: 20px;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                <span style="font-size: 24px;">🤝</span>
+                <h3 style="margin: 0; font-size: 16px; font-weight: 700;">Я поставщик / Партнер</h3>
+            </div>
+            <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 15px; margin-top: 0;">Разместите свои спецпредложения для ресторанов в нашей системе</p>
+            <button type="button" class="btn-main" onclick="openSupplierPortal()" style="background: var(--accent); color: white; border:none;">Войти в кабинет</button>
+        </div>
     </div>
 
     <!-- ====================================================================== -->
@@ -57,6 +65,16 @@
 
             <!-- ВКЛАДКА 1: ЗАЯВКА НА ЗАКУПКУ -->
             <div id="tab-request" class="tab-content" style="display:block;">
+                <div class="section" id="special_offers_section" style="display:none; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                        <span style="font-size:18px;">💡</span>
+                        <div class="section-title" style="margin-bottom:0;">Спецпредложения для вас</div>
+                    </div>
+                    <div id="offers_carousel" style="display: flex; gap: 12px; overflow-x: auto; padding-bottom: 10px; scroll-snap-type: x mandatory;">
+                        <!-- Cards injected via JS -->
+                    </div>
+                </div>
+
                 <div class="section">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-top: 5px;">
                         <div class="section-title" style="margin-bottom:0;">Новая заявка</div>
@@ -557,6 +575,58 @@
 
     <!-- Клиентский скрипт приложения -->
     <script src="/static/js/app.js?v=2.0"></script>
+
+    <!-- ====================================================================== -->
+    <!-- КАБИНЕТ ПОСТАВЩИКА                                                     -->
+    <!-- ====================================================================== -->
+    <div id="supplier-portal" style="display:none; padding-top: 90px; padding-bottom: 80px;">
+        <div class="app-container">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
+                <h2 style="margin:0;">Мои спецпредложения</h2>
+                <button class="btn-tiny" onclick="openSupplierOfferModal()" style="background:var(--primary); color:white; border:none; padding: 6px 12px; border-radius:8px;">+ Добавить</button>
+            </div>
+            
+            <div id="supplier_offers_list" style="display:flex; flex-direction:column; gap:12px;">
+                <!-- Cards injected here -->
+            </div>
+            
+            <div style="margin-top:40px; text-align:center;">
+                <button class="btn-tiny" onclick="closeSupplierPortal()" style="background:transparent; color:var(--text-muted); border:1px solid var(--border);">Выйти из кабинета</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Модалка добавления предложения -->
+    <div class="drawer" id="drawer_supplier_offer">
+        <div class="drawer-header"><h3>Новое предложение</h3><div class="btn-close" onclick="closeDrawer()">×</div></div>
+        <div class="drawer-content">
+            <label>Название товара (например, Сливки 33%)</label>
+            <input type="text" id="so_title" placeholder="Введите название...">
+            
+            <label>Описание (условия, минималка)</label>
+            <textarea id="so_desc" placeholder="Краткие условия..." rows="3"></textarea>
+            
+            <div style="display:flex; gap:10px;">
+                <div style="flex:1;">
+                    <label>Тип цены</label>
+                    <select id="so_price_type">
+                        <option value="exact">Точная цена</option>
+                        <option value="from">Цена ОТ</option>
+                        <option value="request">По запросу</option>
+                    </select>
+                </div>
+                <div style="flex:1;">
+                    <label>Цена (руб)</label>
+                    <input type="number" id="so_price" placeholder="0.00">
+                </div>
+            </div>
+            
+            <label>Ключевые слова для поиска (через запятую)</label>
+            <textarea id="so_keywords" placeholder="сливки, сливки 33, молоко..." rows="2"></textarea>
+            
+            <button class="btn-main" onclick="saveSupplierOffer()" style="margin-top:20px;">Сохранить предложение</button>
+        </div>
+    </div>
+
 </body>
 </html>
-
