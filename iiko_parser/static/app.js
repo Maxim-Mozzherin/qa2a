@@ -433,9 +433,10 @@ if (els.dropZone) {
     }, false);
 
     els.dropZone.addEventListener('click', (e) => {
-        if (e.target !== els.file && e.target !== els.btnParse) {
-            els.file.click();
+        if (e.target.closest('button, select, input, a, label, #prompt-preset-select, #btn-open-prompt-modal')) {
+            return;
         }
+        els.file.click();
     });
 }
 
@@ -1474,52 +1475,66 @@ async function loadPromptPresets(companyId) {
 }
 
 function renderPresetDropdowns() {
-    if (!els.promptPresetSelect || !els.modalPresetSelect) return;
+    const pSel = document.getElementById('prompt-preset-select');
+    const mSel = document.getElementById('modal-preset-select');
 
-    const optionsHtml = promptPresets.map(p => {
+    const presetsToRender = (promptPresets && promptPresets.length > 0) ? promptPresets : [
+        { id: 1, name: "Стандартный (УПД / ТОРГ-12)", is_default: true },
+        { id: 2, name: "Многостраничная накладная (фото / сканы)", is_default: true },
+        { id: 3, name: "Товарный чек / Простая квитанция", is_default: true }
+    ];
+
+    const optionsHtml = presetsToRender.map(p => {
         const prefix = p.is_default ? "⭐ " : "📁 ";
         return '<option value="' + p.id + '">' + prefix + escapeHtml(p.name) + '</option>';
     }).join('');
 
-    els.promptPresetSelect.innerHTML = optionsHtml;
-    els.modalPresetSelect.innerHTML = optionsHtml;
+    if (pSel) pSel.innerHTML = optionsHtml;
+    if (mSel) mSel.innerHTML = optionsHtml;
 }
 
 function selectPresetById(presetId) {
-    const preset = promptPresets.find(p => String(p.id) === String(presetId));
+    const preset = (promptPresets || []).find(p => String(p.id) === String(presetId));
     if (!preset) return;
 
     activePresetId = preset.id;
-    currentCustomPrompt = preset.prompt;
+    currentCustomPrompt = preset.prompt || "";
     localStorage.setItem('active_prompt_preset_id', preset.id);
 
-    if (els.promptPresetSelect) els.promptPresetSelect.value = preset.id;
-    if (els.modalPresetSelect) els.modalPresetSelect.value = preset.id;
-    if (els.modalPresetName) els.modalPresetName.value = preset.name;
-    if (els.modalPromptTextarea) {
-        els.modalPromptTextarea.value = preset.prompt;
+    const pSel = document.getElementById('prompt-preset-select');
+    const mSel = document.getElementById('modal-preset-select');
+    const mName = document.getElementById('modal-preset-name');
+    const mText = document.getElementById('modal-prompt-textarea');
+    const badge = document.getElementById('preset-badge');
+    const btnDel = document.getElementById('btn-delete-preset');
+
+    if (pSel) pSel.value = preset.id;
+    if (mSel) mSel.value = preset.id;
+    if (mName) mName.value = preset.name;
+    if (mText) {
+        mText.value = preset.prompt || "";
         updatePromptCharCount();
     }
 
-    if (els.presetBadge) {
+    if (badge) {
         if (preset.is_default) {
-            els.presetBadge.textContent = "Системный шаблон (защищен)";
-            els.presetBadge.className = "px-2.5 py-1 bg-brand-500/10 border border-brand-500/20 text-brand-400 text-[10px] font-semibold rounded-lg";
+            badge.textContent = "Системный шаблон (защищен)";
+            badge.className = "px-2.5 py-1 bg-brand-500/10 border border-brand-500/20 text-brand-400 text-[10px] font-semibold rounded-lg";
         } else {
-            els.presetBadge.textContent = "Пользовательский пресет";
-            els.presetBadge.className = "px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-semibold rounded-lg";
+            badge.textContent = "Пользовательский пресет";
+            badge.className = "px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-semibold rounded-lg";
         }
     }
 
-    if (els.btnDeletePreset) {
+    if (btnDel) {
         if (preset.is_default) {
-            els.btnDeletePreset.disabled = true;
-            els.btnDeletePreset.classList.add('opacity-40', 'cursor-not-allowed');
-            els.btnDeletePreset.title = "Системный шаблон нельзя удалить";
+            btnDel.disabled = true;
+            btnDel.classList.add('opacity-40', 'cursor-not-allowed');
+            btnDel.title = "Системный шаблон нельзя удалить";
         } else {
-            els.btnDeletePreset.disabled = false;
-            els.btnDeletePreset.classList.remove('opacity-40', 'cursor-not-allowed');
-            els.btnDeletePreset.title = "Удалить пользовательский пресет";
+            btnDel.disabled = false;
+            btnDel.classList.remove('opacity-40', 'cursor-not-allowed');
+            btnDel.title = "Удалить пользовательский пресет";
         }
     }
 }
