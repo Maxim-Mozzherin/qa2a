@@ -350,7 +350,7 @@ if (els.btnParse) {
 
 async function executeParseWithFiles(fileObjs) {
     if (!fileObjs || fileObjs.length === 0) {
-        alert("œÓÊ‡ÎÛÈÒÚ‡, ‚˚·ÂËÚÂ Ù‡ÈÎ Ì‡ÍÎ‡‰ÌÓÈ (PDF ËÎË ÙÓÚÓ)");
+        alert("ÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩ, ÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩ ÔøΩÔøΩÔøΩÔøΩ ÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩ (PDF ÔøΩÔøΩÔøΩ ÔøΩÔøΩÔøΩÔøΩ)");
         return;
     }
 
@@ -421,7 +421,7 @@ if (els.dropZone) {
             const isValid = validExts.some(ext => file.name.toLowerCase().endsWith(ext)) || file.type.startsWith("image/") || file.type === "application/pdf";
             
             if (!isValid) {
-                alert("œÓÊ‡ÎÛÈÒÚ‡, ‚˚·ÂËÚÂ Ù‡ÈÎ Ì‡ÍÎ‡‰ÌÓÈ (PDF ËÎË ÙÓÚÓ)");
+                alert("ÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩ, ÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩ ÔøΩÔøΩÔøΩÔøΩ ÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩ (PDF ÔøΩÔøΩÔøΩ ÔøΩÔøΩÔøΩÔøΩ)");
                 return;
             }
 
@@ -495,6 +495,136 @@ if (els.addFile) {
         }
     });
 }
+
+
+function updateFooterTotals() {
+    if (!currentDocData || !currentDocData.items) return;
+    let totalWithNds = 0;
+    let totalWithoutNds = 0;
+    currentDocData.items.forEach(item => {
+        let q = parseFloat(item.quantity) || 0;
+        let p = parseFloat(item.price) || 0;
+        let nds = parseFloat(item.nds_percent) || 0;
+        let sWithNds = q * p;
+        let sumWithoutNds = sWithNds / (1 + nds/100);
+        totalWithNds += sWithNds;
+        totalWithoutNds += sumWithoutNds;
+    });
+    const elWithNds = document.getElementById('footer-total-with-nds');
+    const elWithoutNds = document.getElementById('footer-total-without-nds');
+    if (elWithNds) elWithNds.innerText = totalWithNds.toFixed(2) + " ‚ÇΩ";
+    if (elWithoutNds) elWithoutNds.innerText = totalWithoutNds.toFixed(2) + " ‚ÇΩ";
+}
+window.updateFooterTotals = updateFooterTotals;
+
+function executeAddEmptyRow() {
+    if (!currentDocData) {
+        currentDocData = {
+            vendor_name: "–†—É—á–Ω–æ–π –≤–≤–æ–¥",
+            doc_number: "–ë/–ù",
+            doc_date: new Date().toISOString().split('T')[0],
+            consignee: "",
+            shipper: "",
+            items: []
+        };
+        document.getElementById('results-section').classList.remove('hidden');
+    }
+    
+    currentDocData.items.push({
+        name: "–ù–æ–≤—ã–π —Ç–æ–≤–∞—Ä",
+        clean_category: "–ë–µ–∑ –∫–∞—Ç–µ–≥–æ—Ä–∏–∏",
+        brand: "",
+        quantity: 1.0,
+        price: 0.0,
+        sum: 0.0,
+        sum_without_nds: 0.0,
+        nds_percent: 0.0,
+        mapped_uuid: "",
+        mapped_name: "",
+        multiplier: 1.0,
+        is_ai_guessed: false,
+        is_weight_changed: false,
+        ai_multiplier: 1.0,
+        ai_tip: "–†—É—á–Ω–æ–π –≤–≤–æ–¥"
+    });
+    renderTable(currentDocData);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const btnEmpty = document.getElementById('btn-create-empty');
+    if (btnEmpty) btnEmpty.addEventListener('click', () => {
+        executeAddEmptyRow();
+        document.getElementById('results-section').classList.remove('hidden');
+    });
+    
+    const btnAddRow = document.getElementById('btn-add-row');
+    if (btnAddRow) btnAddRow.addEventListener('click', executeAddEmptyRow);
+});
+
+
+function updateFooterTotals() {
+    if (!currentDocData || !currentDocData.items) return;
+    let totalWithNds = 0;
+    let totalWithoutNds = 0;
+    currentDocData.items.forEach(item => {
+        let q = parseFloat(item.quantity) || 0;
+        let p = parseFloat(item.price) || 0;
+        let nds = parseFloat(item.nds_percent) || 0;
+        let sWithNds = q * p;
+        let sumWithoutNds = sWithNds / (1 + nds/100);
+        totalWithNds += sWithNds;
+        totalWithoutNds += sumWithoutNds;
+    });
+    const elWithNds = document.getElementById('footer-total-with-nds');
+    const elWithoutNds = document.getElementById('footer-total-without-nds');
+    if (elWithNds) elWithNds.innerText = totalWithNds.toFixed(2) + " ‚ÇΩ";
+    if (elWithoutNds) elWithoutNds.innerText = totalWithoutNds.toFixed(2) + " ‚ÇΩ";
+}
+window.updateFooterTotals = updateFooterTotals;
+
+function executeAddEmptyRow() {
+    if (!currentDocData) {
+        currentDocData = {
+            vendor_name: "–†—É—á–Ω–æ–π –≤–≤–æ–¥",
+            doc_number: "–ë/–ù",
+            doc_date: new Date().toISOString().split('T')[0],
+            consignee: "",
+            shipper: "",
+            items: []
+        };
+        document.getElementById('results-section').classList.remove('hidden');
+    }
+    
+    currentDocData.items.push({
+        name: "–ù–æ–≤—ã–π —Ç–æ–≤–∞—Ä",
+        clean_category: "–ë–µ–∑ –∫–∞—Ç–µ–≥–æ—Ä–∏–∏",
+        brand: "",
+        quantity: 1.0,
+        price: 0.0,
+        sum: 0.0,
+        sum_without_nds: 0.0,
+        nds_percent: 0.0,
+        mapped_uuid: "",
+        mapped_name: "",
+        multiplier: 1.0,
+        is_ai_guessed: false,
+        is_weight_changed: false,
+        ai_multiplier: 1.0,
+        ai_tip: "–†—É—á–Ω–æ–π –≤–≤–æ–¥"
+    });
+    renderTable(currentDocData);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const btnEmpty = document.getElementById('btn-create-empty');
+    if (btnEmpty) btnEmpty.addEventListener('click', () => {
+        executeAddEmptyRow();
+        document.getElementById('results-section').classList.remove('hidden');
+    });
+    
+    const btnAddRow = document.getElementById('btn-add-row');
+    if (btnAddRow) btnAddRow.addEventListener('click', executeAddEmptyRow);
+});
 
 function renderTable(data) {
     els.resVendor.innerText = data.vendor_name || "–ù–µ –æ–ø—Ä–µ–¥–µ–ª–µ–Ω";
@@ -605,7 +735,7 @@ function renderTable(data) {
         tr.innerHTML = `
             <td class="px-2 py-3 text-center text-slate-500 font-semibold border-r border-slate-800/40 align-middle">${idx + 1}</td>
             <td class="px-2 py-3 align-middle">
-                <div class="font-bold text-slate-100 tracking-tight text-xs">${escapeHtml(item.name)}</div>
+                <input type="text" class="w-full bg-transparent border-b border-slate-700/50 outline-none focus:border-brand-500 font-bold text-slate-100 tracking-tight text-xs pb-1 transition-all" value="${escapeHtml(item.name)}" oninput="currentDocData.items[${idx}].name = this.value;">
                 ${aiTipHtml}
             </td>
             <td class="px-2 py-3 align-middle">
@@ -614,10 +744,12 @@ function renderTable(data) {
                     ${catOptionsHtml}
                 </select>
             </td>
-            <td class="px-2 py-3 text-center font-extrabold text-slate-300 text-xs align-middle">${aiQty}</td>
+            <td class="px-2 py-3 text-center align-middle">
+                <input type="text" inputmode="decimal" class="w-12 bg-transparent border-b border-slate-700/50 outline-none focus:border-brand-500 text-center font-extrabold text-slate-300 text-xs pb-1 transition-all ai-qty-input" value="${aiQty}">
+            </td>
             <td class="px-2 py-3 text-center border-r border-slate-800/40 align-middle">
-                <div class="font-semibold text-white text-xs">${item.price.toFixed(2)} ‚ÇΩ</div>
-                <div class="text-[10px] text-slate-500">${finalSumWithNds.toFixed(2)} ‚ÇΩ (–≤—Å–µ–≥–æ)</div>
+                <div class="flex items-center justify-center gap-1"><input type="text" inputmode="decimal" class="w-14 bg-transparent border-b border-slate-700/50 outline-none focus:border-brand-500 text-center font-semibold text-white text-xs pb-1 transition-all ai-price-input" value="${item.price.toFixed(2)}"> <span class="text-[10px]">‚ÇΩ</span></div>
+                <div class="text-[10px] text-slate-500 mt-1"><span class="ai-sum-display">${finalSumWithNds.toFixed(2)}</span> ‚ÇΩ (–≤—Å–µ–≥–æ)</div>
                 <div class="text-[9px] text-brand-400 font-semibold mt-1 bg-brand-500/10 rounded px-1.5 py-0.5 inline-block">–ù–î–° ${item.nds_percent}%</div>
             </td>
             <td class="px-2 py-3 align-middle">
@@ -642,12 +774,33 @@ function renderTable(data) {
         const multInput = tr.querySelector('.iiko-mult');
         const finalCell = tr.querySelector('.final-qty');
 
-        multInput.addEventListener('input', (e) => {
-            let rawVal = e.target.value.replace(',', '.');
-            let m = parseFloat(rawVal);
-            if (isNaN(m) || m <= 0) m = 0; // Allow 0 while typing
-            finalCell.innerText = (aiQty * m).toFixed(3);
-        });
+        const aiQtyInput = tr.querySelector('.ai-qty-input');
+        const aiPriceInput = tr.querySelector('.ai-price-input');
+        const sumDisplay = tr.querySelector('.ai-sum-display');
+        
+        function updateRowMath() {
+            let m = parseFloat(multInput.value.replace(',', '.')) || 0;
+            let q = parseFloat(aiQtyInput.value.replace(',', '.')) || 0;
+            let p = parseFloat(aiPriceInput.value.replace(',', '.')) || 0;
+            
+            currentDocData.items[idx].quantity = q;
+            currentDocData.items[idx].price = p;
+            currentDocData.items[idx].multiplier = m;
+            
+            let sWithNds = q * p;
+            currentDocData.items[idx].sum = sWithNds;
+            
+            let nds = parseFloat(currentDocData.items[idx].nds_percent) || 0;
+            currentDocData.items[idx].sum_without_nds = sWithNds / (1 + nds/100);
+            
+            finalCell.innerText = (q * m).toFixed(3);
+            sumDisplay.innerText = sWithNds.toFixed(2);
+            updateFooterTotals();
+        }
+
+        multInput.addEventListener('input', updateRowMath);
+        if(aiQtyInput) aiQtyInput.addEventListener('input', updateRowMath);
+        if(aiPriceInput) aiPriceInput.addEventListener('input', updateRowMath);
 
         els.tbody.appendChild(tr);
     });
@@ -660,9 +813,9 @@ function renderTable(data) {
             <td class="p-4 text-left uppercase text-[10px] font-semibold tracking-wider text-slate-500" colspan="2">–ò—Ç–æ–≥–æ –Ω–∞–∫–ª–∞–¥–Ω–∞—è:</td>
             <td class="p-4 text-left align-middle border-r border-slate-800/40" colspan="5">
                 <span class="text-slate-500 font-normal">–ë–µ–∑ –ù–î–°:</span> 
-                <span class="text-slate-200 font-semibold mr-6">${totalWithoutNds.toFixed(2)} ‚ÇΩ</span>
+                <span id="footer-total-without-nds" class="text-slate-200 font-semibold mr-6">${totalWithoutNds.toFixed(2)} ‚ÇΩ</span>
                 <span class="text-slate-500 font-normal">–° –ù–î–°:</span> 
-                <span class="text-brand-400 font-semibold">${totalWithNds.toFixed(2)} ‚ÇΩ</span>
+                <span id="footer-total-with-nds" class="text-brand-400 font-semibold">${totalWithNds.toFixed(2)} ‚ÇΩ</span>
             </td>
         `;
         els.tbody.appendChild(totalTr);

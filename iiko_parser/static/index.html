@@ -188,6 +188,9 @@
                         <button id="btn-parse" class="bg-brand-500 hover:bg-brand-600 text-white px-6 py-2.5 rounded-xl text-xs font-bold transition-all-300 flex items-center gap-2 opacity-50 cursor-not-allowed shadow-sm" disabled>
                             ✨ Распознать через AI
                         </button>
+                        <button id="btn-create-empty" class="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2.5 rounded-xl text-xs font-bold transition-all-300 flex items-center gap-2 shadow-sm ml-2">
+                            📝 Ввести вручную
+                        </button>
                     </div>
                     <div id="parse-loader" class="hidden text-xs text-brand-400 animate-pulse font-medium flex items-center justify-center gap-2 pt-2">
                         <span class="inline-block w-4 h-4 border-2 border-brand-400 border-t-transparent rounded-full animate-spin"></span>
@@ -250,9 +253,14 @@
                     <!-- Блок отправки в iiko RMS -->
                     <div class="flex flex-col items-center justify-center pt-6 border-t border-slate-800 space-y-4">
                         <input type="file" id="pdf-add-file" accept="application/pdf, image/jpeg, image/png, image/webp" multiple class="hidden">
-                        <button id="btn-add-page" class="w-full max-w-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-8 py-3 rounded-xl font-bold transition-all-300 shadow-sm flex items-center justify-center gap-2 text-xs">
-                            ➕ Распознать и добавить ещё страницу
-                        </button>
+                        <div class="flex w-full max-w-md gap-2">
+                            <button id="btn-add-row" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-4 py-3 rounded-xl font-bold transition-all-300 shadow-sm flex items-center justify-center gap-2 text-xs">
+                                ➕ Пустая строка
+                            </button>
+                            <button id="btn-add-page" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-4 py-3 rounded-xl font-bold transition-all-300 shadow-sm flex items-center justify-center gap-2 text-xs">
+                                📄 Ещё фото
+                            </button>
+                        </div>
                         <div id="add-page-loader" class="hidden text-xs text-brand-400 animate-pulse font-medium text-center flex items-center justify-center gap-2 py-2">
                             Распознавание страницы, пожалуйста подождите...
                         </div>
