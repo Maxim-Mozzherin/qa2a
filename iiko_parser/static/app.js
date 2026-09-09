@@ -23,6 +23,9 @@ const els = {
     btnParse: document.getElementById('btn-parse'),
     loaderParse: document.getElementById('parse-loader'),
     dropZone: document.getElementById('drop-zone'),
+    addFile: document.getElementById('pdf-add-file'),
+    btnAddPage: document.getElementById('btn-add-page'),
+    loaderAddPage: document.getElementById('add-page-loader'),
 
     resSection: document.getElementById('results-section'),
     resVendor: document.getElementById('res-vendor'),
@@ -437,6 +440,61 @@ if (els.dropZone) {
 // ============================================================================
 // 5. ОТРИСОВКА СПЕЦИФИКАЦИИ И РАСЧЕТОВ НАКЛАДНОЙ
 // ============================================================================
+
+async function executeAppendParseWithFiles(fileObjs) {
+    if (!fileObjs || fileObjs.length === 0) return;
+    if (!currentDocData) {
+        alert("Сначала загрузите основную накладную!");
+        return;
+    }
+
+    const companyId = els.company.value;
+    const formData = new FormData();
+    for (let i = 0; i < fileObjs.length; i++) {
+        formData.append('pdf', fileObjs[i], fileObjs[i].name);
+    }
+    formData.append('company_id', companyId);
+
+    els.btnAddPage.disabled = true;
+    els.loaderAddPage.classList.remove('hidden');
+
+    try {
+        const res = await fetch('api/parse?token=' + getAuthToken(), {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!res.ok) throw new Error(await res.text());
+
+        const appendData = await res.json();
+        if (appendData && appendData.items && appendData.items.length > 0) {
+            currentDocData.items = currentDocData.items.concat(appendData.items);
+            renderTable(currentDocData);
+        } else {
+            alert("На добавленной странице товаров не найдено.");
+        }
+    } catch (err) {
+        alert("Ошибка распознавания новой страницы: " + err.message);
+    } finally {
+        els.btnAddPage.disabled = false;
+        els.loaderAddPage.classList.add('hidden');
+        els.addFile.value = "";
+    }
+}
+
+if (els.btnAddPage) {
+    els.btnAddPage.addEventListener('click', (e) => {
+        e.preventDefault();
+        els.addFile.click();
+    });
+}
+if (els.addFile) {
+    els.addFile.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            executeAppendParseWithFiles(e.target.files);
+        }
+    });
+}
 
 function renderTable(data) {
     els.resVendor.innerText = data.vendor_name || "Не определен";
