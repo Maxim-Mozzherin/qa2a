@@ -165,6 +165,7 @@ function handleCompanyChange() {
     }
 
     localStorage.setItem('active_company_id', companyId);
+    loadPromptPresets(companyId);
 
     els.store.innerHTML = '<option value="">-- Сначала обновите справочник --</option>';
     els.store.disabled = true;
@@ -454,6 +455,9 @@ async function executeAppendParseWithFiles(fileObjs) {
         formData.append('pdf', fileObjs[i], fileObjs[i].name);
     }
     formData.append('company_id', companyId);
+    if (currentCustomPrompt) {
+        formData.append('prompt', currentCustomPrompt);
+    }
 
     els.btnAddPage.disabled = true;
     els.loaderAddPage.classList.remove('hidden');

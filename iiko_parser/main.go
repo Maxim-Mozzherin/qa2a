@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -85,6 +86,17 @@ type AiResponse struct {
 	Consignee  string   `json:"consignee"`
 	Shipper    string   `json:"shipper"`
 	Items      []AiItem `json:"items"`
+}
+
+type PromptPreset struct {
+	ID          int       `json:"id"`
+	CompanyID   int       `json:"company_id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Prompt      string    `json:"prompt"`
+	IsDefault   bool      `json:"is_default"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type AiItem struct {
@@ -246,6 +258,8 @@ func main() {
 		log.Printf("⚠️ Предупреждение при авто-миграции purchase_history: %v", err)
 	}
 
+	initPromptPresets()
+
 	mux := http.NewServeMux()
 
 	// Статический фронтенд личного кабинета бухгалтера
@@ -256,6 +270,9 @@ func main() {
 	mux.HandleFunc("/api/companies", authMiddleware(handleCompanies))
 	mux.HandleFunc("/api/catalog", authMiddleware(handleCatalog))
 	mux.HandleFunc("/api/parse", authMiddleware(handleParse))
+	mux.HandleFunc("/api/parser/presets", authMiddleware(handlePromptPresets))
+	mux.HandleFunc("/api/parser/default-prompt", authMiddleware(handleDefaultPrompt))
+
 	mux.HandleFunc("/api/import", authMiddleware(handleImport))
 	mux.HandleFunc("/api/templates/save", authMiddleware(handleSaveTemplateProxy))
 	mux.HandleFunc("/api/unlisted-operations", authMiddleware(handleGetUnlistedOperations))
@@ -626,7 +643,8 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 		os.Remove(filePath)
 	}
 
-	aiData, err := parseWithClaude(string(textBytes), imagesBase64)
+	customPrompt := strings.TrimSpace(r.FormValue("prompt"))
+	aiData, err := parseWithClaude(string(textBytes), imagesBase64, customPrompt)
 	if err != nil {
 		http.Error(w, "Сбой распознавания AI: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1461,8 +1479,12 @@ func fetchIikoSuppliers(host, token string) ([]IikoSupplier, error) {
 // НЕЙРОСЕТЕВОЙ ПАРСИНГ AI (ПРОМПТ И ИНТЕГРАЦИЯ)
 // ============================================================================
 
-func parseWithClaude(text string, imagesBase64 []string) (*AiResponse, error) {
-	prompt := `Ты — автоматический парсер накладных. Твоя задача: найти поставщика, получателя (грузополучателя), номер документа (УПД/ТОРГ-12) и все товары.
+func parseWithClaude(text string, imagesBase64 []string, customPrompt string) (*AiResponse, error) {
+	prompt := customPrompt
+	if strings.TrimSpace(prompt) == "" {
+		prompt = defaultParserPrompt
+	}
+	_ = `Ты — автоматический парсер накладных. Твоя задача: найти поставщика, получателя (грузополучателя), номер документа (УПД/ТОРГ-12) и все товары.
 ОЧЕНЬ ВАЖНО: В названиях часто указана сложная фасовка (коробки, упаковки, граммы). Тебе нужно вычислить коэффициент перевода в базовые единицы (кг, литры или штуки) и вернуть его в поле ai_multiplier.
 
 Правила расчета параметров:
@@ -1532,12 +1554,6 @@ func parseWithClaude(text string, imagesBase64 []string) (*AiResponse, error) {
 ВНИМАНИЕ: ТЕБЕ МОЖЕТ БЫТЬ ПЕРЕДАНО СРАЗУ НЕСКОЛЬКО ИЗОБРАЖЕНИЙ (ИЛИ СТРАНИЦ ТЕКСТА). ЭТО ВСЁ СТРАНИЦЫ ОДНОЙ И ТОЙ ЖЕ НАКЛАДНОЙ. ТЫ ОБЯЗАН ВНИМАТЕЛЬНО ИЗУЧИТЬ АБСОЛЮТНО ВСЕ ПЕРЕДАННЫЕ ИЗОБРАЖЕНИЯ И ИЗВЛЕЧЬ ТОВАРЫ СО ВСЕХ СТРАНИЦ, ОБЪЕДИНИВ ИХ В ОДИН ОБЩИЙ СПИСОК (МАССИВ items)!
 
 КРИТИЧЕСКИ ВАЖНО: Если ты видишь фразы «Итого по странице», «Промежуточный итог» или промежуточные суммы — ИГНОРИРУЙ ИХ! Это не конец накладной! Продолжай парсить товары со следующих страниц.
-
-22. СКЛЕЙКА МНОГОСТРАНИЧНЫХ НАКЛАДНЫХ (КРИТИЧЕСКИ ВАЖНО):
-    - Обрати внимание на столбец "№" (Номер по порядку) в таблице товаров.
-    - На первой странице (первом изображении) товары могут идти с №1 по №17.
-    - На второй странице нумерация продолжится (например, с №18 и дальше).
-    - Твоя задача: найти ВСЕ страницы, проследить эту нумерацию и объединить абсолютно все позиции со всех страниц в единый массив items. Ни в коем случае не останавливайся на первой странице! Все переданные изображения — это части одного документа.
 
 Верни строго только JSON-объект без markdown и без пояснений:
 {
@@ -1685,4 +1701,302 @@ func parseWithClaude(text string, imagesBase64 []string) (*AiResponse, error) {
 	}
 
 	return &aiResp, nil
+}
+
+// ============================================================================
+// ПРЕСЕТЫ СИСТЕМНЫХ ПРОМПТОВ ДЛЯ НЕЙРОСЕТИ
+// ============================================================================
+
+const defaultParserPrompt = `Ты — автоматический парсер накладных. Твоя задача: найти поставщика, получателя (грузополучателя), номер документа (УПД/ТОРГ-12) и все товары.
+ОЧЕНЬ ВАЖНО: В названиях часто указана сложная фасовка (коробки, упаковки, граммы). Тебе нужно вычислить коэффициент перевода в базовые единицы (кг, литры или штуки) и вернуть его в поле ai_multiplier.
+
+Правила расчета параметров:
+1. ОСОБОЕ ПРАВИЛО ДЛЯ КОНСЕРВОВ (кукуруза, ананасы, горошек, оливки и т.д.):
+   - В консервах часто пишут три значения: общий объем (мл), вес нетто (гр) и сухой вес без рассола (сух/сух./сухой).
+   - Если единица измерения в накладной - "шт" (штуки, банки), а базовый учет в iiko всегда в КГ, то коэффициентом перевода (ai_multiplier) должен быть чистый СУХОЙ ВЕС (сух) одной банки в килограммах.
+   - Например: "Кукуруза консервир. об425мл-н340гр-сух272гр кор1-12" -> пришел товар в "шт". Чистый вес кукурузы без жижи 272гр. Значит ai_multiplier = 0.272. Игнорируй "кор1-12", так как товар пришел в банках (шт), а не коробках.
+   - Если сухого веса "сух" в названии нет, бери вес нетто в кг (н/нетто). Например: "Томаты нетто 400гр" -> ai_multiplier = 0.4.
+
+2. Если указаны граммы для обычных весовых товаров (500 гр, 454гр, 800гр), переведи в кг -> 0.5, 0.454, 0.8.
+3. Если указаны литры или килограммы в штучном товаре (Масло 5л, Соус 5.4 кг) -> 5.0, 5.4.
+4. ПРАВИЛО РАЗЛИЧИЯ УПАКОВОК И КОРОБОК (КРИТИЧЕСКИ ВАЖНО):
+   - Четко различай единицы измерения в накладной: коробка (кор, короб, ящ) и упаковка/пачка/штука (уп, упак, шт, пакет).
+   - Если единица измерения в накладной указана как "уп", "упак", "шт" или "пакет", а в названии товара есть фасовка вида "1,5кг кор1-6" — это означает, что товар пришел в индивидуальных упаковках (пачках) по 1,5 кг, а не целыми коробками. В этом случае коэффициент ai_multiplier должен быть равен строго весу одной пачки в кг (т.е. 1.5). НЕ умножай на количество в коробке (6).
+   - Умножать количество в коробке на вес пачки нужно ТОЛЬКО тогда, когда единица измерения в самой накладной явно указана как "кор", "коробка" или "ящ".
+5. Если товар УЖЕ пришел в весовых единицах (кг, л) и количество дробное (например 3.412 кг), то ai_multiplier = 1.0.
+6. Название товара копируй ПОЛНОСТЬЮ, как в документе.
+
+7. СТАВКА НДС (nds_percent):
+   Найди для каждой позиции ставку НДС в процентах и верни числом (обычно это 20.0, 10.0 или 0.0). Если указано "без НДС", "0%", "без налога" или поле пустое — возвращай 0.0.
+
+8. ЦЕНА (price) и СУММА (sum):
+   Обязательно выгружай цену и итоговую сумму С УЧЕТОМ НДС (Всего с НДС / Сумма к оплате). Это критически важно!
+
+9. Грузополучатель (consignee) и Грузоотправитель (shipper):
+   - shipper: Ищи поле "Грузоотправитель и его адрес". Запиши в максимально полном виде.
+   - consignee: Ищи поле "Грузополучатель и его адрес" или "Покупатель". Запиши в максимально полном виде.
+
+10. ПРАВИЛО ДЛЯ ЛИСТОВЫХ ТОВАРОВ (Нори и т.д.):
+    - Если в названии указано количество листов в пачке (нори 100л), а ед. измерения 'шт', то ai_multiplier = 100.0.
+
+11. ПРАВИЛО ДЛЯ ИНТЕРВАЛЬНЫХ ОБЪЕМОВ И ВЕСОВ:
+    - Всегда берите строго верхнюю (максимальную) границу интервала (для 470-505гр -> 0.505).
+
+12. ПОДПИСЬ К ФАСОВКЕ ai_tip (ТЕКСТОВАЯ ПОДСКАЗКА ДЛЯ ЧЕЛОВЕКА):
+    Разложи детально в текстовом виде фасовку (например: "1 шт = 5 л").
+
+13. ДАТА ДОКУМЕНТА (doc_date):
+    Найди дату составления документа и приведи её к формату YYYY-MM-DD.
+
+14. СУММА БЕЗ НАЛОГА (sum_without_nds):
+    Найди стоимость товаров без налога (колонка 5).
+
+15. ПРАВИЛО ДЛЯ ЧАЯ В ПАКЕТИКАХ:
+    - ai_multiplier равен количеству пакетиков в упаковке (20.0, 100.0).
+
+16. ПРАВИЛО ДЛЯ ЛИСТА БАМБУКА:
+    - ai_multiplier = 100.0.
+
+17. ПРАВИЛО ДЛЯ ГРИБОВ ШИМИДЖИ/ШИМЕДЖИ:
+    - ai_multiplier = 0.15 (150 грамм).
+
+18. ПРАВИЛО КОЛОНОК УПД И КОДОВ ОКЕИ (КРИТИЧЕСКИ ВАЖНО):
+    - В таблице УПД перед количеством ВСЕГДА идет колонка 2 "Код единицы измерения" (коды 796, 778, 166, 112).
+    - 796 — это код штуки (шт)! 778 — код упаковки (упак)! 166 — код кг!
+    - КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО брать числа 796, 778, 166, 112 в качестве количества товара (quantity)!
+    - Настоящее количество (quantity) ВСЕГДА находится в колонке 3 "Количество (объем)" (1.000, 2.000, 6.000, 12.000).
+    - Сумму с налогом (sum) бери из графы 9.
+
+19. Чистая категория (для аналитики рынка):
+    - Выдели чистую категорию товара (clean_category). ВНИМАНИЕ: Категория ДОЛЖНА БЫТЬ СТРОГО одной из следующего списка: "Мясо и птица", "Рыба и морепродукты", "Овощи и фрукты", "Молочные продукты", "Бакалея", "Консервы", "Напитки", "Хозяйственные товары", "Прочее". Если товар не подходит ни под одну, пиши "Без категории".
+    - Выведи бренд или производителя (brand), если он есть в названии (пример: "Мираторг", "Hochland", "Borealis"). Если бренда нет, оставь пустую строку "".
+
+20. Игнорируй пометки ручкой, закорючки и прочий визуальный шум на сканах или фото.
+21. Если документ обрезан или является только частью накладной (например, нет итоговой суммы), просто извлеки те товары, которые видны на изображении.
+
+ВНИМАНИЕ: ТЕБЕ МОЖЕТ БЫТЬ ПЕРЕДАНО СРАЗУ НЕСКОЛЬКО ИЗОБРАЖЕНИЙ (ИЛИ СТРАНИЦ ТЕКСТА). ЭТО ВСЁ СТРАНИЦЫ ОДНОЙ И ТОЙ ЖЕ НАКЛАДНОЙ. ТЫ ОБЯЗАН ВНИМАТЕЛЬНО ИЗУЧИТЬ АБСОЛЮТНО ВСЕ ПЕРЕДАННЫЕ ИЗОБРАЖЕНИЯ И ИЗВЛЕЧЬ ТОВАРЫ СО ВСЕХ СТРАНИЦ, ОБЪЕДИНИВ ИХ В ОДИН ОБЩИЙ СПИСОК (МАССИВ items)!
+
+КРИТИЧЕСКИ ВАЖНО: Если ты видишь фразы «Итого по странице», «Промежуточный итог» или промежуточные суммы — ИГНОРИРУЙ ИХ! Это не конец накладной! Продолжай парсить товары со следующих страниц.
+
+Верни строго только JSON-объект без markdown и без пояснений:
+{
+  "vendor_name": "Название поставщика",
+  "doc_number": "Номер документа",
+  "doc_date": "YYYY-MM-DD",
+  "consignee": "Грузополучатель и его адрес или Покупатель",
+  "shipper": "Грузоотправитель и его адрес",
+  "items": [
+    {"name": "Название полностью", "clean_category": "Картофель фри", "brand": "Фритто Аппетито", "quantity": 10.0, "price": 120.0, "sum": 1200.0, "sum_without_nds": 1000.0, "nds_percent": 20.0, "ai_multiplier": 0.55, "ai_tip": "1 шт = 550г"}
+  ]
+}`
+
+const multiPageParserPrompt = `Ты — автоматический парсер многостраничных накладных (фотографий и сканов).
+Твоя ключевая задача: объединить товары со всех страниц документа в один единый сквозной список.
+
+ОСОБЫЕ ПРАВИЛА ДЛЯ МНОГОСТРАНИЧНЫХ ДОКУМЕНТОВ:
+1. Тебе передано несколько страниц одного и того же документа.
+2. Игнорируй промежуточные итоги («Итого по листу», «Всего по странице», «Сумма страницы»). Это промежуточные значения, не завершай на них разбор!
+3. Извлеки все строки товаров с первой страницы, затем со второй страницы, с третьей и так далее, собрав их все в один массив items.
+4. Поставщика, дату и номер документа бери из шапки накладной (обычно лист 1).
+5. Грузополучателя и грузоотправителя определяй полностью.
+6. Вычисляй коэффициент ai_multiplier (перевод в базовые кг/л/шт) по наименованию и фасовке.
+7. Цену и сумму всегда бери с учетом НДС.
+
+Верни строго только JSON-объект без markdown:
+{
+  "vendor_name": "Название поставщика",
+  "doc_number": "Номер документа",
+  "doc_date": "YYYY-MM-DD",
+  "consignee": "Грузополучатель",
+  "shipper": "Грузоотправитель",
+  "items": [
+    {"name": "Название товара", "clean_category": "Категория", "brand": "", "quantity": 1.0, "price": 100.0, "sum": 100.0, "sum_without_nds": 100.0, "nds_percent": 20.0, "ai_multiplier": 1.0, "ai_tip": ""}
+  ]
+}`
+
+const receiptParserPrompt = `Ты — специализированный парсер кассовых и товарных чеков, рукописных квитанций и счетов самозанятых.
+Твоя задача: найти название продавца/магазина, дату, номер чека и список всех приобретенных позиций.
+
+ПРАВИЛА ДЛЯ ЧЕКОВ И ПРОСТЫХ КВИТАНЦИЙ:
+1. В чеках обычно нет колонок УПД и кодов ОКЕИ. Извлекай наименование позиции, количество, цену за единицу и общую стоимость покупки.
+2. Если в чеке нет НДС или написано «без налога / НДС не облагается», ставь nds_percent = 0.0.
+3. Поле shipper оставь пустым или укажи адрес магазина/продавца, если он есть.
+4. Поле consignee оставь пустым (для розничных чеков).
+5. Выдели категорию товара clean_category ("Мясо и птица", "Рыба и морепродукты", "Овощи и фрукты", "Молочные продукты", "Бакалея", "Консервы", "Напитки", "Хозяйственные товары", "Прочее").
+
+Верни строго только JSON-объект без markdown:
+{
+  "vendor_name": "Магазин / Поставщик",
+  "doc_number": "Номер чека / документа",
+  "doc_date": "YYYY-MM-DD",
+  "consignee": "",
+  "shipper": "",
+  "items": [
+    {"name": "Товар", "clean_category": "Бакалея", "brand": "", "quantity": 1.0, "price": 50.0, "sum": 50.0, "sum_without_nds": 50.0, "nds_percent": 0.0, "ai_multiplier": 1.0, "ai_tip": ""}
+  ]
+}`
+
+func initPromptPresets() {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS parser_prompt_presets (
+			id SERIAL PRIMARY KEY,
+			company_id INT NOT NULL DEFAULT 0,
+			name VARCHAR(255) NOT NULL,
+			description TEXT DEFAULT '',
+			prompt TEXT NOT NULL,
+			is_default BOOLEAN DEFAULT FALSE,
+			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+		);
+		CREATE INDEX IF NOT EXISTS idx_prompt_presets_comp ON parser_prompt_presets(company_id);
+	`)
+	if err != nil {
+		log.Printf("⚠️ Ошибка создания таблицы parser_prompt_presets: %v", err)
+		return
+	}
+
+	var count int
+	_ = db.QueryRow("SELECT COUNT(*) FROM parser_prompt_presets WHERE is_default = TRUE").Scan(&count)
+	if count == 0 {
+		_, err = db.Exec(`
+			INSERT INTO parser_prompt_presets (company_id, name, description, prompt, is_default)
+			VALUES 
+			(0, 'Стандартный (УПД / ТОРГ-12)', 'Основной шаблон для типовых накладных с детальным расчетом фасовок и коэффициентов.', $1, TRUE),
+			(0, 'Многостраничная накладная (фото / сканы)', 'Оптимизирован для накладных на нескольких листах, игнорирует промежуточные итоги по страницам.', $2, TRUE),
+			(0, 'Товарный чек / Простая квитанция', 'Упрощенный шаблон для чеков, рыночных квитанций и самозанятых без колонок УПД.', $3, TRUE)
+		`, defaultParserPrompt, multiPageParserPrompt, receiptParserPrompt)
+		if err != nil {
+			log.Printf("⚠️ Ошибка засеивания пресетов: %v", err)
+		} else {
+			log.Println("✅ Базовые пресеты промптов успешно инициализированы")
+		}
+	}
+}
+
+func handlePromptPresets(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		companyIDStr := r.URL.Query().Get("company_id")
+		companyID, _ := strconv.Atoi(companyIDStr)
+
+		rows, err := db.Query(`
+			SELECT id, company_id, name, description, prompt, is_default, created_at, updated_at
+			FROM parser_prompt_presets
+			WHERE company_id = 0 OR company_id = $1
+			ORDER BY is_default DESC, id ASC
+		`, companyID)
+		if err != nil {
+			http.Error(w, "Ошибка выборки пресетов: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var presets []PromptPreset
+		for rows.Next() {
+			var p PromptPreset
+			if err := rows.Scan(&p.ID, &p.CompanyID, &p.Name, &p.Description, &p.Prompt, &p.IsDefault, &p.CreatedAt, &p.UpdatedAt); err == nil {
+				presets = append(presets, p)
+			}
+		}
+		if presets == nil {
+			presets = []PromptPreset{}
+		}
+		json.NewEncoder(w).Encode(presets)
+
+	case http.MethodPost:
+		var req struct {
+			ID          int    `json:"id"`
+			CompanyID   int    `json:"company_id"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Prompt      string `json:"prompt"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Некорректный JSON", http.StatusBadRequest)
+			return
+		}
+		req.Name = strings.TrimSpace(req.Name)
+		req.Prompt = strings.TrimSpace(req.Prompt)
+		if req.Name == "" || req.Prompt == "" {
+			http.Error(w, "Название и текст промпта обязательны", http.StatusBadRequest)
+			return
+		}
+
+		if req.ID > 0 {
+			var isDef bool
+			_ = db.QueryRow("SELECT is_default FROM parser_prompt_presets WHERE id = $1", req.ID).Scan(&isDef)
+			if isDef {
+				var newID int
+				err := db.QueryRow(`
+					INSERT INTO parser_prompt_presets (company_id, name, description, prompt, is_default)
+					VALUES ($1, $2, $3, $4, FALSE)
+					RETURNING id
+				`, req.CompanyID, req.Name+" (Копия)", req.Description, req.Prompt).Scan(&newID)
+				if err != nil {
+					http.Error(w, "Ошибка сохранения копии пресета: "+err.Error(), http.StatusInternalServerError)
+					return
+				}
+				json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "id": newID, "is_copy": true})
+				return
+			}
+
+			_, err := db.Exec(`
+				UPDATE parser_prompt_presets
+				SET name = $1, description = $2, prompt = $3, updated_at = NOW()
+				WHERE id = $4 AND is_default = FALSE
+			`, req.Name, req.Description, req.Prompt, req.ID)
+			if err != nil {
+				http.Error(w, "Ошибка обновления пресета: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "id": req.ID})
+		} else {
+			var newID int
+			err := db.QueryRow(`
+				INSERT INTO parser_prompt_presets (company_id, name, description, prompt, is_default)
+				VALUES ($1, $2, $3, $4, FALSE)
+				RETURNING id
+			`, req.CompanyID, req.Name, req.Description, req.Prompt).Scan(&newID)
+			if err != nil {
+				http.Error(w, "Ошибка создания пресета: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "id": newID})
+		}
+
+	case http.MethodDelete:
+		idStr := r.URL.Query().Get("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil || id <= 0 {
+			http.Error(w, "Некорректный ID пресета", http.StatusBadRequest)
+			return
+		}
+		res, err := db.Exec("DELETE FROM parser_prompt_presets WHERE id = $1 AND is_default = FALSE", id)
+		if err != nil {
+			http.Error(w, "Ошибка удаления: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			http.Error(w, "Пресет не найден или является системным базовым шаблоном", http.StatusBadRequest)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+
+	default:
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+	}
+}
+
+func handleDefaultPrompt(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Только GET метод", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"prompt": defaultParserPrompt,
+	})
 }
