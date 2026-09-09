@@ -76,10 +76,19 @@ func (h *Handler) getUserID(r *http.Request) int {
 	}
 
 	// Fallback для незащищенных маршрутов (онбординг / создание первого бизнеса)
-	tID, _ := strconv.ParseInt(r.Header.Get("X-Telegram-ID"), 10, 64)
-	if tID != 0 {
-		if user, err := h.authService.GetUserByTgID(tID); err == nil && user != nil {
-			return user.ID
+	tokenStr := strings.TrimSpace(r.Header.Get("X-Telegram-ID"))
+	if tokenStr == "" {
+		tokenStr = strings.TrimSpace(r.URL.Query().Get("tg_id"))
+	}
+	if tokenStr != "" {
+		tgID := middleware.VerifySignedToken(tokenStr, h.botToken)
+		if tgID == 0 {
+			tgID, _ = strconv.ParseInt(tokenStr, 10, 64)
+		}
+		if tgID != 0 {
+			if user, err := h.authService.GetUserByTgID(tgID); err == nil && user != nil {
+				return user.ID
+			}
 		}
 	}
 	return 0
@@ -169,6 +178,7 @@ func (h *Handler) AuthHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	res.Token = middleware.GenerateSignedToken(tgID, h.botToken)
 
 	respondJSON(w, http.StatusOK, res)
 }

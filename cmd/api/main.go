@@ -100,7 +100,7 @@ func main() {
 	// ЗАЩИЩЕННЫЕ МАРШРУТЫ API (AuthMiddleware)
 	// ==========================================
 	protected := api.PathPrefix("/").Subrouter()
-	protected.Use(middleware.AuthMiddleware(repo))
+	protected.Use(middleware.AuthMiddleware(repo, cfg.BotToken))
 
 	// Управление компанией и командой
 	protected.HandleFunc("/invite-code", h.GetInviteCodeHandler).Methods("GET")

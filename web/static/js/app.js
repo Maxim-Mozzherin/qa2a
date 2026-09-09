@@ -181,7 +181,7 @@ async function initApp() {
 
         const data = await res.json();
         currentUser = data.user;
-        userToken = currentUser.tg_id;
+        userToken = data.token || currentUser.tg_id;
         allMemberships = data.memberships || [];
 
         if (allMemberships.length === 0) {

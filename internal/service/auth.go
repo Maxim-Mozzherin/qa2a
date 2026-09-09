@@ -27,6 +27,7 @@ func NewAuthService(repo *repository.Repository) *AuthService {
 type AuthResponse struct {
 	User        *models.User        `json:"user"`
 	Memberships []models.Membership `json:"memberships"`
+	Token       string              `json:"token"`
 }
 
 // LoginOrRegister авторизует пользователя Telegram или регистрирует его при первом входе.
