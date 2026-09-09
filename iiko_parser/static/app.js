@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // ГЛОБАЛЬНЫЕ СЕЛЕКТОРЫ И СОСТОЯНИЕ ПРИЛОЖЕНИЯ
 // ============================================================================
 
@@ -43,6 +43,21 @@ const els = {
     tbodyAnalytics: document.getElementById('analytics-tbody'),
     analyticsSearch: document.getElementById('analytics-search'),
     analyticsDays: document.getElementById('analytics-days'),
+
+    promptPresetSelect: document.getElementById('prompt-preset-select'),
+    btnOpenPromptModal: document.getElementById('btn-open-prompt-modal'),
+    promptModal: document.getElementById('prompt-modal'),
+    btnClosePromptModal: document.getElementById('btn-close-prompt-modal'),
+    modalPresetSelect: document.getElementById('modal-preset-select'),
+    modalPresetName: document.getElementById('modal-preset-name'),
+    btnNewPreset: document.getElementById('btn-new-preset'),
+    btnDeletePreset: document.getElementById('btn-delete-preset'),
+    btnResetDefaultPrompt: document.getElementById('btn-reset-default-prompt'),
+    modalPromptTextarea: document.getElementById('modal-prompt-textarea'),
+    promptCharCount: document.getElementById('prompt-char-count'),
+    presetBadge: document.getElementById('preset-badge'),
+    btnCancelPromptModal: document.getElementById('btn-cancel-prompt-modal'),
+    btnSavePreset: document.getElementById('btn-save-preset'),
 };
 
 let iikoCatalog = [];
@@ -55,7 +70,6 @@ let analyticsCache = []; // Кэш для аналитики цен
 // ============================================================================
 // 1. АВТОРИЗАЦИЯ И УПРАВЛЕНИЕ СЕССИЕЙ БУХГАЛТЕРА
 // ============================================================================
-
 function getAuthToken() {
     return localStorage.getItem('bugh_token') || "";
 }
@@ -1706,3 +1720,4 @@ if (els.btnResetDefaultPrompt) {
 if (els.modalPromptTextarea) {
     els.modalPromptTextarea.addEventListener('input', updatePromptCharCount);
 }
+

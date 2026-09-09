@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru" class="h-full bg-[#090d16]">
 <head>
     <meta charset="UTF-8">
@@ -455,7 +455,7 @@
             </div>
 
             <!-- Верхняя панель: выбор пресета, создание нового, удаление -->
-            <div class="grid grid-cols-1 md:grid-cols-12 gap-3 mb-4 items-center bg-[#090d16] p-3 rounded-xl border border-slate-800/80">
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-3 mb-4 items-end bg-[#090d16] p-3 rounded-xl border border-slate-800/80">
                 <div class="md:col-span-4">
                     <label class="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Выбранный пресет</label>
                     <select id="modal-preset-select" class="w-full bg-[#111827] border border-slate-800 text-white rounded-xl px-3 py-2 text-xs outline-none focus:border-brand-500">
@@ -465,7 +465,7 @@
                     <label class="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Название пресета</label>
                     <input type="text" id="modal-preset-name" class="w-full bg-[#111827] border border-slate-800 text-white rounded-xl px-3 py-2 text-xs outline-none focus:border-brand-500" placeholder="Например: Поставщик Мясоторг">
                 </div>
-                <div class="md:col-span-3 flex items-end gap-2 pt-4 md:pt-0">
+                <div class="md:col-span-3 flex gap-2 pt-4 md:pt-0">
                     <button id="btn-new-preset" type="button" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold py-2 px-3 rounded-xl transition-all-300 border border-slate-700">
                         + Новый
                     </button>
@@ -512,6 +512,14 @@
         </div>
     </div>
 
-    <script src="app.js?v=9.2"></script>
+        <script src="js/state.js?v=10.0"></script>
+    <script src="js/auth.js?v=10.0"></script>
+    <script src="js/ui.js?v=10.0"></script>
+    <script src="js/parser.js?v=10.0"></script>
+    <script src="js/analytics.js?v=10.0"></script>
+    <script src="js/templates.js?v=10.0"></script>
+    <script src="js/presets.js?v=10.0"></script>
+    <script src="js/main.js?v=10.0"></script>
 </body>
 </html>
+
