@@ -13,6 +13,8 @@ import (
 
 	"qa2a/internal/models"
 	"qa2a/internal/repository"
+
+	"github.com/gorilla/mux"
 )
 
 type contextKey string
@@ -45,17 +47,9 @@ func GetUser(ctx context.Context) *models.User {
 	return nil
 }
 
-// GenerateSignedToken генерирует токен формата "tgID:hex_signature" на основе secret.
-func GenerateSignedToken(tgID int64, secret string) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(fmt.Sprintf("%d", tgID)))
-	sig := hex.EncodeToString(mac.Sum(nil))
-	return fmt.Sprintf("%d:%s", tgID, sig)
-}
-
-// VerifySignedToken извлекает и верифицирует tgID из подписанного токена.
+// verifySignedToken извлекает и верифицирует tgID из подписанного токена.
 // Токен имеет формат "tgID:hex_signature".
-func VerifySignedToken(token, secret string) int64 {
+func VerifySignedTokenExported(token, secret string) int64 {
 	parts := strings.Split(token, ":")
 	if len(parts) != 2 {
 		return 0
@@ -70,12 +64,12 @@ func VerifySignedToken(token, secret string) int64 {
 	expectedSig := hex.EncodeToString(mac.Sum(nil))
 
 	if parts[1] != expectedSig {
-		return 0
+		return 0 // Подпись не совпадает (токен подделан)
 	}
 	return tgID
 }
 
-// AuthMiddleware проверяет Telegram ID пользователя через криптографически подписанный токен.
+// AuthMiddleware проверяет криптографически подписанный токен пользователя через заголовок или GET-параметр.
 func AuthMiddleware(repo *repository.Repository, botToken string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +93,7 @@ func AuthMiddleware(repo *repository.Repository, botToken string) func(http.Hand
 			}
 
 			// 3. Верифицируем криптографическую подпись токена
-			tgID := VerifySignedToken(tokenStr, botToken)
+			tgID := VerifySignedTokenExported(tokenStr, botToken)
 			if tgID <= 0 {
 				sendUnauthorizedResponse(w, "Недействительный или поддельный токен авторизации")
 				return
@@ -129,4 +123,71 @@ func sendUnauthorizedResponse(w http.ResponseWriter, message string) {
 		"error":   "Unauthorized",
 		"message": message,
 	})
+}
+
+// SupplierAuthMiddleware checks if user is in marketplace_supplier_users
+func SupplierAuthMiddleware(botToken string, checkSupplier func(int64) int) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodOptions {
+				next.ServeHTTP(w, r)
+				return
+			}
+			tokenStr := strings.TrimSpace(r.Header.Get("X-Telegram-ID"))
+			if tokenStr == "" {
+				tokenStr = strings.TrimSpace(r.URL.Query().Get("tg_id"))
+			}
+			if tokenStr == "" {
+				sendUnauthorizedResponse(w, "No telegram token")
+				return
+			}
+			tgID := VerifySignedTokenExported(tokenStr, botToken)
+			if tgID <= 0 {
+				sendUnauthorizedResponse(w, "Invalid telegram token")
+				return
+			}
+			supplierID := checkSupplier(tgID)
+			if supplierID <= 0 {
+				sendUnauthorizedResponse(w, "Not a supplier")
+				return
+			}
+			// Use contextKey to avoid collisions
+			ctx := context.WithValue(r.Context(), "supplier_id", supplierID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+func AccountantAuthMiddleware(botToken string, getFirmID func(tgID int64) int) mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "OPTIONS" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			tokenStr := strings.TrimSpace(r.Header.Get("X-Telegram-ID"))
+
+			if tokenStr == "" {
+				http.Error(w, "{\"error\":\"Unauthorized\"}", http.StatusUnauthorized)
+				return
+			}
+
+			tgID := VerifySignedTokenExported(tokenStr, botToken)
+			if tgID <= 0 {
+				http.Error(w, "{\"error\":\"Unauthorized\"}", http.StatusUnauthorized)
+				return
+			}
+			firmID := getFirmID(tgID)
+
+			if firmID == 0 {
+				http.Error(w, "{\"error\":\"Unauthorized\"}", http.StatusUnauthorized)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), "firm_id", firmID)
+			ctx = context.WithValue(ctx, "tg_id", tgID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }

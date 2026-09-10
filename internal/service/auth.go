@@ -27,7 +27,7 @@ func NewAuthService(repo *repository.Repository) *AuthService {
 type AuthResponse struct {
 	User        *models.User        `json:"user"`
 	Memberships []models.Membership `json:"memberships"`
-	Token       string              `json:"token"`
+	IsSupplier  bool                `json:"is_supplier"`
 }
 
 // LoginOrRegister авторизует пользователя Telegram или регистрирует его при первом входе.
@@ -52,10 +52,20 @@ func (s *AuthService) LoginOrRegister(tgID int64, username, fullName string) (*A
 		return nil, fmt.Errorf("ошибка получения списка компаний пользователя: %w", err)
 	}
 
+	
+	var isSupplier bool
+	var count int
+	s.repo.GetDb().QueryRow("SELECT COUNT(*) FROM marketplace_supplier_users WHERE tg_id = $1", tgID).Scan(&count)
+	if count > 0 {
+		isSupplier = true
+	}
+
 	return &AuthResponse{
 		User:        user,
 		Memberships: memberships,
+		IsSupplier:  isSupplier,
 	}, nil
+
 }
 
 // CreateCompany регистрирует новое заведение, генерирует код доступа, создает базовый склад
@@ -207,4 +217,3 @@ func (s *AuthService) RemoveMember(companyID, actorID, targetUserID int) error {
 	log.Printf("[auth] ❌ Удаление сотрудника ID:%d из компании #%d инициатором ID:%d", targetUserID, companyID, actorID)
 	return s.repo.RemoveMember(companyID, targetUserID)
 }
-

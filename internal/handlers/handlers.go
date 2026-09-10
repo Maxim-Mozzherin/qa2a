@@ -1,12 +1,16 @@
 package handlers
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -24,18 +28,91 @@ type Handler struct {
 	inventoryService *service.InventoryService
 	reportService    *service.ReportService
 	iikoService      *service.IikoService
+	marketplaceService *service.MarketplaceService
+	accountantService *service.AccountantService
 	botToken         string
 }
 
 // New создает новый экземпляр HTTP-обработчика.
-func New(as *service.AuthService, is *service.InventoryService, rs *service.ReportService, iikoSvc *service.IikoService, t string) *Handler {
+func New(as *service.AuthService, is *service.InventoryService, rs *service.ReportService, iikoSvc *service.IikoService, ms *service.MarketplaceService, accSvc *service.AccountantService, t string) *Handler {
 	return &Handler{
 		authService:      as,
 		inventoryService: is,
 		reportService:    rs,
 		iikoService:      iikoSvc,
+		marketplaceService: ms,
+		accountantService: accSvc,
 		botToken:         t,
 	}
+}
+
+// ============================================================================
+// БЕЗОПАСНОСТЬ И КРИПТОГРАФИЯ (TELEGRAM WEBAPP)
+// ============================================================================
+
+// validateTelegramData проверяет валидность данных, пришедших от Telegram Mini App,
+// с использованием HMAC-SHA256 и токена бота, исключая возможность подделки tg_id.
+func validateTelegramData(initData, botToken string) bool {
+	if botToken == "" {
+		return false
+	}
+
+	parsed, err := url.ParseQuery(initData)
+	if err != nil {
+		return false
+	}
+
+	var hash string
+	var dataCheckArr []string
+
+	for k, v := range parsed {
+		if k == "hash" {
+			hash = v[0]
+			continue
+		}
+		dataCheckArr = append(dataCheckArr, fmt.Sprintf("%s=%s", k, v[0]))
+	}
+
+	if hash == "" {
+		return false
+	}
+
+	sort.Strings(dataCheckArr)
+	dataCheckString := strings.Join(dataCheckArr, "\n")
+
+	secretKey := hmac.New(sha256.New, []byte("WebAppData"))
+	secretKey.Write([]byte(botToken))
+
+	mac := hmac.New(sha256.New, secretKey.Sum(nil))
+	mac.Write([]byte(dataCheckString))
+	expectedHash := hex.EncodeToString(mac.Sum(nil))
+
+	return hash == expectedHash
+}
+
+// generateSignedToken создает криптографически подписанный токен для заголовков API
+func generateSignedToken(tgID int64, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(fmt.Sprintf("%d", tgID)))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	return fmt.Sprintf("%d:%s", tgID, sig)
+}
+
+// verifySignedToken извлекает и верифицирует tgID из подписанного токена
+func verifySignedToken(token, secret string) int64 {
+	parts := strings.Split(token, ":")
+	if len(parts) != 2 {
+		return 0
+	}
+	tgID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0
+	}
+	expected := generateSignedToken(tgID, secret)
+	if token != expected {
+		return 0
+	}
+	return tgID
 }
 
 // ============================================================================
@@ -76,19 +153,10 @@ func (h *Handler) getUserID(r *http.Request) int {
 	}
 
 	// Fallback для незащищенных маршрутов (онбординг / создание первого бизнеса)
-	tokenStr := strings.TrimSpace(r.Header.Get("X-Telegram-ID"))
-	if tokenStr == "" {
-		tokenStr = strings.TrimSpace(r.URL.Query().Get("tg_id"))
-	}
-	if tokenStr != "" {
-		tgID := middleware.VerifySignedToken(tokenStr, h.botToken)
-		if tgID == 0 {
-			tgID, _ = strconv.ParseInt(tokenStr, 10, 64)
-		}
-		if tgID != 0 {
-			if user, err := h.authService.GetUserByTgID(tgID); err == nil && user != nil {
-				return user.ID
-			}
+	tIDStr := r.Header.Get("X-Telegram-ID")
+	if tID := verifySignedToken(tIDStr, h.botToken); tID != 0 {
+		if user, err := h.authService.GetUserByTgID(tID); err == nil && user != nil {
+			return user.ID
 		}
 	}
 	return 0
@@ -142,6 +210,12 @@ func (h *Handler) AuthHandler(w http.ResponseWriter, r *http.Request) {
 	var name = "Пользователь"
 
 	if req.InitData != "" {
+		// КРИТИЧЕСКАЯ ЗАЩИТА: проверяем подпись Telegram перед доверием данным
+		if !validateTelegramData(req.InitData, h.botToken) {
+			respondError(w, http.StatusUnauthorized, "Недействительная подпись авторизации Telegram")
+			return
+		}
+
 		params, _ := url.ParseQuery(req.InitData)
 		userJSON := params.Get("user")
 		if userJSON != "" {
@@ -163,6 +237,7 @@ func (h *Handler) AuthHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else if req.DemoID > 0 {
+		// Для локального демо-режима, если необходимо
 		tgID = req.DemoID
 		name = req.DemoName
 		username = "demo_user"
@@ -178,9 +253,19 @@ func (h *Handler) AuthHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	res.Token = middleware.GenerateSignedToken(tgID, h.botToken)
 
-	respondJSON(w, http.StatusOK, res)
+	// Генерируем подписанный токен для последующих защищенных запросов
+	token := generateSignedToken(tgID, h.botToken)
+
+	responseWithToken := struct {
+		*service.AuthResponse
+		Token string `json:"token"`
+	}{
+		AuthResponse: res,
+		Token:        token,
+	}
+
+	respondJSON(w, http.StatusOK, responseWithToken)
 }
 
 // JoinCompanyHandler обрабатывает вступление сотрудника в заведение по инвайт-коду.
@@ -344,9 +429,7 @@ func (h *Handler) CreateOperationHandler(w http.ResponseWriter, r *http.Request)
 	if req.Type == "transfer" {
 		err = h.inventoryService.Transfer(userID, cID, req.Pos, req.Qty, req.Unit, req.Loc, req.ToLoc, req.Comment, opDate)
 	} else {
-		if req.AccountID == "" {
-			req.AccountID = "97036ddb-b2e1-cd47-1669-c145daa9f9c5"
-		}
+		// InventoryService сам подставит дефолтный счет, если req.AccountID пустой
 		err = h.inventoryService.WriteOff(userID, cID, req.Pos, req.Qty, req.Unit, req.Loc, req.IsUnlisted, req.Comment, req.AccountID, opDate)
 	}
 
@@ -508,7 +591,7 @@ func (h *Handler) CreatePositionHandler(w http.ResponseWriter, r *http.Request) 
 			req.Loc,
 			false,
 			"Начальный остаток при создании",
-			"97036ddb-b2e1-cd47-1669-c145daa9f9c5",
+			"", // Пустая строка! InventoryService сам достанет счет из БД
 			time.Now(),
 		)
 	}
@@ -965,4 +1048,3 @@ func (h *Handler) GetIikoAccountsHandler(w http.ResponseWriter, r *http.Request)
 func (h *Handler) IikoWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
-

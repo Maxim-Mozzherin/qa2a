@@ -1,4 +1,118 @@
+
 // ============================================================================
+// ONBOARDING WIZARD LOGIC
+
+async function registerNewSupplierFromOnboarding() {
+    const nameInput = document.getElementById("onboarding_supplier_name");
+    const name = nameInput.value.trim();
+    if (!name) {
+        Telegram.WebApp.showAlert("Пожалуйста, введите название компании.");
+        return;
+    }
+    const token = userToken;
+    let res = await fetch("/api/supplier/register", { 
+        method: "POST", 
+        headers: { "X-Telegram-ID": token, "Content-Type": "application/json" },
+        body: JSON.stringify({ company_name: name })
+    });
+    if (res.ok) {
+        // Just reload the entire page to let initApp fetch the fresh is_supplier flag from DB
+        localStorage.removeItem("skip_supplier");
+        window.location.reload();
+    } else {
+        Telegram.WebApp.showAlert("Ошибка при создании компании.");
+    }
+}
+
+
+// ============================================================================
+function selectRole(role) {
+    document.getElementById("role-card-restaurant").style.borderColor = role === "restaurant" ? "var(--primary)" : "transparent";
+    document.getElementById("role-card-supplier").style.borderColor = role === "supplier" ? "var(--accent)" : "transparent";
+    
+    // Give a slight delay for animation before switching view
+    setTimeout(() => {
+        document.getElementById("onboarding-step-1").style.display = "none";
+        if (role === "restaurant") {
+            document.getElementById("onboarding-step-2-restaurant").style.display = "block";
+            document.getElementById("onboarding-step-2-supplier").style.display = "none";
+        } else {
+            document.getElementById("onboarding-step-2-restaurant").style.display = "none";
+            document.getElementById("onboarding-step-2-supplier").style.display = "block";
+        }
+    }, 150);
+}
+
+function resetRoleSelection() {
+    document.getElementById("role-card-restaurant").style.borderColor = "transparent";
+    document.getElementById("role-card-supplier").style.borderColor = "transparent";
+    document.getElementById("onboarding-step-2-restaurant").style.display = "none";
+    document.getElementById("onboarding-step-2-supplier").style.display = "none";
+    document.getElementById("onboarding-step-1").style.display = "block";
+}
+
+async function joinSupplierByCode() {
+    const codeInput = document.getElementById("onboarding_supplier_invite");
+    const code = codeInput.value.trim();
+    if (!code) {
+        Telegram.WebApp.showAlert("Введите инвайт-код.");
+        return;
+    }
+    const token = userToken;
+    let res = await fetch("/api/supplier/join", { 
+        method: "POST", 
+        headers: { "X-Telegram-ID": token, "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code })
+    });
+    if (res.ok) {
+        localStorage.removeItem("skip_supplier");
+        window.location.reload();
+    } else {
+        const errData = await res.json();
+        Telegram.WebApp.showAlert("Ошибка: " + (errData.error || "Неверный код"));
+    }
+}
+
+// ============================================================================
+async function openSupplierPortal() {
+    localStorage.removeItem("skip_supplier");
+    document.getElementById("onboarding").style.display = "none";
+    document.getElementById("main-app").style.display = "none";
+    document.getElementById("supplier-portal").style.display = "block";
+    
+    const token = userToken;
+    document.getElementById("orgName").innerText = "Кабинет поставщика";
+    
+    let meRes = await fetch("/api/supplier/me", { headers: { "X-Telegram-ID": token } });
+    if (meRes.ok) {
+        const meData = await meRes.json();
+        document.getElementById("orgName").innerText = meData.company_name;
+        // Inject invite code into the analytics tab DOM dynamically if it exists
+        window.supplierInviteCode = meData.invite_code;
+    }
+
+    let res = await fetch("/api/supplier/offers", { headers: { "X-Telegram-ID": token } });
+    if (res.status === 401) {
+        await fetch("/api/supplier/register", { method: "POST", headers: { "X-Telegram-ID": token } });
+        res = await fetch("/api/supplier/offers", { headers: { "X-Telegram-ID": token } });
+    }
+    if (res.ok) {
+        const offers = await res.json();
+        renderSupplierOffers(offers || []);
+    }
+    switchSupplierTab("offers");
+}
+
+function closeSupplierPortal() {
+    localStorage.setItem("skip_supplier", "true");
+    document.getElementById("supplier-portal").style.display = "none";
+    if (allMemberships.length > 0) {
+        document.getElementById("main-app").style.display = "block";
+        switchTab('request');
+    } else {
+        document.getElementById("onboarding").style.display = "block";
+    }
+}
 // QA2A TELEGRAM WEBAPP - ОСНОВНОЙ КЛИЕНТСКИЙ СКРИПТ
 // ============================================================================
 
@@ -185,10 +299,20 @@ async function initApp() {
         userToken = data.token; 
         allMemberships = data.memberships || [];
 
+
+        if (data.is_supplier && localStorage.getItem("skip_supplier") !== "true") {
+            openSupplierPortal();
+            return;
+        }
+
         if (allMemberships.length === 0) {
-            document.getElementById('onboarding').style.display = 'block';
-            document.getElementById('main-app').style.display = 'none';
+            document.getElementById("onboarding").style.display = "block";
+            document.getElementById("main-app").style.display = "none";
+            // Hide loading if any
+            const l = document.getElementById("loading");
+            if (l) l.style.display = "none";
         } else {
+
             const savedId = localStorage.getItem('selected_company_id');
             const found = allMemberships.find(m => m.company_id == savedId);
             currentCompanyId = found ? parseInt(savedId) : allMemberships[0].company_id;
@@ -244,6 +368,7 @@ async function loadAllData() {
 // ============================================================================
 
 function switchTab(id) {
+    if (id === 'request') { if(typeof loadSpecialOffers === 'function') loadSpecialOffers(); }
     document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
     const target = document.getElementById('tab-' + id);
     if (target) target.style.display = 'block';
@@ -2190,51 +2315,188 @@ window.updateEditFakeDate = updateEditFakeDate;
 window.escapeHtml = escapeHtml;
 
 // ============================================================================
-// SUPPLIER PORTAL & MARKETPLACE STUBS
-// ============================================================================
-function openSupplierPortal() {
-    document.getElementById("onboarding").style.display = "none";
-    document.getElementById("main-app").style.display = "none";
-    document.getElementById("supplier-portal").style.display = "block";
-    document.getElementById("orgName").innerText = "Кабинет Партнера";
-}
+// SUPPLIER PORTAL
 
-function closeSupplierPortal() {
-    document.getElementById("supplier-portal").style.display = "none";
-    document.getElementById("onboarding").style.display = "block";
-    document.getElementById("orgName").innerText = "QA2A";
-}
 
-function openSupplierOfferModal() {
-    openDrawer("drawer_supplier_offer");
-}
+let currentEditingOfferId = 0;
+window.supplierOffersCache = [];
 
-function saveSupplierOffer() {
-    // Stub
-    Telegram.WebApp.showAlert("Предложение сохранено (демо)");
-    closeDrawer();
-}
-
-function renderSpecialOffers(offers) {
-    const sec = document.getElementById("special_offers_section");
-    const container = document.getElementById("offers_carousel");
-    if (!offers || offers.length === 0) {
-        sec.style.display = "none";
-        return;
+function openSupplierOfferModal(offerId = 0) {
+    currentEditingOfferId = offerId;
+    
+    if (offerId > 0) {
+        const offer = window.supplierOffersCache.find(o => o.id === offerId);
+        if (offer) {
+            document.getElementById("so_title").value = offer.title;
+            document.getElementById("so_desc").value = offer.description;
+            document.getElementById("so_price_type").value = offer.price_type;
+            document.getElementById("so_price").value = offer.price_value;
+            let kwds = [];
+            try { kwds = JSON.parse(offer.keywords || "[]"); } catch(e){}
+            document.getElementById("so_keywords").value = kwds.join(", ");
+        }
+    } else {
+        document.getElementById("so_title").value = "";
+        document.getElementById("so_desc").value = "";
+        document.getElementById("so_price").value = "";
+        document.getElementById("so_keywords").value = "";
     }
-    sec.style.display = "block";
-    container.innerHTML = "";
-    offers.forEach(o => {
-        const card = document.createElement("div");
-        card.style.cssText = "min-width: 240px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 15px; scroll-snap-align: start;";
-        card.innerHTML = `
-            <div style="font-weight: 700; font-size: 15px; margin-bottom: 5px;">${o.title}</div>
-            <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 10px;">${o.desc}</div>
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-weight: 800; color: var(--primary);">${o.priceStr}</span>
-                <button class="btn-tiny" style="background:var(--accent); color:white; border:none;" onclick="Telegram.WebApp.showAlert('Связываемся с поставщиком...')">Запросить</button>
+    
+    openDrawer("supplier_offer");
+}
+// & MARKETPLACE STUBS
+// ============================================================================
+
+
+
+function formatPrice(type, val) {
+    if (type === "exact") return val.toFixed(2) + " ₽";
+    if (type === "from") return "от " + val.toFixed(2) + " ₽";
+    return "По запросу";
+}
+
+function renderSupplierOffers(offers) {
+    window.supplierOffersCache = offers;
+    const list = document.getElementById("supplier_offers_list");
+    list.innerHTML = "";
+    if (offers.length === 0) {
+        list.innerHTML = "<div class=\"empty-state\">У вас пока нет активных предложений.</div>";
+    } else {
+        offers.forEach(o => {
+            list.innerHTML += `<div class="card" style="margin-bottom:10px;">
+                <div style="display:flex; justify-content:space-between;">
+                    <div>
+                        <h4 style="margin:0;">${o.title}</h4>
+                        <div style="font-size:14px; margin:5px 0; color:var(--text-muted);">${o.description}</div>
+                        <div style="font-weight:600; color:var(--primary);">${formatPrice(o.price_type, o.price_value)}</div>
+                    </div>
+                    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
+                        <div style="background:var(--bg); padding:4px 8px; border-radius:8px; font-size:12px;"><span title="Просмотры">👁️ ${o.views_count}</span></div>
+                        <div style="background:var(--bg); padding:4px 8px; border-radius:8px; font-size:12px;"><span title="Клики">🖱️ ${o.clicks_count}</span></div>
+                    </div>
+                </div>
+                <div style="display:flex; gap: 10px; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px;">
+                    <button class="btn-main" style="flex:1; background:var(--bg); color:var(--text); border:1px solid var(--border);" onclick="openSupplierOfferModal(${o.id})">Редактировать</button>
+                    <button class="btn-main" style="flex:1; background:#ffebee; color:#d32f2f; border:none;" onclick="deleteSupplierOffer(${o.id})">Удалить</button>
+                </div>
+            </div>`;
+        });
+    }
+
+    let totalViews = offers.reduce((v, o) => v + o.views_count, 0);
+    let totalClicks = offers.reduce((c, o) => c + o.clicks_count, 0);
+    let ctr = totalViews > 0 ? ((totalClicks / totalViews) * 100).toFixed(1) : 0;
+
+    const analyticsContainer = document.getElementById("supplier-tab-settings-inner");
+    if (analyticsContainer) {
+        analyticsContainer.innerHTML = `
+            
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:20px;">
+                <div class="card" style="text-align:center; padding:15px 10px;">
+                    <div style="font-size:32px; font-weight:800; color:var(--primary); margin-bottom:5px;">${totalViews}</div>
+                    <div style="font-size:12px; color:var(--text-muted);">Просмотров</div>
+                </div>
+                <div class="card" style="text-align:center; padding:15px 10px;">
+                    <div style="font-size:32px; font-weight:800; color:var(--accent); margin-bottom:5px;">${totalClicks}</div>
+                    <div style="font-size:12px; color:var(--text-muted);">Кликов</div>
+                </div>
+                <div class="card" style="text-align:center; padding:15px 10px;">
+                    <div style="font-size:32px; font-weight:800; color:#EA18EE; margin-bottom:5px;">${ctr}%</div>
+                    <div style="font-size:12px; color:var(--text-muted);">Conversion</div>
+                </div>
+            </div>
+            <div class="card">
+                <h3 style="margin:0 0 10px 0; font-size:14px;">Воронка продаж</h3>
+                <div style="font-size:13px; color:var(--text); line-height:1.5;">
+                    Всего просмотров: <b>${totalViews}</b><br>Заказов: <b>${totalClicks}</b>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top:20px; text-align:center;">
+                <h3 style="margin:0 0 10px 0; font-size:14px;">Код для приглашения сотрудников:</h3>
+                <div style="font-size:20px; font-weight:800; letter-spacing:2px; color:var(--primary); background:var(--bg); padding:10px; border-radius:8px;">
+                    ${window.supplierInviteCode || "НЕТ КОДА"}
+                </div>
             </div>
         `;
-        container.appendChild(card);
+    }
+}
+
+
+async function saveSupplierOffer() {
+    const token = userToken;
+    let kwStr = document.getElementById("so_keywords").value.trim();
+    let keywords = "[]";
+    if (kwStr) {
+        const parts = kwStr.split(",").map(s => s.trim()).filter(s => s);
+        keywords = JSON.stringify(parts);
+    }
+    const payload = {
+        id: currentEditingOfferId,
+        title: document.getElementById("so_title").value,
+        desc: document.getElementById("so_desc").value,
+        price_type: document.getElementById("so_price_type").value,
+        price_value: parseFloat(document.getElementById("so_price_val") ? document.getElementById("so_price_val").value : document.getElementById("so_price").value || "0"),
+        keywords: keywords
+    };
+    await fetch("/api/supplier/offers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Telegram-ID": token },
+        body: JSON.stringify(payload)
+    });
+    closeDrawer();
+    openSupplierPortal();
+}
+
+async function loadSpecialOffers() {
+    try {
+        const token = userToken;
+        if (!token) return;
+        
+        let cId = currentCompanyId || localStorage.getItem("selected_company_id");
+        
+        const res = await fetch("/api/marketplace/offers", {
+            headers: { "Authorization": "Bearer " + token, "X-Telegram-ID": token, "X-Company-ID": String(cId || "") }
+        });
+        if (!res.ok) {
+            console.error("Failed to load offers", res.status);
+            return;
+        }
+        const offers = await res.json();
+        if (typeof renderSpecialOffers === "function") {
+            renderSpecialOffers(offers || []);
+        }
+    } catch(e) {
+        console.error("Error loadSpecialOffers:", e);
+    }
+}
+
+
+function switchSupplierTab(id) {
+    document.querySelectorAll(".supplier-tab-content").forEach(t => t.style.display = "none");
+    const target = document.getElementById("supplier-tab-" + id);
+    if (target) target.style.display = "block";
+    
+    document.querySelectorAll(".supplier-nav-item").forEach(i => i.classList.remove("active"));
+    const activeNav = document.getElementById("sup-nav-" + id);
+    if (activeNav) activeNav.classList.add("active");
+}
+
+async function deleteSupplierOffer(id) {
+    Telegram.WebApp.showConfirm("Вы уверены, что хотите удалить эту карточку товара?", async function(ok) {
+        if (!ok) return;
+        const token = userToken;
+    let res = await fetch("/api/supplier/offers?id=" + id, {
+        method: "DELETE",
+        headers: { "X-Telegram-ID": token }
+    });
+    if (res.ok) {
+        Telegram.WebApp.showAlert("Товар удален");
+        document.getElementById("supplier_offers_list").innerHTML = "<div class=\"empty-state\">Загрузка...</div>";
+        let reloadRes = await fetch("/api/supplier/offers", { headers: { "X-Telegram-ID": token } });
+        if (reloadRes.ok) renderSupplierOffers(await reloadRes.json());
+    } else {
+        Telegram.WebApp.showAlert("Ошибка при удалении");
+    }
     });
 }

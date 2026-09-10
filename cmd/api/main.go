@@ -49,8 +49,10 @@ func main() {
 	repSvc := service.NewReportService(repo)
 	iikoSvc := service.NewIikoService(repo, cfg.EncryptionKey)
 	invSvc := service.NewInventoryService(repo, iikoSvc)
+	mktSvc := service.NewMarketplaceService(repo)
+	accSvc := service.NewAccountantService(repo)
 
-	h := handlers.New(authSvc, invSvc, repSvc, iikoSvc, cfg.BotToken)
+	h := handlers.New(authSvc, invSvc, repSvc, iikoSvc, mktSvc, accSvc, cfg.BotToken)
 
 	// 4. Запуск фонового регламентного планировщика (выгрузка в iiko в 06:30 МСК)
 	scheduler := service.NewScheduler(repo, iikoSvc)
@@ -99,11 +101,36 @@ func main() {
 	// ==========================================
 	// ЗАЩИЩЕННЫЕ МАРШРУТЫ API (AuthMiddleware)
 	// ==========================================
+	
+	supplierApi := api.PathPrefix("/supplier").Subrouter()
+	supplierApi.Use(middleware.SupplierAuthMiddleware(cfg.BotToken, func(tgID int64) int {
+		id, _ := mktSvc.GetSupplierIDByTgID(tgID)
+		return id
+	}))
+	supplierApi.HandleFunc("/offers", h.GetSupplierOffersHandler).Methods("GET", "OPTIONS")
+	supplierApi.HandleFunc("/offers", h.SaveSupplierOfferHandler).Methods("POST", "OPTIONS")
+	supplierApi.HandleFunc("/offers", h.DeleteSupplierOfferHandler).Methods("DELETE", "OPTIONS")
+	api.HandleFunc("/supplier/register", h.RegisterSupplierHandler).Methods("POST", "OPTIONS")
+	api.HandleFunc("/supplier/join", h.JoinSupplierHandler).Methods("POST", "OPTIONS")
+	api.HandleFunc("/accountant/join", h.JoinAccountantHandler).Methods("POST", "OPTIONS")
+	api.HandleFunc("/supplier/me", h.GetSupplierMeHandler).Methods("GET", "OPTIONS")
+
+		accApi := api.PathPrefix("/accountant").Subrouter()
+	accApi.Use(middleware.AccountantAuthMiddleware(cfg.BotToken, func(tgID int64) int {
+		id, _ := accSvc.GetFirmIDByTgID(tgID)
+		return id
+	}))
+	accApi.HandleFunc("/companies", h.GetAccountantCompaniesHandler).Methods("GET", "OPTIONS")
+
 	protected := api.PathPrefix("/").Subrouter()
+	// Передаем токен бота для верификации HMAC-SHA256 подписей
 	protected.Use(middleware.AuthMiddleware(repo, cfg.BotToken))
 
 	// Управление компанией и командой
 	protected.HandleFunc("/invite-code", h.GetInviteCodeHandler).Methods("GET")
+	protected.HandleFunc("/marketplace/offers", h.GetMarketplaceOffersHandler).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/marketplace/offers/views", h.RecordOfferViewsHandler).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/marketplace/offers/{id:[0-9]+}/click", h.RecordOfferClickHandler).Methods("POST", "OPTIONS")
 	protected.HandleFunc("/members", h.GetMembersHandler).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/members", h.UpdateMemberRoleHandler).Methods("PUT", "OPTIONS")
 	protected.HandleFunc("/members/{id:[0-9]+}", h.RemoveMemberHandler).Methods("DELETE", "OPTIONS")
@@ -197,4 +224,3 @@ func main() {
 
 	log.Println("✅ Все соединения закрыты. Сервер QA2A безопасно остановлен.")
 }
-
