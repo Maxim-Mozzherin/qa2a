@@ -428,7 +428,7 @@ window.loadArchiveInvoices = async function() {
     try {
         const res = await fetch(`api/history/invoices?company_id=${companyId}`, {
             headers: {
-                'Authorization': `Bearer ${currentToken}`
+                'Authorization': getAuthToken()
             }
         });
         if (!res.ok) {
@@ -531,7 +531,7 @@ window.editArchiveInvoice = async function(invoiceNumber, invoiceDate, supplierN
 
     try {
         const res = await fetch(`api/history/invoice-items?company_id=${companyId}&invoice_number=${encodeURIComponent(invoiceNumber)}`, {
-            headers: { 'Authorization': `Bearer ${currentToken}` }
+            headers: { 'Authorization': getAuthToken() }
         });
         if (!res.ok) throw new Error(await res.text() || "Ошибка загрузки позиций");
         currentEditingItems = await res.json() || [];
@@ -673,7 +673,7 @@ window.saveArchiveInvoiceChanges = async function() {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${currentToken}`
+                'Authorization': getAuthToken()
             },
             body: JSON.stringify(payload)
         });
