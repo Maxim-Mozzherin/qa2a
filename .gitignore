@@ -1,10 +1,24 @@
-qa2a-server
-*.log
+# Environment & Secrets
 .env
-.env.*
-.tmp.driveupload/
-qa2a-server
-server.log
-*.sql
-test_iiko.go
-qa2a
+*.env
+cookies.txt
+
+# Compiled Binaries
+/qa2a-reboot/qa2a
+/qa2a-reboot/qa2a_app
+/iiko_parser/iiko-parser
+/iiko_parser/iiko_parser
+/iiko_parser/parser_app
+*.exe
+*.test
+
+# Temp & uploads
+/uploads/
+/temp/
+*.log
+.tmp*/
+
+# IDE & Assistant
+.gemini/
+.idea/
+.vscode/

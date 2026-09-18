@@ -1,0 +1,10 @@
+qa2a-server
+*.log
+.env
+.env.*
+.tmp.driveupload/
+qa2a-server
+server.log
+*.sql
+test_iiko.go
+qa2a
