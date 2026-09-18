@@ -17,8 +17,6 @@ import (
 
 var (
 	db             *sql.DB
-	buhLogin       string
-	buhPassword    string
 	encryptionKey  string
 	externalApiKey string
 
@@ -49,6 +47,27 @@ var (
 	}
 )
 
+type neuteredFileSystem struct {
+	fs http.FileSystem
+}
+
+func (nfs neuteredFileSystem) Open(path string) (http.File, error) {
+	f, err := nfs.fs.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	s, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if s.IsDir() {
+		f.Close()
+		return nil, os.ErrPermission
+	}
+	return f, nil
+}
+
 func main() {
 	_ = os.MkdirAll("temp", os.ModePerm)
 	_ = os.MkdirAll("static", os.ModePerm)
@@ -56,8 +75,6 @@ func main() {
 	_ = godotenv.Load()
 	_ = godotenv.Load("/opt/qa2a-reboot/.env")
 
-	buhLogin = getEnv("ACCOUNTANT_LOGIN", "buh")
-	buhPassword = getEnv("ACCOUNTANT_PASSWORD", "password")
 	encryptionKey = getEnv("ENCRYPTION_KEY", "qa2a-reboot-default-aes-secret-key-32b")
 	externalApiKey = getEnv("EXTERNAL_API_KEY", "moztech-secret-token-8099")
 
@@ -114,13 +131,17 @@ func main() {
 			multiplier NUMERIC(12, 4) NOT NULL DEFAULT 1.0,
 			total_sum NUMERIC(12, 2) NOT NULL DEFAULT 0,
 			price_per_base_unit NUMERIC(12, 2) NOT NULL DEFAULT 0,
+			consignee TEXT NOT NULL DEFAULT '',
+			shipper TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 		);
 		ALTER TABLE purchase_history 
 		ADD COLUMN IF NOT EXISTS clean_category VARCHAR(255) DEFAULT '',
 		ADD COLUMN IF NOT EXISTS brand VARCHAR(255) DEFAULT '',
 		ADD COLUMN IF NOT EXISTS iiko_product_name VARCHAR(500) DEFAULT '',
-		ADD COLUMN IF NOT EXISTS unit VARCHAR(50) DEFAULT 'кг/шт';
+		ADD COLUMN IF NOT EXISTS unit VARCHAR(50) DEFAULT 'кг/шт',
+		ADD COLUMN IF NOT EXISTS consignee TEXT DEFAULT '',
+		ADD COLUMN IF NOT EXISTS shipper TEXT DEFAULT '';
 		CREATE INDEX IF NOT EXISTS idx_purchase_history_comp_date ON purchase_history (company_id, invoice_date DESC);
 		CREATE INDEX IF NOT EXISTS idx_purchase_history_product ON purchase_history (company_id, iiko_product_uuid);
 	`)
@@ -129,15 +150,23 @@ func main() {
 	}
 
 	initPromptPresets()
+	initRootSuperadmin()
 
 	mux := http.NewServeMux()
 
 	mux.Handle("/", http.FileServer(http.Dir("./static")))
+	parserUploadFS := neuteredFileSystem{fs: http.Dir("/opt/qa2a-reboot/uploads")}
+	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(parserUploadFS)))
 
 	mux.HandleFunc("/api/login", handleLogin)
+	mux.HandleFunc("/api/accountant-invite/generate", authMiddleware(handleGenerateAccountantInvite))
+	mux.HandleFunc("/api/accountant-invite/register", handleRegisterAccountant)
+	mux.HandleFunc("/api/invite/generate", authMiddleware(handleGenerateInvite))
 	mux.HandleFunc("/api/companies", authMiddleware(handleCompanies))
 	mux.HandleFunc("/api/catalog", authMiddleware(handleCatalog))
 	mux.HandleFunc("/api/parse", authMiddleware(handleParse))
+	mux.HandleFunc("/api/reconciliation/parse", authMiddleware(handleParseReconciliation))
+	mux.HandleFunc("/api/reconciliation/registry", authMiddleware(handleGetReconciliationRegistry))
 	mux.HandleFunc("/api/parser/presets", authMiddleware(handlePromptPresets))
 	mux.HandleFunc("/api/parser/default-prompt", authMiddleware(handleDefaultPrompt))
 
@@ -145,8 +174,13 @@ func main() {
 	mux.HandleFunc("/api/templates/save", authMiddleware(handleSaveTemplateProxy))
 	mux.HandleFunc("/api/unlisted-operations", authMiddleware(handleGetUnlistedOperations))
 	mux.HandleFunc("/api/unlisted-operations/resolve", authMiddleware(handleResolveUnlistedOperation))
+	mux.HandleFunc("/api/unlisted-operations/reject", authMiddleware(handleRejectUnlistedOperation))
+	mux.HandleFunc("/api/accounting/tickets", authMiddleware(handleGetAccountingTickets))
+	mux.HandleFunc("/api/accounting/tickets/resolve", authMiddleware(handleUpdateAccountingTicket))
 
 	mux.HandleFunc("/api/analytics", authMiddleware(handleAnalytics))
+	mux.HandleFunc("/api/history/invoices", authMiddleware(handleGetHistoryInvoices))
+	mux.HandleFunc("/api/history/invoice-items", authMiddleware(handleHistoryInvoiceItems))
 
 	mux.HandleFunc("/api/market/search", handleMarketSearch)
 	mux.HandleFunc("/api/market/dossier", handleMarketDossier)
@@ -160,6 +194,7 @@ func main() {
 	mux.HandleFunc("/api/market/logistics", handleMarketLogistics)
 	mux.HandleFunc("/api/market/share", handleMarketShare)
 	mux.HandleFunc("/api/market/companies", handleMarketCompanies)
+	mux.HandleFunc("/api/market/deals", handleMarketDeals)
 
 	srv := &http.Server{
 		Addr:              ":" + serverPort,
@@ -256,6 +291,8 @@ const defaultParserPrompt = `Ты — автоматический парсер 
 
 20. Игнорируй пометки ручкой, закорючки и прочий визуальный шум на сканах или фото.
 21. Если документ обрезан или является только частью накладной (например, нет итоговой суммы), просто извлеки те товары, которые видны на изображении.
+22. ЖЕСТКОЕ ПРАВИЛО ДЛЯ УПАКОВОК И КОРОБОК:
+Если в графе "Единица измерения" (Код 778 или текст упак/кор/ящ) указана упаковка, а в графе "Количество" стоит 1.000, НО в самом названии товара написано количество штук (например, "Пиво ... 24 шт" или "0.5л ... 20шт"), ТЫ ОБЯЗАН установить ai_multiplier равным этому числу из названия (24.0, 20.0). Ни в коем случае не оставляй ai_multiplier = 1.0 для таких случаев!
 
 ВНИМАНИЕ: ТЕБЕ МОЖЕТ БЫТЬ ПЕРЕДАНО СРАЗУ НЕСКОЛЬКО ИЗОБРАЖЕНИЙ (ИЛИ СТРАНИЦ ТЕКСТА). ЭТО ВСЁ СТРАНИЦЫ ОДНОЙ И ТОЙ ЖЕ НАКЛАДНОЙ. ТЫ ОБЯЗАН ВНИМАТЕЛЬНО ИЗУЧИТЬ АБСОЛЮТНО ВСЕ ПЕРЕДАННЫЕ ИЗОБРАЖЕНИЯ И ИЗВЛЕЧЬ ТОВАРЫ СО ВСЕХ СТРАНИЦ, ОБЪЕДИНИВ ИХ В ОДИН ОБЩИЙ СПИСОК (МАССИВ items)!
 
@@ -269,52 +306,55 @@ const defaultParserPrompt = `Ты — автоматический парсер 
   "consignee": "Грузополучатель и его адрес или Покупатель",
   "shipper": "Грузоотправитель и его адрес",
   "items": [
-    {"name": "Название полностью", "clean_category": "Картофель фри", "brand": "Фритто Аппетито", "quantity": 10.0, "price": 120.0, "sum": 1200.0, "sum_without_nds": 1000.0, "nds_percent": 20.0, "ai_multiplier": 0.55, "ai_tip": "1 шт = 550г"}
+    {"name": "Название полностью", "clean_category": "Овощи и фрукты", "brand": "Фритто Аппетито", "quantity": 10.0, "price": 120.0, "sum": 1200.0, "sum_without_nds": 1000.0, "nds_percent": 20.0, "ai_multiplier": 0.55, "ai_tip": "1 шт = 550г"}
   ]
 }`
 
-const multiPageParserPrompt = `Ты — автоматический парсер многостраничных накладных (фотографий и сканов).
-Твоя ключевая задача: объединить товары со всех страниц документа в один единый сквозной список.
+const receiptParserPrompt = `Ты — специализированный парсер кассовых чеков из обычных розничных магазинов и супермаркетов (например: Пятерочка, Магнит, Лента, Метро, местный рынок).
+Твоя задача: найти название магазина, дату чека и список купленных товаров.
 
-ОСОБЫЕ ПРАВИЛА ДЛЯ МНОГОСТРАНИЧНЫХ ДОКУМЕНТОВ:
-1. Тебе передано несколько страниц одного и того же документа.
-2. Игнорируй промежуточные итоги («Итого по листу», «Всего по странице», «Сумма страницы»). Это промежуточные значения, не завершай на них разбор!
-3. Извлеки все строки товаров с первой страницы, затем со второй страницы, с третьей и так далее, собрав их все в один массив items.
-4. Поставщика, дату и номер документа бери из шапки накладной (обычно лист 1).
-5. Грузополучателя и грузоотправителя определяй полностью.
-6. Вычисляй коэффициент ai_multiplier (перевод в базовые кг/л/шт) по наименованию и фасовке.
-7. Цену и сумму всегда бери с учетом НДС.
+ЖЕСТКИЕ ПРАВИЛА ДЛЯ РОЗНИЧНЫХ ЧЕКОВ:
+1. Извлекай ТОЛЬКО 4 параметра для каждого товара: Название, Количество (вес или штуки), Цену за единицу и Итоговую сумму строки.
+2. НДС (nds_percent) для розничных чеков игнорируем полностью — всегда ставь 0.0.
+3. Коэффициент фасовки (ai_multiplier) для чеков не вычисляем — всегда ставь 1.0. Количество бери ровно то, что пробито в чеке (например, если пробито 0.450 кг, то quantity = 0.45, ai_multiplier = 1.0).
+4. Сумма без НДС (sum_without_nds) всегда равна итоговой сумме (sum).
+5. Грузополучатель (consignee) и Грузоотправитель (shipper) — оставляй пустыми строками "".
+6. Имя поставщика (vendor_name) — это название магазина сверху чека (например "ООО Агроторг" или "Магазин Лента").
+7. Номер документа (doc_number) — это номер чека (ФД, Чек №) или ФН. Если не нашел, пиши "Б/Н".
+8. Выдели категорию товара clean_category ("Мясо и птица", "Рыба и морепродукты", "Овощи и фрукты", "Молочные продукты", "Бакалея", "Консервы", "Напитки", "Хозяйственные товары", "Прочее").
 
-Верни строго только JSON-объект без markdown:
+Если товар пробит как "Пакет майка" — можешь его игнорировать или записать в Хозяйственные товары.
+
+Верни СТРОГО только JSON-объект (без markdown, без пояснений):
 {
-  "vendor_name": "Название поставщика",
-  "doc_number": "Номер документа",
-  "doc_date": "YYYY-MM-DD",
-  "consignee": "Грузополучатель",
-  "shipper": "Грузоотправитель",
-  "items": [
-    {"name": "Название товара", "clean_category": "Категория", "brand": "", "quantity": 1.0, "price": 100.0, "sum": 100.0, "sum_without_nds": 100.0, "nds_percent": 20.0, "ai_multiplier": 1.0, "ai_tip": ""}
-  ]
-}`
-
-const receiptParserPrompt = `Ты — специализированный парсер кассовых и товарных чеков, рукописных квитанций и счетов самозанятых.
-Твоя задача: найти название продавца/магазина, дату, номер чека и список всех приобретенных позиций.
-
-ПРАВИЛА ДЛЯ ЧЕКОВ И ПРОСТЫХ КВИТАНЦИЙ:
-1. В чеках обычно нет колонок УПД и кодов ОКЕИ. Извлекай наименование позиции, количество, цену за единицу и общую стоимость покупки.
-2. Если в чеке нет НДС или написано «без налога / НДС не облагается», ставь nds_percent = 0.0.
-3. Поле shipper оставь пустым или укажи адрес магазина/продавца, если он есть.
-4. Поле consignee оставь пустым (для розничных чеков).
-5. Выдели категорию товара clean_category ("Мясо и птица", "Рыба и морепродукты", "Овощи и фрукты", "Молочные продукты", "Бакалея", "Консервы", "Напитки", "Хозяйственные товары", "Прочее").
-
-Верни строго только JSON-объект без markdown:
-{
-  "vendor_name": "Магазин / Поставщик",
-  "doc_number": "Номер чека / документа",
+  "vendor_name": "Название магазина",
+  "doc_number": "Номер чека",
   "doc_date": "YYYY-MM-DD",
   "consignee": "",
   "shipper": "",
   "items": [
-    {"name": "Товар", "clean_category": "Бакалея", "brand": "", "quantity": 1.0, "price": 50.0, "sum": 50.0, "sum_without_nds": 50.0, "nds_percent": 0.0, "ai_multiplier": 1.0, "ai_tip": ""}
+    {
+      "name": "Название товара из чека", 
+      "clean_category": "Бакалея", 
+      "brand": "", 
+      "quantity": 1.5, 
+      "price": 100.0, 
+      "sum": 150.0, 
+      "sum_without_nds": 150.0, 
+      "nds_percent": 0.0, 
+      "ai_multiplier": 1.0, 
+      "ai_tip": "Кассовый чек"
+    }
   ]
 }`
+
+const reconciliationPrompt = `Ты — парсер актов сверки взаиморасчетов от поставщиков. Твоя задача: найти только операции ОТГРУЗКИ товаров (Дебет / Продажа). 
+ИГНОРИРУЙ операции ОПЛАТЫ (Кредит / Поступление денег на счет поставщика).
+Для каждой отгрузки извлеки: номер документа (оставь как есть, не обрезай нули), дату и итоговую сумму отгрузки.
+Верни СТРОГО JSON-объект без markdown:
+{
+  "items": [
+    {"doc_number": "УПД-123", "doc_date": "YYYY-MM-DD", "amount": 15400.00}
+  ]
+}`
+

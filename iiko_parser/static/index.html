@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru" class="h-full bg-[#090d16]">
 <head>
     <meta charset="UTF-8">
@@ -67,7 +67,7 @@
             <div class="space-y-4">
                 <div>
                     <label for="login-user" class="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Логин</label>
-                    <input type="text" id="login-user" autocomplete="username" class="w-full bg-[#090d16] border border-slate-800 text-white placeholder-slate-500 rounded-xl p-3 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all-300 text-xs font-normal" placeholder="buh">
+                    <input type="text" id="login-user" autocomplete="username" class="w-full bg-[#090d16] border border-slate-800 text-white placeholder-slate-500 rounded-xl p-3 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all-300 text-xs font-normal" placeholder="bugh">
                 </div>
                 <div>
                     <label for="login-pass" class="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Пароль</label>
@@ -98,6 +98,10 @@
                     <div id="status-badge" class="px-3 py-1 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
                         Заведение не выбрано
                     </div>
+                    <button id="btn-global-inbox" onclick="openGlobalInboxModal()" class="relative bg-slate-800 hover:bg-slate-700 text-white px-4 py-1.5 rounded-lg text-xs font-semibold border border-slate-700 transition-all-300 flex items-center gap-2">
+                        📥 Входящие заявки
+                        <span id="global-header-badge" class="hidden absolute -top-2 -right-2 px-2 py-0.5 text-[9px] font-extrabold rounded-full bg-rose-500 text-white animate-pulse shadow-md">0</span>
+                    </button>
                     <button id="btn-logout" class="bg-[#111827] hover:bg-slate-800 active:bg-slate-900 text-slate-400 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-semibold border border-slate-800 transition-all-300">
                         Выйти
                     </button>
@@ -142,8 +146,11 @@
                     <button id="btn-save-settings" class="bg-[#111827] hover:bg-slate-800 active:bg-slate-900 text-slate-300 hover:text-white px-5 py-2.5 rounded-xl text-[11px] font-semibold border border-slate-800 transition-all-300 shadow-sm">
                         💾 Запомнить выбор склада
                     </button>
-                    <button id="btn-load-catalog" class="bg-brand-500 hover:bg-brand-600 active:bg-brand-700 text-white px-5 py-2.5 rounded-xl text-[11px] font-semibold transition-all-300 shadow-sm flex items-center gap-2">
-                        🔄 Обновить справочник iiko
+                    <button id="btn-generate-invite" class="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-5 py-2.5 rounded-xl text-[11px] font-semibold transition-all-300 shadow-sm flex items-center gap-2">
+                        🔑 Инвайт заведения
+                    </button>
+                    <button id="btn-generate-accountant-invite" class="hidden bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white px-5 py-2.5 rounded-xl text-[11px] font-semibold transition-all-300 shadow-sm flex items-center gap-2">
+                        👨💼 Пригласить бухгалтера
                     </button>
                 </div>
             </section>
@@ -156,11 +163,17 @@
                 <button id="tab-btn-analytics" class="px-6 py-3 font-semibold text-slate-500 hover:text-slate-300 text-xs focus:outline-none transition-all-300 whitespace-nowrap" onclick="switchBughTab('analytics')">
                     📊 Аналитика цен
                 </button>
+                <button id="tab-btn-tickets" class="px-6 py-3 font-semibold text-slate-500 hover:text-slate-300 text-xs focus:outline-none transition-all-300 whitespace-nowrap" onclick="switchBughTab('tickets')">
+                    📖 История заявок
+                </button>
                 <button id="tab-btn-unlisted" class="px-6 py-3 font-semibold text-slate-500 hover:text-slate-300 text-xs focus:outline-none transition-all-300 whitespace-nowrap" onclick="switchBughTab('unlisted')">
                     ⚠️ Неучтенные списания
                 </button>
                 <button id="tab-btn-template" class="px-6 py-3 font-semibold text-slate-500 hover:text-slate-300 text-xs focus:outline-none transition-all-300 whitespace-nowrap" onclick="switchBughTab('template')">
                     📝 Бланки инвентаризации
+                </button>
+                <button id="tab-btn-reconciliation" class="px-6 py-3 font-semibold text-slate-500 hover:text-slate-300 text-xs focus:outline-none transition-all-300 whitespace-nowrap flex items-center gap-1.5" onclick="switchBughTab('reconciliation')">
+                    📑 Акт сверки
                 </button>
             </div>
 
@@ -212,6 +225,9 @@
                         <button id="btn-create-empty" class="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2.5 rounded-xl text-xs font-bold transition-all-300 flex items-center gap-2 shadow-sm ml-2">
                             📝 Ввести вручную
                         </button>
+                        <button id="btn-open-archive" onclick="openInvoiceArchive()" type="button" class="bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 px-5 py-2.5 rounded-xl text-xs font-bold border border-slate-700 transition-all-300 flex items-center gap-2 shadow-sm ml-2">
+                            📚 Архив накладных
+                        </button>
                     </div>
                     <div id="parse-loader" class="hidden text-xs text-brand-400 animate-pulse font-medium flex items-center justify-center gap-2 pt-2">
                         <span class="inline-block w-4 h-4 border-2 border-brand-400 border-t-transparent rounded-full animate-spin"></span>
@@ -240,29 +256,33 @@
                             <input type="date" id="res-docdate" class="block w-full font-bold text-slate-300 border border-slate-800 rounded-lg px-2.5 py-1 text-xs bg-[#111827] outline-none focus:border-brand-500 transition-all-300">
                         </div>
                         <div class="space-y-1 lg:col-span-2">
-                            <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Адрес отправления (Грузоотправитель)</span>
-                            <div id="res-shipper" class="font-semibold text-slate-400 text-xs leading-relaxed italic bg-slate-900/50 p-2.5 rounded-lg border border-slate-800/30 whitespace-normal break-words"></div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Адрес отправления (Грузоотправитель)</span>
+                                <button type="button" onclick="swapParties()" title="Поменять местами грузоотправителя и грузополучателя" class="px-2 py-0.5 text-xs bg-slate-800/80 hover:bg-slate-700 text-brand-400 hover:text-brand-300 border border-slate-700 rounded transition-all flex items-center gap-1 font-bold">
+                                    <span>⇄</span> <span class="text-[9px] font-normal text-slate-400">Swap</span>
+                                </button>
+                            </div>
+                            <textarea id="res-shipper" rows="2" class="w-full bg-[#111827] border border-slate-700 rounded-lg p-2 text-xs text-slate-300 outline-none focus:border-brand-500 resize-none" oninput="currentDocData.shipper = this.value"></textarea>
                         </div>
                         <div class="space-y-1 lg:col-span-2">
                             <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Адрес доставки (Грузополучатель)</span>
-                            <div id="res-consignee" class="font-semibold text-slate-400 text-xs leading-relaxed italic bg-slate-900/50 p-2.5 rounded-lg border border-slate-800/30 whitespace-normal break-words"></div>
+                            <textarea id="res-consignee" rows="2" class="w-full bg-[#111827] border border-slate-700 rounded-lg p-2 text-xs text-slate-300 outline-none focus:border-brand-500 resize-none" oninput="currentDocData.consignee = this.value"></textarea>
                         </div>
                     </div>
 
                     <!-- Таблица спецификации накладной -->
-                    <div class="overflow-x-auto rounded-xl border border-slate-800">
+                    <div class="overflow-x-auto max-h-[65vh] overflow-y-auto rounded-xl border border-slate-800">
                         <table class="w-full text-left border-collapse">
-                            <thead>
+                            <thead class="sticky top-0 z-20 shadow-md">
                                 <tr class="bg-[#090d16] text-slate-400 text-[9px] font-bold uppercase tracking-wider border-b border-slate-800">
-                                    <th class="px-2 py-3 w-8 min-w-[2rem] text-center">№</th>
-                                    <th class="px-2 py-3 w-1/4 min-w-[180px] relative">Наименование (Анализ AI)</th>
-                                    <th class="px-2 py-3 w-36 min-w-[130px] relative">Категория</th>
-                                    <th class="px-2 py-3 w-14 min-w-[60px] text-center relative">Кол-во</th>
-                                    <th class="px-2 py-3 w-24 min-w-[100px] text-center border-r border-slate-800 relative">Цена с НДС</th>
-                                    <th class="px-2 py-3 w-1/3 min-w-[220px] relative">Номенклатура iiko RMS</th>
-                                    <th class="px-2 py-3 w-16 min-w-[60px] text-center relative">Коэфф.</th>
-                                    <th class="px-2 py-3 w-20 min-w-[70px] text-center relative">В iiko (ед/изм)</th>
-                                    <th class="px-2 py-3 w-10 min-w-[2.5rem] text-center">🗑</th>
+                                    <th class="px-2 py-3 w-8 min-w-[2rem] text-center bg-[#090d16]">№</th>
+                                    <th class="px-2 py-3 w-1/4 min-w-[180px] relative bg-[#090d16]">Наименование (Анализ AI)</th>
+                                    <th class="px-2 py-3 w-36 min-w-[130px] relative bg-[#090d16]">Категория</th>
+                                    <th class="px-2 py-3 w-14 min-w-[60px] text-center relative bg-[#090d16]">Кол-во</th>
+                                    <th class="px-2 py-3 w-24 min-w-[100px] text-center border-r border-slate-800 relative bg-[#090d16]">Цена с НДС</th>
+                                    <th class="px-2 py-3 w-1/3 min-w-[220px] relative bg-[#090d16]">Номенклатура iiko RMS</th>
+                                    <th class="px-2 py-3 w-28 min-w-[100px] text-center relative bg-[#090d16]">Итого в iiko (ед/изм)</th>
+                                    <th class="px-2 py-3 w-10 min-w-[2.5rem] text-center bg-[#090d16]">🗑</th>
                                 </tr>
                             </thead>
                             <tbody id="items-tbody" class="text-xs divide-y divide-slate-800/60 bg-[#111827]/40">
@@ -312,23 +332,20 @@
                                 <option value="90">За 90 дней</option>
                                 <option value="180">За полгода</option>
                             </select>
-                            <button id="btn-refresh-analytics" class="bg-brand-500 hover:bg-brand-600 text-white px-5 py-2.5 rounded-xl text-xs font-semibold transition-all-300 shadow-sm flex items-center gap-1" onclick="loadAnalytics()">
-                                🔄
-                            </button>
                         </div>
                     </div>
 
                     <!-- Поисковик по аналитике -->
                     <input type="text" id="analytics-search" oninput="filterAnalytics()" placeholder="Поиск по названию товара..." class="w-full bg-[#090d16] border border-slate-800 text-white placeholder-slate-500 rounded-xl p-3 text-xs outline-none focus:border-brand-500 transition-all-300">
 
-                    <div class="overflow-x-auto rounded-xl border border-slate-800">
+                    <div class="overflow-x-auto max-h-[65vh] overflow-y-auto rounded-xl border border-slate-800">
                         <table class="w-full text-left border-collapse">
-                            <thead>
+                            <thead class="sticky top-0 z-20 shadow-md">
                                 <tr class="bg-[#090d16] text-slate-400 text-[9px] font-bold uppercase tracking-wider border-b border-slate-800">
-                                    <th class="p-4 w-1/3">Номенклатура iiko</th>
-                                    <th class="p-4 w-32 text-center border-r border-slate-800">Последняя закупка</th>
-                                    <th class="p-4 w-32 text-center border-r border-slate-800">Медиана (за период)</th>
-                                    <th class="p-4 w-1/3">Самая выгодная цена</th>
+                                    <th class="p-4 w-1/3 bg-[#090d16]">Номенклатура iiko</th>
+                                    <th class="p-4 w-32 text-center border-r border-slate-800 bg-[#090d16]">Последняя закупка</th>
+                                    <th class="p-4 w-32 text-center border-r border-slate-800 bg-[#090d16]">Медиана (за период)</th>
+                                    <th class="p-4 w-1/3 bg-[#090d16]">Самая выгодная цена</th>
                                 </tr>
                             </thead>
                             <tbody id="analytics-tbody" class="text-xs divide-y divide-slate-800/60 bg-[#111827]/40">
@@ -349,22 +366,19 @@
                             <h2 class="text-sm font-bold text-slate-300 uppercase tracking-wider">Диспетчер неучтенных списаний</h2>
                             <p class="text-slate-500 text-xs">Сопоставьте ручные записи поваров с реальной номенклатурой iiko RMS. Привязанная операция автоматически уйдет в iiko с ближайшей плановой выгрузкой.</p>
                         </div>
-                        <button id="btn-refresh-unlisted" class="bg-brand-500 hover:bg-brand-600 text-white px-5 py-2.5 rounded-xl text-xs font-semibold transition-all-300 shadow-sm flex items-center gap-1">
-                            🔄 Обновить список
-                        </button>
                     </div>
 
-                    <div class="overflow-x-auto rounded-xl border border-slate-800">
+                    <div class="overflow-x-auto max-h-[65vh] overflow-y-auto rounded-xl border border-slate-800">
                         <table class="w-full text-left border-collapse">
-                            <thead>
+                            <thead class="sticky top-0 z-20 shadow-md">
                                 <tr class="bg-[#090d16] text-slate-400 text-[9px] font-bold uppercase tracking-wider border-b border-slate-800">
-                                    <th class="p-4 w-12 text-center">№</th>
-                                    <th class="p-4 w-44">Кто и когда</th>
-                                    <th class="p-4 w-1/4">Введено на смене вручную</th>
-                                    <th class="p-4 w-28 text-center">Количество</th>
-                                    <th class="p-4 w-1/4">Комментарий / Причина</th>
-                                    <th class="p-4 w-1/4">Сопоставить с товаром iiko RMS</th>
-                                    <th class="p-4 w-32 text-center">Действие</th>
+                                    <th class="p-4 w-12 text-center bg-[#090d16]">№</th>
+                                    <th class="p-4 w-44 bg-[#090d16]">Кто и когда</th>
+                                    <th class="p-4 w-1/4 bg-[#090d16]">Введено на смене вручную</th>
+                                    <th class="p-4 w-28 text-center bg-[#090d16]">Количество</th>
+                                    <th class="p-4 w-1/4 bg-[#090d16]">Комментарий / Причина</th>
+                                    <th class="p-4 w-1/4 bg-[#090d16]">Сопоставить с товаром iiko RMS</th>
+                                    <th class="p-4 w-32 text-center bg-[#090d16]">Действие</th>
                                 </tr>
                             </thead>
                             <tbody id="unlisted-tbody" class="text-xs divide-y divide-slate-800/60 bg-[#111827]/40">
@@ -408,17 +422,153 @@
                         </button>
                     </div>
 
-                    <div class="overflow-x-auto rounded-xl border border-slate-800">
+                    <div class="overflow-x-auto max-h-[65vh] overflow-y-auto rounded-xl border border-slate-800">
                         <table class="w-full text-left border-collapse">
-                            <thead>
+                            <thead class="sticky top-0 z-20 shadow-md">
                                 <tr class="bg-[#090d16] text-slate-400 text-[9px] font-bold uppercase tracking-wider border-b border-slate-800">
-                                    <th class="p-4 w-12 text-center">№</th>
-                                    <th class="p-4">Название товара (в соответствии с iiko RMS)</th>
-                                    <th class="p-4 w-32 text-center">Действие</th>
+                                    <th class="p-4 w-12 text-center bg-[#090d16]">№</th>
+                                    <th class="p-4 bg-[#090d16]">Название товара (в соответствии с iiko RMS)</th>
+                                    <th class="p-4 w-32 text-center bg-[#090d16]">Действие</th>
                                 </tr>
                             </thead>
                             <tbody id="tpl-tbody" class="text-xs divide-y divide-slate-800/60 bg-[#111827]/40">
                                 <!-- Заполняется динамически из static/app.js -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <div id="bugh-section-tickets" class="space-y-6 hidden">
+                <section class="bg-[#111827] border border-slate-800/80 rounded-2xl p-6 shadow-[0_8px_30px_rgba(0,0,0,0.2)] space-y-4">
+                    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                        <div class="space-y-1">
+                            <h2 class="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">История заявок заведения</h2>
+                            <p class="text-slate-500 text-[11px]">История обращений и заявок для выбранного активного заведения.</p>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                            <input type="text" id="ticket-search-input" oninput="filterAdminTickets()" placeholder="Поиск (№, текст)..." class="w-full lg:w-64 bg-[#090d16] border border-slate-700 text-white text-xs rounded-xl px-3.5 py-2.5 outline-none focus:border-brand-500 transition-all-300">
+                        </div>
+                    </div>
+                    <div id="tickets-admin-list" class="space-y-4 max-h-[70vh] overflow-y-auto pr-2 scrollbar-hide">
+                        <div class="p-8 text-center text-slate-500 text-xs">Загрузка очереди заявок...</div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- ============================================================== -->
+            <!-- ТАБ 5: АКТ СВЕРКИ С ПОСТАВЩИКАМИ (RECONCILIATION)               -->
+            <!-- ============================================================== -->
+            <div id="bugh-section-reconciliation" class="space-y-6 hidden">
+                <section class="bg-[#111827] border border-slate-800/80 rounded-2xl p-6 shadow-[0_8px_30px_rgba(0,0,0,0.2)] space-y-6">
+                    <div class="border-b border-slate-800 pb-4">
+                        <h2 class="text-sm font-bold text-slate-300 uppercase tracking-wider">Акт сверки взаиморасчетов (Дебет / Отгрузки)</h2>
+                        <p class="text-slate-500 text-xs mt-1">Загрузите акт сверки от поставщика в PDF или фото. Нейросеть извлечет список отгрузок и сопоставит их с базой проведенных накладных QA2A.</p>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row items-center gap-4 bg-[#090d16]/50 border border-slate-800 rounded-xl p-4 mb-6">
+                        <div class="flex items-center gap-3 w-full sm:w-auto">
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Период (Ручная сверка):</label>
+                            <input type="date" id="rec-date-from" class="bg-[#111827] border border-slate-700 rounded-lg px-3 py-2 text-white text-xs outline-none focus:border-brand-500 transition-all-300">
+                            <span class="text-slate-500">-</span>
+                            <input type="date" id="rec-date-to" class="bg-[#111827] border border-slate-700 rounded-lg px-3 py-2 text-white text-xs outline-none focus:border-brand-500 transition-all-300">
+                        </div>
+                        <button id="btn-reconcile-registry" class="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-lg text-xs font-bold transition-all-300 shadow-sm border border-slate-700 flex items-center justify-center gap-2">
+                            📋 Сверить вручную по списку
+                        </button>
+                    </div>
+
+                    <!-- Зона загрузки акта сверки -->
+                    <div id="reconcile-drop-zone" class="border-2 border-dashed border-slate-800 hover:border-brand-500/50 rounded-2xl p-8 text-center cursor-pointer transition-all-300 bg-[#090d16]/50">
+                        <input type="file" id="reconcile-file-input" class="hidden" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple>
+                        <div class="text-3xl mb-3">📑</div>
+                        <div class="text-sm font-semibold text-white mb-1">Перетащите сюда Акт сверки или нажмите для выбора</div>
+                        <div class="text-xs text-slate-500">Поддерживаются форматы PDF, PNG, JPG, JPEG, WEBP (до 10 страниц)</div>
+                        <div id="reconcile-file-name" class="hidden mt-3 inline-block px-3 py-1 rounded-lg text-xs bg-brand-500/10 text-brand-400 border border-brand-500/20"></div>
+                    </div>
+
+                    <div id="reconcile-error" class="hidden p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold"></div>
+
+                    <div class="flex items-center justify-between">
+                        <button id="btn-reconcile-parse" class="bg-brand-500 hover:bg-brand-600 active:bg-brand-700 text-white px-6 py-3 rounded-xl font-bold transition-all-300 shadow-sm flex items-center gap-2 text-xs opacity-50 cursor-not-allowed" disabled>
+                            🔍 Начать сверку с базой
+                        </button>
+                        <div id="reconcile-loader" class="hidden text-xs text-brand-400 animate-pulse font-medium flex items-center gap-2">
+                            <span class="inline-block w-4 h-4 border-2 border-brand-400 border-t-transparent rounded-full animate-spin"></span>
+                            AI распознает отгрузки и сверяет с базой накладных...
+                        </div>
+                    </div>
+                </section>
+
+                <!-- СЕКЦИЯ РЕЗУЛЬТАТОВ СВЕРКИ -->
+                <section id="reconcile-results" class="hidden bg-[#111827] border border-slate-800/80 rounded-2xl p-6 shadow-[0_8px_30px_rgba(0,0,0,0.2)] space-y-6">
+                    <div class="border-b border-slate-800 pb-4">
+                        <h2 class="text-sm font-bold text-slate-300 uppercase tracking-wider">Результаты сверки документов</h2>
+                        <p class="text-slate-500 text-xs mt-1">Сравнение отгрузок из акта поставщика с данными проведенных накладных в QA2A.</p>
+                    </div>
+
+                    <!-- Сводные карточки статусов -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="bg-[#090d16] border border-emerald-500/20 p-4 rounded-xl">
+                            <div class="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">✅ Совпало</div>
+                            <div class="text-2xl font-black text-white mt-1" id="rec-stat-matched-count">0</div>
+                            <div class="text-xs text-slate-400 mt-1" id="rec-stat-matched-sum">0.00 ₽</div>
+                        </div>
+
+                        <div class="bg-[#090d16] border border-amber-500/20 p-4 rounded-xl">
+                            <div class="text-[10px] uppercase font-bold text-amber-400 tracking-wider">⚠️ Расхождение сумм</div>
+                            <div class="text-2xl font-black text-white mt-1" id="rec-stat-mismatched-count">0</div>
+                            <div class="text-xs text-slate-400 mt-1" id="rec-stat-mismatched-sum">Δ 0.00 ₽</div>
+                        </div>
+
+                        <div class="bg-[#090d16] border border-rose-500/20 p-4 rounded-xl">
+                            <div class="text-[10px] uppercase font-bold text-rose-400 tracking-wider">❌ Нет в нашей базе</div>
+                            <div class="text-2xl font-black text-white mt-1" id="rec-stat-missing-count">0</div>
+                            <div class="text-xs text-slate-400 mt-1" id="rec-stat-missing-sum">0.00 ₽</div>
+                        </div>
+
+                        <div class="bg-[#090d16] border border-indigo-500/20 p-4 rounded-xl">
+                            <div class="text-[10px] uppercase font-bold text-indigo-400 tracking-wider">👻 Только в нашей базе</div>
+                            <div class="text-2xl font-black text-white mt-1" id="rec-stat-phantom-count">0</div>
+                            <div class="text-xs text-slate-400 mt-1" id="rec-stat-phantom-sum">0.00 ₽</div>
+                        </div>
+                    </div>
+
+                    <!-- Фильтры категорий -->
+                    <div class="flex flex-wrap items-center gap-2 pt-2">
+                        <button data-status="all" onclick="filterReconciliation('all')" class="reconcile-filter-btn px-4 py-2 rounded-xl text-xs font-bold transition-all-300 shadow-sm bg-brand-500 text-white">
+                            Все записи
+                        </button>
+                        <button data-status="mismatched" onclick="filterReconciliation('mismatched')" class="reconcile-filter-btn px-4 py-2 rounded-xl text-xs font-semibold transition-all-300 bg-[#090d16] text-slate-400 hover:text-white border border-slate-800">
+                            ⚠️ Расхождения
+                        </button>
+                        <button data-status="missing_in_db" onclick="filterReconciliation('missing_in_db')" class="reconcile-filter-btn px-4 py-2 rounded-xl text-xs font-semibold transition-all-300 bg-[#090d16] text-slate-400 hover:text-white border border-slate-800">
+                            ❌ Нет в базе QA2A
+                        </button>
+                        <button data-status="phantom_in_db" onclick="filterReconciliation('phantom_in_db')" class="reconcile-filter-btn px-4 py-2 rounded-xl text-xs font-semibold transition-all-300 bg-[#090d16] text-slate-400 hover:text-white border border-slate-800">
+                            👻 Только в нашей базе
+                        </button>
+                        <button data-status="matched" onclick="filterReconciliation('matched')" class="reconcile-filter-btn px-4 py-2 rounded-xl text-xs font-semibold transition-all-300 bg-[#090d16] text-slate-400 hover:text-white border border-slate-800">
+                            ✅ Совпавшие
+                        </button>
+                    </div>
+
+                    <!-- Таблица результатов -->
+                    <div class="overflow-x-auto max-h-[65vh] overflow-y-auto rounded-xl border border-slate-800">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="sticky top-0 z-20 shadow-md">
+                                <tr class="bg-[#090d16] text-slate-400 text-[9px] font-bold uppercase tracking-wider border-b border-slate-800">
+                                    <th class="p-4 w-12 text-center bg-[#090d16]">№</th>
+                                    <th class="p-4 w-44 bg-[#090d16]">Статус</th>
+                                    <th class="p-4 bg-[#090d16]">Номер документа</th>
+                                    <th class="p-4 w-32 bg-[#090d16]">Дата</th>
+                                    <th class="p-4 w-36 text-right bg-[#090d16]">Сумма в акте</th>
+                                    <th class="p-4 w-36 text-right bg-[#090d16]">Сумма в базе</th>
+                                    <th class="p-4 w-36 text-right bg-[#090d16]">Разница</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reconcile-tbody" class="text-xs divide-y divide-slate-800/60 bg-[#111827]/40">
+                                <!-- Заполняется динамически из reconciliation.js -->
                             </tbody>
                         </table>
                     </div>
@@ -512,14 +662,153 @@
         </div>
     </div>
 
-        <script src="js/state.js?v=10.0"></script>
-    <script src="js/auth.js?v=10.0"></script>
-    <script src="js/ui.js?v=10.0"></script>
-    <script src="js/parser.js?v=10.0"></script>
-    <script src="js/analytics.js?v=10.0"></script>
-    <script src="js/templates.js?v=10.0"></script>
-    <script src="js/presets.js?v=10.0"></script>
-    <script src="js/main.js?v=10.0"></script>
+    <script src="js/state.js?v=11.0"></script>
+    <script src="js/auth.js?v=11.0"></script>
+    <script src="js/ui.js?v=11.0"></script>
+    <script src="js/parser.js?v=11.0"></script>
+    <script src="js/analytics.js?v=11.0"></script>
+    <script src="js/templates.js?v=11.0"></script>
+    <script src="js/presets.js?v=11.0"></script>
+    <script src="js/main.js?v=11.0"></script>
+    <script src="js/tickets.js?v=1.0"></script>
+    <script src="js/reconciliation.js?v=1.0"></script>
+
+    <!-- Register Modal -->
+    <div id="registerModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div class="bg-[#0f172a] border border-slate-800 rounded-3xl p-8 max-w-sm w-full shadow-2xl relative">
+            <div class="text-center mb-6">
+                <span class="bg-brand-500/20 text-brand-400 text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border border-brand-500/30">QA2A</span>
+                <h2 class="text-xl font-bold text-white mt-4">Регистрация бухгалтера</h2>
+                <p class="text-xs text-slate-400 mt-2">Заполните данные для создания кабинета</p>
+            </div>
+            <form id="registerForm" class="space-y-4">
+                <div>
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Логин</label>
+                    <input type="text" id="reg-login" required class="w-full bg-[#090d16] border border-slate-800 rounded-xl p-3 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all-300 text-sm">
+                </div>
+                <div>
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email</label>
+                    <input type="email" id="reg-email" class="w-full bg-[#090d16] border border-slate-800 rounded-xl p-3 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all-300 text-sm">
+                </div>
+                <div>
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Пароль</label>
+                    <input type="password" id="reg-password" required class="w-full bg-[#090d16] border border-slate-800 rounded-xl p-3 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all-300 text-sm">
+                </div>
+                <button type="submit" class="w-full bg-brand-500 hover:bg-brand-600 active:bg-brand-700 text-white font-semibold py-3 rounded-xl transition-all-300 shadow-md flex justify-center items-center gap-2 mt-2">
+                    Создать аккаунт
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Global Inbox Modal -->
+    <div id="global-inbox-modal" class="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/80 backdrop-blur-sm transition-all-300 hidden pt-10 pb-10">
+        <div class="w-full max-w-4xl bg-[#111827] border border-slate-800 rounded-2xl shadow-2xl flex flex-col max-h-full">
+            <div class="flex justify-between items-center p-5 border-b border-slate-800">
+                <h2 class="text-lg font-bold text-white flex items-center gap-2">📥 Глобальный Диспетчер Заявок</h2>
+                <button onclick="closeGlobalInboxModal()" class="text-slate-400 hover:text-white text-xl font-bold">✕</button>
+            </div>
+            <div class="p-5 flex-1 overflow-y-auto" id="global-inbox-content">
+                <!-- Rendered via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно: Архив накладных (История закупок) -->
+    <div id="invoice-archive-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm transition-all-300 hidden p-4">
+        <div class="w-full max-w-5xl bg-[#111827] border border-slate-800 rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            <!-- Шапка модалки -->
+            <div class="flex justify-between items-center px-6 py-4 border-b border-slate-800 bg-[#090d16]">
+                <div class="flex items-center gap-3">
+                    <span class="text-xl">📚</span>
+                    <div>
+                        <h2 class="text-sm font-bold text-white uppercase tracking-wider" id="archive-modal-title">Архив накладных (История закупок)</h2>
+                        <div class="text-[10px] text-slate-400" id="archive-modal-subtitle">Просмотр и исправление проведенных накладных</div>
+                    </div>
+                </div>
+                <button type="button" onclick="closeInvoiceArchive()" class="text-slate-400 hover:text-white text-lg font-bold p-1 rounded-lg hover:bg-slate-800 transition-all-300">
+                    ✕
+                </button>
+            </div>
+
+            <!-- Вью 1: Список накладных -->
+            <div id="archive-invoices-view" class="flex-1 flex flex-col p-6 overflow-hidden space-y-4">
+                <div class="flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div class="relative w-full sm:w-80">
+                        <input type="text" id="archive-search-input" oninput="filterArchiveInvoices()" placeholder="Поиск по номеру или поставщику..." class="w-full bg-[#090d16] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 outline-none focus:border-brand-500 transition-all-300">
+                        <span class="absolute right-3 top-2.5 text-slate-500 text-xs">🔍</span>
+                    </div>
+                    <button type="button" onclick="loadArchiveInvoices()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-4 py-2.5 rounded-xl border border-slate-700 transition-all-300 flex items-center gap-2">
+                        🔄 Обновить список
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto flex-1 max-h-[60vh] overflow-y-auto rounded-xl border border-slate-800">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="sticky top-0 z-20 shadow-md">
+                            <tr class="bg-[#090d16] text-slate-400 text-[9px] font-bold uppercase tracking-wider border-b border-slate-800">
+                                <th class="px-4 py-3 bg-[#090d16]">№ Накладной</th>
+                                <th class="px-4 py-3 bg-[#090d16]">Дата</th>
+                                <th class="px-4 py-3 bg-[#090d16]">Поставщик</th>
+                                <th class="px-4 py-3 text-center bg-[#090d16]">Позиций</th>
+                                <th class="px-4 py-3 text-right bg-[#090d16]">Сумма (₽)</th>
+                                <th class="px-4 py-3 text-center bg-[#090d16]">Действие</th>
+                            </tr>
+                        </thead>
+                        <tbody id="archive-invoices-tbody" class="text-xs divide-y divide-slate-800/60 bg-[#111827]/40">
+                            <!-- Заполняется динамически -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Вью 2: Редактор позиций выбранной накладной -->
+            <div id="archive-items-view" class="flex-1 flex flex-col p-6 overflow-hidden space-y-4 hidden">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-[#090d16] p-4 rounded-xl border border-slate-800">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-3">
+                            <button type="button" onclick="backToArchiveInvoicesList()" class="text-brand-400 hover:text-brand-300 text-xs font-bold flex items-center gap-1 hover:underline">
+                                ← К списку
+                            </button>
+                            <span class="text-slate-600">|</span>
+                            <span class="text-xs font-bold text-white" id="archive-edit-docnum">Накладная №...</span>
+                            <span class="text-[10px] text-slate-400" id="archive-edit-docdate">от ...</span>
+                        </div>
+                        <div class="text-[11px] text-slate-300" id="archive-edit-vendor">Поставщик: ...</div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="text-right">
+                            <div class="text-[9px] text-slate-500 uppercase font-bold">Итого сумма</div>
+                            <div class="text-sm font-bold text-brand-400" id="archive-edit-total-sum">0.00 ₽</div>
+                        </div>
+                        <button type="button" onclick="saveArchiveInvoiceChanges()" id="btn-save-archive-items" class="bg-brand-500 hover:bg-brand-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all-300 shadow-sm flex items-center gap-2">
+                            💾 Сохранить изменения
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto flex-1 max-h-[55vh] overflow-y-auto rounded-xl border border-slate-800">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="sticky top-0 z-20 shadow-md">
+                            <tr class="bg-[#090d16] text-slate-400 text-[9px] font-bold uppercase tracking-wider border-b border-slate-800">
+                                <th class="px-3 py-3 w-8 text-center bg-[#090d16]">№</th>
+                                <th class="px-3 py-3 w-2/5 bg-[#090d16]">Наименование товара</th>
+                                <th class="px-3 py-3 w-20 text-center bg-[#090d16]">Кол-во</th>
+                                <th class="px-3 py-3 w-16 text-center bg-[#090d16]">Ед.</th>
+                                <th class="px-3 py-3 w-28 text-center bg-[#090d16]">Итого в iiko</th>
+                                <th class="px-3 py-3 w-28 text-center bg-[#090d16]">Сумма (₽)</th>
+                                <th class="px-3 py-3 w-28 text-center bg-[#090d16]">Цена за ед.</th>
+                            </tr>
+                        </thead>
+                        <tbody id="archive-items-tbody" class="text-xs divide-y divide-slate-800/60 bg-[#111827]/40">
+                            <!-- Заполняется динамически -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
 </body>
 </html>
 

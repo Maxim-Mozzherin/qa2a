@@ -25,7 +25,14 @@ if (els.btnSubmitLogin) {
 
             const data = await res.json();
             localStorage.setItem('bugh_token', data.token);
+            if (data.role) localStorage.setItem("bugh_role", data.role);
             
+            // Мгновенно активируем кнопку инвайта бухгалтера для роли superadmin без необходимости F5
+            const btnAcc = document.getElementById("btn-generate-accountant-invite");
+            if (btnAcc && data.role === "superadmin") {
+                btnAcc.classList.remove("hidden");
+            }
+
             els.loginUser.value = "";
             els.loginPass.value = "";
 
@@ -78,6 +85,7 @@ async function initDashboard() {
             els.company.value = savedCompany;
             handleCompanyChange();
         }
+        if (typeof startGlobalBadgePolling === 'function') startGlobalBadgePolling();
     } catch (err) {
         console.error("Ошибка загрузки заведений:", err);
     }
@@ -110,77 +118,7 @@ if (els.btnSave) {
     });
 }
 
-// ============================================================================
-// 3. ОБНОВЛЕНИЕ СПРАВОЧНИКОВ IIKO RMS
-// ============================================================================
 
-if (els.btnCatalog) {
-    els.btnCatalog.addEventListener('click', async () => {
-        const companyId = els.company.value;
-        if (!companyId) {
-            alert("Пожалуйста, сначала выберите активное заведение!");
-            return;
-        }
-
-        els.btnCatalog.disabled = true;
-        els.btnCatalog.innerText = "⏳ Синхронизация...";
-
-        try {
-            const res = await fetch('api/catalog', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': getAuthToken()
-                },
-                body: JSON.stringify({ company_id: parseInt(companyId) })
-            });
-
-            if (!res.ok) throw new Error(await res.text());
-
-            const data = await res.json();
-            currentToken = data.token;
-            iikoCatalog = data.catalog || [];
-            iikoSuppliers = data.suppliers || [];
-
-            localStorage.setItem(`cached_catalog_${companyId}`, JSON.stringify(iikoCatalog));
-            localStorage.setItem(`cached_suppliers_${companyId}`, JSON.stringify(iikoSuppliers));
-
-            populateDatalists();
-
-            if (data.stores && data.stores.length > 0) {
-                els.store.innerHTML = '';
-                data.stores.forEach(s => {
-                    const opt = document.createElement('option');
-                    opt.value = s.uuid;
-                    opt.textContent = s.name;
-                    els.store.appendChild(opt);
-                });
-                els.store.disabled = false;
-
-                const savedStore = localStorage.getItem(`saved_store_${companyId}`);
-                if (savedStore) els.store.value = savedStore;
-            }
-
-            els.supplierSearch.disabled = false;
-            const savedSupplierName = localStorage.getItem(`saved_supplier_name_${companyId}`);
-            if (savedSupplierName) els.supplierSearch.value = savedSupplierName;
-
-            els.badge.innerText = `✅ Справочник: ${iikoCatalog.length} товаров`;
-            els.badge.className = "px-3 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
-            
-            els.btnParse.disabled = false;
-            els.btnParse.classList.remove('opacity-50', 'cursor-not-allowed');
-
-            loadUnlistedOperations();
-
-        } catch (err) {
-            alert("❌ Ошибка соединения: " + err.message);
-        } finally {
-            els.btnCatalog.disabled = false;
-            els.btnCatalog.innerHTML = "🔄 Обновить справочник iiko";
-        }
-    });
-}
 
 // ============================================================================
 // 4. НЕЙРОСЕТЕВОЙ ПАРСИНГ УПД (PDF)
@@ -228,7 +166,7 @@ if (els.dropZone) {
             const isValid = validExts.some(ext => file.name.toLowerCase().endsWith(ext)) || file.type.startsWith("image/") || file.type === "application/pdf";
             
             if (!isValid) {
-                alert("����������, �������� ���� ��������� (PDF ��� ����)");
+                alert("Пожалуйста, выберите файл накладной (PDF или фото)");
                 return;
             }
 
@@ -267,7 +205,6 @@ if (els.addFile) {
 
 window.updateFooterTotals = updateFooterTotals;
 
-
 document.addEventListener('DOMContentLoaded', () => {
     const btnEmpty = document.getElementById('btn-create-empty');
     if (btnEmpty) btnEmpty.addEventListener('click', () => {
@@ -278,22 +215,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnAddRow = document.getElementById('btn-add-row');
     if (btnAddRow) btnAddRow.addEventListener('click', executeAddEmptyRow);
 });
-
-
-window.updateFooterTotals = updateFooterTotals;
-
-
-document.addEventListener('DOMContentLoaded', () => {
-    const btnEmpty = document.getElementById('btn-create-empty');
-    if (btnEmpty) btnEmpty.addEventListener('click', () => {
-        executeAddEmptyRow();
-        document.getElementById('results-section').classList.remove('hidden');
-    });
-    
-    const btnAddRow = document.getElementById('btn-add-row');
-    if (btnAddRow) btnAddRow.addEventListener('click', executeAddEmptyRow);
-});
-
 
 // ============================================================================
 // 6. ИМПОРТ НАКЛАДНОЙ В IIKO RMS И ОБНОВЛЕНИЕ АНАЛИТИКИ
@@ -324,9 +245,17 @@ if (els.btnImport) {
 
         rows.forEach((tr, idx) => {
             const searchInput = tr.querySelector('.iiko-search')?.value.trim();
-            const rawMult = (tr.querySelector('.iiko-mult')?.value || "").replace(',', '.');
-            const multInput = parseFloat(rawMult) || 1.0;
             const originalItem = currentDocData.items[idx];
+            let multInput = (originalItem && typeof originalItem.multiplier === 'number') ? originalItem.multiplier : 1.0;
+            const finalQtyInput = tr.querySelector('.iiko-final-qty');
+            if (finalQtyInput) {
+                const finalQ = parseFloat(finalQtyInput.value.replace(',', '.')) || 0;
+                const q = originalItem ? (parseFloat(originalItem.quantity) || 0) : 0;
+                if (q > 0) multInput = finalQ / q;
+            } else {
+                const rawMult = (tr.querySelector('.iiko-mult')?.value || "").replace(',', '.');
+                if (rawMult) multInput = parseFloat(rawMult) || multInput;
+            }
 
             if (searchInput && searchInput !== "") {
                 let mappedUuid = "";
@@ -416,6 +345,7 @@ if (els.btnImport) {
             alert("✅ Успешно! Накладная создана в iiko RMS и добавлена в историю аналитики.");
             els.resSection.classList.add('hidden');
             els.file.value = "";
+            currentDocData = null; // Сброс состояния для предотвращения случайного прикрепления фото к старой накладной
             
             // Если вкладка аналитики загружалась, обновляем её данными новой накладной
             if (analyticsCache.length > 0) {
@@ -607,3 +537,107 @@ if (els.modalPromptTextarea) {
     els.modalPromptTextarea.addEventListener('input', updatePromptCharCount);
 }
 
+
+
+
+// Кнопка 1: Инвайт для ресторана (доступна всем бухгалтерам)
+const btnInviteCompany = document.getElementById("btn-generate-invite");
+if (btnInviteCompany) {
+    btnInviteCompany.addEventListener("click", async () => {
+        const cmpName = prompt("Введите название заведения для инвайта:", "Новое заведение");
+        if (!cmpName) return;
+        try {
+            const res = await fetch("api/invite/generate?token=" + getAuthToken(), { 
+                method: "POST", 
+                headers: {"Content-Type": "application/json"}, 
+                body: JSON.stringify({name: cmpName}) 
+            });
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            
+            try {
+                await navigator.clipboard.writeText(data.invite_code);
+                alert("✅ Код заведения скопирован в буфер обмена!\n\n" + data.invite_code + "\n\nПередайте его управляющему заведения.");
+            } catch (e) {
+                prompt("Скопируйте инвайт-код вручную:", data.invite_code);
+            }
+            location.reload();
+        } catch(err) {
+            alert("❌ Ошибка:\n" + err.message);
+        }
+    });
+}
+
+// Кнопка 2: Инвайт для бухгалтера (видна только роли admin)
+const btnInviteAccountant = document.getElementById("btn-generate-accountant-invite");
+if (btnInviteAccountant) {
+    // Проверяем видимость при старте
+    if (localStorage.getItem("bugh_role") === "superadmin") {
+        btnInviteAccountant.classList.remove("hidden");
+    }
+
+    btnInviteAccountant.addEventListener("click", async () => {
+        try {
+            btnInviteAccountant.innerText = "⏳ Генерация...";
+            const res = await fetch("api/accountant-invite/generate?token=" + getAuthToken(), { method: "POST" });
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            
+            try {
+                await navigator.clipboard.writeText(data.invite_link);
+                alert("✅ Ссылка скопирована в буфер обмена!\n\n" + data.invite_link + "\n\nОна действительна 24 часа. Отправьте ее новому бухгалтеру!");
+            } catch (e) {
+                prompt("Скопируйте ссылку вручную:", data.invite_link);
+            }
+        } catch(err) {
+            alert("❌ Ошибка:\n" + err.message);
+        } finally {
+            btnInviteAccountant.innerHTML = "👨💼 Пригласить бухгалтера";
+        }
+    });
+}
+document.addEventListener("DOMContentLoaded", () => {
+    const registerModal = document.getElementById("registerModal");
+    const registerForm = document.getElementById("registerForm");
+    const urlParams = new URLSearchParams(window.location.search);
+    const inviteCodeParam = urlParams.get("invite");
+
+    if (inviteCodeParam) {
+        if (els.loginModal) els.loginModal.classList.add("hidden");
+        if (registerModal) registerModal.classList.remove("hidden");
+    }
+
+    if (registerForm) {
+        registerForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const login = document.getElementById("reg-login").value.trim();
+            const email = document.getElementById("reg-email").value.trim();
+            const password = document.getElementById("reg-password").value.trim();
+
+            if (!login || !password) return alert("Заполните логин и пароль");
+
+            const btn = registerForm.querySelector("button");
+            const oldText = btn.innerText;
+            btn.innerText = "⏳ Создание аккаунта...";
+            btn.disabled = true;
+
+            try {
+                const res = await fetch("api/accountant-invite/register", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ invite_code: inviteCodeParam, login, email, password })
+                });
+
+                if (!res.ok) throw new Error(await res.text());
+                
+                alert("✅ Успешно! Аккаунт бухгалтера создан.\n\nТеперь вы можете войти в систему под своими данными.");
+                window.location.href = window.location.pathname; // Remove ?invite=
+            } catch(err) {
+                alert("❌ Ошибка:\n" + err.message);
+            } finally {
+                btn.innerText = oldText;
+                btn.disabled = false;
+            }
+        });
+    }
+});
