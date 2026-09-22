@@ -1,0 +1,1 @@
+PGPASSWORD="!123Maxim.!" psql -h localhost -p 5433 -U admin -d qa2a -c "SELECT id, company_id, name, is_default FROM parser_prompt_presets ORDER BY id;"
