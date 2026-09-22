@@ -14,12 +14,14 @@ type Mapping struct {
 }
 
 type AiResponse struct {
-	VendorName string   `json:"vendor_name"`
-	DocNumber  string   `json:"doc_number"`
-	DocDate    string   `json:"doc_date"`
-	Consignee  string   `json:"consignee"`
-	Shipper    string   `json:"shipper"`
-	Items      []AiItem `json:"items"`
+	VendorName         string   `json:"vendor_name"`
+	DocNumber          string   `json:"doc_number"`
+	DocDate            string   `json:"doc_date"`
+	Consignee          string   `json:"consignee"`
+	Shipper            string   `json:"shipper"`
+	DocPrintedTotalSum float64  `json:"doc_printed_total_sum"`
+	Items              []AiItem `json:"items"`
+	UsedModel          string   `json:"used_model"`
 }
 
 type PromptPreset struct {
@@ -34,16 +36,22 @@ type PromptPreset struct {
 }
 
 type AiItem struct {
+	Num           int     `json:"num"` // AI visual anchor
 	Name          string  `json:"name"`
 	CleanCategory string  `json:"clean_category"` // Базовая категория (для рынка)
 	Brand         string  `json:"brand"`          // Производитель/Бренд (для рынка)
 	Quantity      float64 `json:"quantity"`
+	Unit          string  `json:"unit"`
+	BaseUnit      string  `json:"base_unit"`
 	Price         float64 `json:"price"`
 	Sum           float64 `json:"sum"`
 	SumWithoutNds float64 `json:"sum_without_nds"`
 	NdsPercent    float64 `json:"nds_percent"`
 	AiMultiplier  float64 `json:"ai_multiplier"`
 	AiTip         string  `json:"ai_tip"`
+	DocNumber     string  `json:"doc_number"`
+	DocDate       string  `json:"doc_date"`
+	Amount        float64 `json:"amount"`
 }
 
 type XMLProducts struct {
@@ -106,4 +114,5 @@ type MarketRecord struct {
 	CleanCategory   string  `json:"clean_category"`
 	Brand           string  `json:"brand"`
 	PricePerUnit    float64 `json:"price_per_base_unit"`
+	Unit            string  `json:"unit"`
 }

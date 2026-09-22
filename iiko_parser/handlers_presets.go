@@ -10,10 +10,16 @@ import (
 func handlePromptPresets(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	user := GetAuthUser(r)
+
 	switch r.Method {
 	case http.MethodGet:
 		companyIDStr := r.URL.Query().Get("company_id")
 		companyID, _ := strconv.Atoi(companyIDStr)
+		if companyID > 0 && !checkAccountantAccessUser(user, companyID) {
+			http.Error(w, "Доступ к пресетам заведения запрещен", http.StatusForbidden)
+			return
+		}
 
 		rows, err := db.Query(`
 			SELECT id, company_id, name, description, prompt, is_default, created_at, updated_at
@@ -49,6 +55,11 @@ func handlePromptPresets(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Некорректный JSON", http.StatusBadRequest)
+			return
+		}
+
+		if req.CompanyID > 0 && !checkAccountantAccessUser(user, req.CompanyID) {
+			http.Error(w, "Доступ к заведению запрещен", http.StatusForbidden)
 			return
 		}
 		req.Name = strings.TrimSpace(req.Name)
@@ -107,14 +118,34 @@ func handlePromptPresets(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Некорректный ID пресета", http.StatusBadRequest)
 			return
 		}
-		res, err := db.Exec("DELETE FROM parser_prompt_presets WHERE id = $1 AND is_default = FALSE", id)
+
+		var companyID int
+		var isDefault bool
+		err = db.QueryRow("SELECT company_id, is_default FROM parser_prompt_presets WHERE id = $1", id).Scan(&companyID, &isDefault)
+		if err != nil {
+			http.Error(w, "Пресет не найден", http.StatusNotFound)
+			return
+		}
+
+		if isDefault {
+			http.Error(w, "Нельзя удалить системный базовый шаблон", http.StatusBadRequest)
+			return
+		}
+
+		// Проверяем, имеет ли бухгалтер доступ к заведению, чей пресет удаляет
+		if companyID > 0 && !checkAccountantAccessUser(user, companyID) {
+			http.Error(w, "Доступ к удалению пресета данного заведения запрещен", http.StatusForbidden)
+			return
+		}
+
+		res, err := db.Exec("DELETE FROM parser_prompt_presets WHERE id = $1", id)
 		if err != nil {
 			http.Error(w, "Ошибка удаления: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		affected, _ := res.RowsAffected()
 		if affected == 0 {
-			http.Error(w, "Пресет не найден или является системным базовым шаблоном", http.StatusBadRequest)
+			http.Error(w, "Пресет не найден", http.StatusBadRequest)
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})

@@ -26,8 +26,7 @@ function renderPresetDropdowns() {
 
     const presetsToRender = (promptPresets && promptPresets.length > 0) ? promptPresets : [
         { id: 1, name: "Стандартный (УПД / ТОРГ-12)", is_default: true },
-        { id: 2, name: "Многостраничная накладная (фото / сканы)", is_default: true },
-        { id: 3, name: "Товарный чек / Простая квитанция", is_default: true }
+        { id: 2, name: "Товарный чек / Простая квитанция", is_default: true }
     ];
 
     const optionsHtml = presetsToRender.map(p => {

@@ -98,25 +98,6 @@ if (els.company) {
 
 
 
-if (els.btnSave) {
-    els.btnSave.addEventListener('click', () => {
-        const companyId = els.company.value;
-        const storeUuid = els.store.value;
-        const supplierName = els.supplierSearch.value.trim();
-
-        if (!companyId) return alert("Пожалуйста, выберите заведение!");
-
-        localStorage.setItem(`saved_store_${companyId}`, storeUuid);
-        localStorage.setItem(`saved_supplier_name_${companyId}`, supplierName);
-        
-        const foundSupplier = iikoSuppliers.find(s => s.name === supplierName);
-        if (foundSupplier) {
-            localStorage.setItem(`saved_supplier_uuid_${companyId}`, foundSupplier.uuid);
-        }
-
-        alert('💾 Настройки сопоставления сохранены локально!');
-    });
-}
 
 
 
@@ -239,28 +220,38 @@ if (els.btnImport) {
             return;
         }
 
-        const rows = els.tbody.querySelectorAll('tr');
+        const rows = els.tbody.querySelectorAll('.invoice-item-row');
+        if (rows.length === 0 || !currentDocData.items || currentDocData.items.length === 0) {
+            alert("⚠️ Нет товаров для отправки!");
+            return;
+        }
+
         const itemsToImport = [];
         let hasErrors = false;
+        let unmappedCount = 0;
+        let firstErrorEl = null;
 
         rows.forEach((tr, idx) => {
-            const searchInput = tr.querySelector('.iiko-search')?.value.trim();
+            const searchInputEl = tr.querySelector('.iiko-search');
+            const searchInput = searchInputEl ? searchInputEl.value.trim() : "";
             const originalItem = currentDocData.items[idx];
-            let multInput = (originalItem && typeof originalItem.multiplier === 'number') ? originalItem.multiplier : 1.0;
+            if (!originalItem) return;
+
+            let multInput = (typeof originalItem.multiplier === 'number') ? originalItem.multiplier : 1.0;
             const finalQtyInput = tr.querySelector('.iiko-final-qty');
             if (finalQtyInput) {
                 const finalQ = parseFloat(finalQtyInput.value.replace(',', '.')) || 0;
-                const q = originalItem ? (parseFloat(originalItem.quantity) || 0) : 0;
+                const q = parseFloat(originalItem.quantity) || 0;
                 if (q > 0) multInput = finalQ / q;
             } else {
                 const rawMult = (tr.querySelector('.iiko-mult')?.value || "").replace(',', '.');
                 if (rawMult) multInput = parseFloat(rawMult) || multInput;
             }
 
-            if (searchInput && searchInput !== "") {
-                let mappedUuid = "";
-                let mappedName = searchInput;
+            let mappedUuid = "";
+            let mappedName = searchInput;
 
+            if (searchInput !== "") {
                 const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
                 const match = searchInput.match(uuidRegex);
 
@@ -279,33 +270,45 @@ if (els.btnImport) {
                         mappedName = foundProduct.name;
                     }
                 }
+            }
 
-                if (!mappedUuid) {
-                    hasErrors = true;
-                    tr.querySelector('.iiko-search').classList.add('border-red-500/80', 'bg-red-500/5');
-                } else {
-                    tr.querySelector('.iiko-search').classList.remove('border-red-500/80', 'bg-red-500/5');
-                    
-                    const userCategory = tr.querySelector('.clean-category-select')?.value || originalItem.clean_category || "";
-                    itemsToImport.push({
-                        name: originalItem.name,
-                        clean_category: userCategory,
-                        brand: originalItem.brand || "",
-                        quantity: originalItem.quantity,
-                        price: originalItem.price,
-                        sum: originalItem.sum,
-                        sum_without_nds: parseFloat(originalItem.sum_without_nds) || 0.0,
-                        nds_percent: parseFloat(originalItem.nds_percent) || 0.0,
-                        mapped_uuid: mappedUuid,
-                        mapped_name: mappedName,
-                        multiplier: multInput
-                    });
+            if (!mappedUuid) {
+                hasErrors = true;
+                unmappedCount++;
+                if (searchInputEl) {
+                    searchInputEl.classList.add('border-red-500/80', 'bg-red-500/10', 'ring-2', 'ring-red-500/20');
+                    if (!firstErrorEl) firstErrorEl = searchInputEl;
                 }
+            } else {
+                if (searchInputEl) {
+                    searchInputEl.classList.remove('border-red-500/80', 'bg-red-500/10', 'ring-2', 'ring-red-500/20');
+                }
+                
+                const userCategory = tr.querySelector('.clean-category-select')?.value || originalItem.clean_category || "";
+                const baseUnitInput = tr.querySelector('.iiko-base-unit-input')?.value.trim() || originalItem.base_unit || originalItem.unit || "кг/шт";
+                itemsToImport.push({
+                    name: originalItem.name,
+                    clean_category: userCategory,
+                    brand: originalItem.brand || "",
+                    quantity: originalItem.quantity,
+                    unit: baseUnitInput,
+                    price: originalItem.price,
+                    sum: originalItem.sum,
+                    sum_without_nds: parseFloat(originalItem.sum_without_nds) || 0.0,
+                    nds_percent: parseFloat(originalItem.nds_percent) || 0.0,
+                    mapped_uuid: mappedUuid,
+                    mapped_name: mappedName,
+                    multiplier: multInput
+                });
             }
         });
 
-        if (hasErrors) {
-            alert("⚠️ Некоторые товары не сопоставлены со справочником! Проверьте поля, подсвеченные красным.");
+        if (hasErrors || unmappedCount > 0) {
+            if (firstErrorEl) {
+                firstErrorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                firstErrorEl.focus();
+            }
+            alert(`⛔ Отправка накладной запрещена!\n\nНе все позиции сопоставлены с номенклатурой iiko RMS (не привязано позиций: ${unmappedCount} из ${rows.length}).\n\nВсе товары из накладной обязательно должны быть сопоставлены со справочником iiko. Пожалуйста, укажите номенклатуру для строк, подсвеченных красным, или удалите лишние позиции (кнопка ✕), перед тем как отправить документ.`);
             return;
         }
 

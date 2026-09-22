@@ -27,8 +27,14 @@ func handleSaveTemplateProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.StoreUUID == "" || req.Name == "" || len(req.Items) == 0 || req.CompanyID == 0 {
+	if req.StoreUUID == "" || req.Name == "" || len(req.Items) == 0 || req.CompanyID <= 0 {
 		http.Error(w, "Не все обязательные поля заполнены (store_uuid, name, items, company_id)", http.StatusBadRequest)
+		return
+	}
+
+	user := GetAuthUser(r)
+	if !checkAccountantAccessUser(user, req.CompanyID) {
+		http.Error(w, "Доступ к сохранению бланков для данного заведения запрещен", http.StatusForbidden)
 		return
 	}
 

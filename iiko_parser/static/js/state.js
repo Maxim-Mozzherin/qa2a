@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // ГЛОБАЛЬНЫЕ СЕЛЕКТОРЫ И СОСТОЯНИЕ ПРИЛОЖЕНИЯ
 // ============================================================================
 
@@ -14,8 +14,6 @@ const els = {
     store: document.getElementById('set-store'),
     supplierSearch: document.getElementById('set-supplier-search'),
     supplierDatalist: document.getElementById('iiko-suppliers-list'),
-    btnSave: document.getElementById('btn-save-settings'),
-    btnCatalog: document.getElementById('btn-load-catalog'),
     badge: document.getElementById('status-badge'),
     datalist: document.getElementById('iiko-catalog-list'),
 
@@ -38,11 +36,11 @@ const els = {
     loaderImport: document.getElementById('import-loader'),
 
     tbodyUnlisted: document.getElementById('unlisted-tbody'),
-    btnRefreshUnlisted: document.getElementById('btn-refresh-unlisted'),
 
     tbodyAnalytics: document.getElementById('analytics-tbody'),
     analyticsSearch: document.getElementById('analytics-search'),
-    analyticsDays: document.getElementById('analytics-days'),
+    analyticsDays: document.getElementById('analytics-period') || document.getElementById('analytics-days'),
+    analyticsPeriod: document.getElementById('analytics-period') || document.getElementById('analytics-days'),
 
     promptPresetSelect: document.getElementById('prompt-preset-select'),
     btnOpenPromptModal: document.getElementById('btn-open-prompt-modal'),
@@ -58,6 +56,15 @@ const els = {
     presetBadge: document.getElementById('preset-badge'),
     btnCancelPromptModal: document.getElementById('btn-cancel-prompt-modal'),
     btnSavePreset: document.getElementById('btn-save-preset'),
+
+    tabBtnReconciliation: document.getElementById('tab-btn-reconciliation'),
+    sectionReconciliation: document.getElementById('bugh-section-reconciliation'),
+    reconcileDropZone: document.getElementById('reconcile-drop-zone'),
+    reconcileFile: document.getElementById('reconcile-file-input'),
+    btnReconcileParse: document.getElementById('btn-reconcile-parse'),
+    reconcileLoader: document.getElementById('reconcile-loader'),
+    reconcileResults: document.getElementById('reconcile-results'),
+    reconcileTbody: document.getElementById('reconcile-tbody'),
 };
 
 let iikoCatalog = [];
@@ -66,6 +73,11 @@ let currentToken = "";
 let currentDocData = null;
 let templateItems = [];
 let analyticsCache = []; // Кэш для аналитики цен
+let promptPresets = [];
+let activePresetId = 0;
+let currentCustomPrompt = "";
+let reconciliationData = null;
+let currentReconciliationFilter = 'all';
 
 // ============================================================================
 // 1. АВТОРИЗАЦИЯ И УПРАВЛЕНИЕ СЕССИЕЙ БУХГАЛТЕРА

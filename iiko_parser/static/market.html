@@ -36,6 +36,7 @@
         </div>
         <div class="p-4 flex flex-col gap-2 overflow-y-auto flex-grow">
             <button class="sidebar-btn active text-left px-4 py-2.5 rounded-lg border border-transparent text-sm font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors" data-tab="tab-search">🔍 Глобальный поиск</button>
+            <button class="sidebar-btn text-left px-4 py-2.5 rounded-lg border border-transparent text-sm font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors" data-tab="tab-deals">🤝 Конструктор сделок</button>
             <button class="sidebar-btn text-left px-4 py-2.5 rounded-lg border border-transparent text-sm font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors" data-tab="tab-dossier">📊 Досье + КП</button>
             <button class="sidebar-btn text-left px-4 py-2.5 rounded-lg border border-transparent text-sm font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors" data-tab="tab-arbitrage">📉 Арбитраж (Переплата)</button>
             <button class="sidebar-btn text-left px-4 py-2.5 rounded-lg border border-transparent text-sm font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors" data-tab="tab-inflation">📈 Инфляция</button>
@@ -73,7 +74,7 @@
             <!-- Tab: Search -->
             <div id="tab-search" class="tab-content active h-full flex flex-col">
                 <div class="flex gap-4 mb-6">
-                    <input type="text" id="search-query" onkeydown="if(event.key === 'Enter') loadSearch()" class="flex-grow bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:border-indigo-500 outline-none transition-colors text-sm" placeholder="Поиск по бренду, категории или названию...">
+                    <input type="text" id="search-query" onkeydown="if(event.key === 'Enter') loadSearch()" class="flex-grow bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:border-indigo-500 outline-none transition-colors text-sm" placeholder="Поиск по накладным (можно через запятую: говядина, вырезка)...">
                     <button onclick="loadSearch()" class="bg-indigo-600 hover:bg-indigo-700 px-6 py-2.5 rounded-xl font-bold text-sm transition-colors shadow-md">Найти</button>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden flex-grow shadow-lg">
@@ -90,6 +91,65 @@
                             </thead>
                             <tbody id="search-tbody" class="text-sm divide-y divide-slate-800/50">
                                 <tr><td colspan="5" class="p-8 text-center text-slate-500">Введите запрос для глобального поиска</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Deal Builder -->
+            <div id="tab-deals" class="tab-content h-full flex flex-col">
+                <!-- Top Filters -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg mb-4">
+                    <div class="flex flex-wrap gap-4 items-end mb-4">
+                        <div class="flex flex-col gap-1">
+                            <label class="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Искать по</label>
+                            <select id="deal-type" class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-indigo-500">
+                                <option value="product">Товару (Категории)</option>
+                                <option value="company">Ресторану</option>
+                                <option value="supplier">Поставщику</option>
+                            </select>
+                        </div>
+                        <div class="flex flex-col gap-1 flex-grow">
+                            <label class="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Название</label>
+                            <input type="text" id="deal-query" onkeydown="if(event.key === 'Enter') loadDealsData()" class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-indigo-500" placeholder="Например: Говядина, вырезка (через запятую)">
+                        </div>
+                        <div class="flex flex-col gap-1 w-32">
+                            <label class="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Таргет-цена (₽)</label>
+                            <input type="number" id="deal-target-price" class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-indigo-500" placeholder="Ваша цена">
+                        </div>
+                        <button onclick="loadDealsData()" class="bg-indigo-600 hover:bg-indigo-700 px-6 py-2 rounded-lg font-bold text-sm text-white transition-colors h-[38px]">Анализ</button>
+                    </div>
+                    
+                    <!-- Cohort Builder -->
+                    <div class="border-t border-slate-800 pt-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <label class="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Когорты по объему (Динамические группы)</label>
+                            <button onclick="addCohortRow()" class="text-[10px] bg-slate-800 text-slate-300 px-2 py-1 rounded hover:bg-slate-700">+ Добавить группу</button>
+                        </div>
+                        <div id="cohorts-container" class="flex flex-wrap gap-2">
+                            <!-- Default cohorts -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results Table -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden flex-grow shadow-lg">
+                    <div class="overflow-x-auto h-full">
+                        <table class="w-full text-left border-collapse min-w-max relative">
+                            <thead class="sticky top-0 bg-slate-900 z-10">
+                                <tr class="text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-800">
+                                    <th class="p-4">Ресторан</th>
+                                    <th class="p-4">Поставщик</th>
+                                    <th class="p-4">Товар</th>
+                                    <th class="p-4 text-right">Объем</th>
+                                    <th class="p-4 text-right">Когорта</th>
+                                    <th class="p-4 text-right">Посл. Цена</th>
+                                    <th class="p-4 text-right">Потенциал (Выгода)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="deals-tbody" class="text-sm divide-y divide-slate-800/50">
+                                <tr><td colspan="7" class="p-8 text-center text-slate-500">Настройте фильтры и нажмите Анализ</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -182,6 +242,16 @@
         let charts = {};
         let currentTab = 'tab-search';
 
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
         // --- AUTH ---
         async function checkAuth() {
             const token = localStorage.getItem('boss_token');
@@ -226,7 +296,7 @@
                 companies = await fetchAPI('/companies');
                 const sel = document.getElementById('global-company');
                 sel.innerHTML = '<option value="">Выберите заведение...</option>' + 
-                    companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+                    companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
             } catch(e) {
                 console.error("Ошибка загрузки списка заведений:", e);
             }
@@ -253,6 +323,7 @@
             
             const titles = {
                 'tab-search': '🔍 Глобальный поиск',
+                'tab-deals': '🤝 Конструктор сделок (Когортный анализ)',
                 'tab-dossier': '📊 Досье + Сравнительное КП',
                 'tab-arbitrage': '📉 Радар маржинального арбитража',
                 'tab-supplier': '🏢 Досье поставщика',
@@ -267,6 +338,8 @@
 
             if (tabId === 'tab-search') {
                 document.getElementById('tab-search').classList.add('active');
+            } else if (tabId === 'tab-deals') {
+                document.getElementById('tab-deals').classList.add('active');
             } else if (tabId === 'tab-dossier') {
                 document.getElementById('tab-dossier').classList.add('active');
                 document.getElementById('global-company').classList.remove('hidden');
@@ -292,15 +365,23 @@
                     tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center">Ничего не найдено</td></tr>';
                     return;
                 }
-                tbody.innerHTML = data.map(i => `
+                tbody.innerHTML = data.map(i => {
+                    const prodName = escapeHtml(i.product_name_in_invoice);
+                    const cleanCat = escapeHtml(i.clean_category || '');
+                    const brand = i.brand ? '| ' + escapeHtml(i.brand) : '';
+                    const suppName = escapeHtml(i.supplier_name);
+                    const restName = escapeHtml(i.restaurant_name);
+                    const unit = escapeHtml(i.unit || 'ед.');
+                    const invDate = escapeHtml(i.invoice_date);
+                    return `
                     <tr class="hover:bg-slate-800/30">
-                        <td class="p-4 font-bold text-white">${i.product_name_in_invoice} <br> <span class="text-[10px] text-slate-400">${i.clean_category || ''} ${i.brand ? '| '+i.brand : ''}</span></td>
-                        <td class="p-4 text-xs text-slate-300">${i.supplier_name}</td>
-                        <td class="p-4 text-xs text-indigo-400 font-bold">${i.restaurant_name}</td>
-                        <td class="p-4 font-black">${i.price_per_base_unit.toFixed(2)} ₽</td>
-                        <td class="p-4 text-xs text-slate-500">${i.invoice_date}</td>
+                        <td class="p-4 font-bold text-white">${prodName} <br> <span class="text-[10px] text-slate-400">${cleanCat} ${brand}</span></td>
+                        <td class="p-4 text-xs text-slate-300">${suppName}</td>
+                        <td class="p-4 text-xs text-indigo-400 font-bold">${restName}</td>
+                        <td class="p-4 font-black">${i.price_per_base_unit.toFixed(2)} ₽ / ${unit}</td>
+                        <td class="p-4 text-xs text-slate-500">${invDate}</td>
                     </tr>
-                `).join('');
+                `; }).join('');
             } catch(e) {
                 tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-red-500">${e.message}</td></tr>`;
             }
@@ -335,10 +416,10 @@
                 totalSav += savings;
                 return `
                 <tr class="hover:bg-slate-800/30 border-b border-slate-800">
-                    <td class="py-3 font-bold text-white text-xs">${item.name}</td>
-                    <td class="py-3 text-xs text-slate-400">${item.supplier}</td>
-                    <td class="py-3 text-right text-xs">${item.quantity.toFixed(1)} ${item.unit}</td>
-                    <td class="py-3 text-right font-bold">${item.avg_price.toFixed(2)} ₽</td>
+                    <td class="py-3 font-bold text-white text-xs">${escapeHtml(item.name)}</td>
+                    <td class="py-3 text-xs text-slate-400">${escapeHtml(item.supplier)}</td>
+                    <td class="py-3 text-right text-xs">${item.quantity.toFixed(1)} ${escapeHtml(item.unit || '')}</td>
+                    <td class="py-3 text-right font-bold">${item.avg_price.toFixed(2)} ₽ / ${escapeHtml(item.unit || 'ед.')}</td>
                     <td class="py-3 text-right">
                         <input type="number" step="0.01" class="w-24 bg-slate-950 border border-indigo-500/50 rounded px-2 py-1 text-right text-white" value="${myPrice.toFixed(2)}" onchange="updateKPPrice(${idx}, this.value)">
                     </td>
@@ -373,11 +454,11 @@
                     thead.innerHTML = `<tr class="text-[10px] text-slate-500 uppercase"><th class="p-4">Ресторан</th><th class="p-4">Товар</th><th class="p-4">Поставщик</th><th class="p-4 text-right">Текущая цена</th><th class="p-4 text-right">Медиана рынка</th><th class="p-4 text-right">Переплата %</th></tr>`;
                     const data = await fetchAPI(`/arbitrage?days=${days}`);
                     tbody.innerHTML = (data || []).length === 0 ? '<tr><td colspan="6" class="p-8 text-center text-slate-500">Нет данных</td></tr>' : (data || []).map(i => `<tr>
-                        <td class="p-4 font-bold text-white">${i.restaurant_name}</td>
-                        <td class="p-4 text-xs">${i.product_name}</td>
-                        <td class="p-4 text-xs text-slate-400">${i.supplier_name}</td>
-                        <td class="p-4 text-right font-black text-rose-400">${i.actual_price.toFixed(2)} ₽</td>
-                        <td class="p-4 text-right font-bold">${i.median_price.toFixed(2)} ₽</td>
+                        <td class="p-4 font-bold text-white">${escapeHtml(i.restaurant_name)}</td>
+                        <td class="p-4 text-xs">${escapeHtml(i.product_name)}</td>
+                        <td class="p-4 text-xs text-slate-400">${escapeHtml(i.supplier_name)}</td>
+                        <td class="p-4 text-right font-black text-rose-400">${i.actual_price.toFixed(2)} ₽ / ${escapeHtml(i.unit || 'ед.')}</td>
+                        <td class="p-4 text-right font-bold">${i.median_price.toFixed(2)} ₽ / ${escapeHtml(i.unit || 'ед.')}</td>
                         <td class="p-4 text-right font-black text-rose-500">+${i.overprice_percent.toFixed(1)}%</td>
                     </tr>`).join('');
                 } 
@@ -394,8 +475,8 @@
                     const data = await fetchAPI(`/supplier-dossier?supplier_name=${encodeURIComponent(sname)}&days=${days}`);
                     tbody.innerHTML = `
                         <tr><td class="p-4 w-1/3">Оборот</td><td class="p-4 font-black">${(data.total_turnover||0).toLocaleString()} ₽</td></tr>
-                        <tr><td class="p-4 w-1/3">Клиенты</td><td class="p-4 text-xs">${(data.clients||[]).map(c => c.restaurant_name + ' ('+c.total_sum.toLocaleString()+'₽)').join('<br>') || 'Нет данных'}</td></tr>
-                        <tr><td class="p-4 w-1/3">Топ товары</td><td class="p-4 text-xs">${(data.top_items||[]).map(t => t.name).join('<br>') || 'Нет данных'}</td></tr>
+                        <tr><td class="p-4 w-1/3">Клиенты</td><td class="p-4 text-xs">${(data.clients||[]).map(c => escapeHtml(c.restaurant_name) + ' ('+c.total_sum.toLocaleString()+'₽)').join('<br>') || 'Нет данных'}</td></tr>
+                        <tr><td class="p-4 w-1/3">Топ товары</td><td class="p-4 text-xs">${(data.top_items||[]).map(t => escapeHtml(t.name) + ' (' + escapeHtml(t.unit || 'ед.') + ')').join('<br>') || 'Нет данных'}</td></tr>
                     `;
                 }
                 else if (tabId === 'tab-inflation') {
@@ -403,9 +484,9 @@
                     thead.innerHTML = `<tr class="text-[10px] text-slate-500 uppercase"><th class="p-4">Товар</th><th class="p-4 text-right">Начало периода</th><th class="p-4 text-right">Конец периода</th><th class="p-4 text-right">Инфляция</th></tr>`;
                     const data = await fetchAPI(`/inflation?days=${days}`);
                     tbody.innerHTML = (data || []).length === 0 ? '<tr><td colspan="4" class="p-8 text-center text-slate-500">Ползучая инфляция не обнаружена</td></tr>' : (data || []).map(i => `<tr>
-                        <td class="p-4 font-bold text-white text-xs">${i.product_name}</td>
-                        <td class="p-4 text-right">${i.price_start.toFixed(2)} ₽</td>
-                        <td class="p-4 text-right">${i.price_end.toFixed(2)} ₽</td>
+                        <td class="p-4 font-bold text-white text-xs">${escapeHtml(i.product_name)}</td>
+                        <td class="p-4 text-right">${i.price_start.toFixed(2)} ₽ / ${escapeHtml(i.unit || 'ед.')}</td>
+                        <td class="p-4 text-right">${i.price_end.toFixed(2)} ₽ / ${escapeHtml(i.unit || 'ед.')}</td>
                         <td class="p-4 text-right font-black text-rose-500">+${i.inflation_percent.toFixed(1)}%</td>
                     </tr>`).join('');
                 }
@@ -414,10 +495,10 @@
                     thead.innerHTML = `<tr class="text-[10px] text-slate-500 uppercase"><th class="p-4">Категория</th><th class="p-4">Товар</th><th class="p-4 text-right">Объем</th><th class="p-4 text-right">Ср. Цена</th></tr>`;
                     const data = await fetchAPI(`/volume?days=${days}`);
                     tbody.innerHTML = (data || []).length === 0 ? '<tr><td colspan="4" class="p-8 text-center text-slate-500">Нет данных</td></tr>' : (data || []).map(i => `<tr>
-                        <td class="p-4 text-xs text-indigo-300">${i.category}</td>
-                        <td class="p-4 font-bold text-white text-xs">${i.product_name}</td>
-                        <td class="p-4 text-right font-black">${i.total_quantity.toFixed(1)} ${i.unit}</td>
-                        <td class="p-4 text-right">${i.avg_market_price.toFixed(2)} ₽</td>
+                        <td class="p-4 text-xs text-indigo-300">${escapeHtml(i.category)}</td>
+                        <td class="p-4 font-bold text-white text-xs">${escapeHtml(i.product_name)}</td>
+                        <td class="p-4 text-right font-black">${i.total_quantity.toFixed(1)} ${escapeHtml(i.unit || 'ед.')}</td>
+                        <td class="p-4 text-right">${i.avg_market_price.toFixed(2)} ₽ / ${escapeHtml(i.unit || 'ед.')}</td>
                     </tr>`).join('');
                 }
                 else if (tabId === 'tab-dumping') {
@@ -434,9 +515,9 @@
                     thead.innerHTML = `<tr class="text-[10px] text-slate-500 uppercase"><th class="p-4">Ресторан</th><th class="p-4">Товар</th><th class="p-4 text-right">Их цена</th><th class="p-4 text-right">Потенц. Прибыль</th></tr>`;
                     const data = await fetchAPI(`/dumping?item=${encodeURIComponent(d_item)}&target_price=${d_price}&days=${days}`);
                     tbody.innerHTML = (data || []).length === 0 ? '<tr><td colspan="4" class="p-8 text-center text-slate-500">Потенциальных клиентов не найдено</td></tr>' : (data || []).map(i => `<tr>
-                        <td class="p-4 font-bold text-white">${i.restaurant_name} <br> <span class="text-[10px] text-slate-400">${i.supplier_name}</span></td>
-                        <td class="p-4 text-xs">${i.product_name}</td>
-                        <td class="p-4 text-right font-black">${i.actual_price.toFixed(2)} ₽</td>
+                        <td class="p-4 font-bold text-white">${escapeHtml(i.restaurant_name)} <br> <span class="text-[10px] text-slate-400">${escapeHtml(i.supplier_name)}</span></td>
+                        <td class="p-4 text-xs">${escapeHtml(i.product_name)}</td>
+                        <td class="p-4 text-right font-black">${i.actual_price.toFixed(2)} ₽ / ${escapeHtml(i.unit || 'ед.')}</td>
                         <td class="p-4 text-right font-black text-emerald-400">+${i.potential_profit.toFixed(2)} ₽</td>
                     </tr>`).join('');
                 }
@@ -445,8 +526,8 @@
                     thead.innerHTML = `<tr class="text-[10px] text-slate-500 uppercase"><th class="p-4">Ресторан</th><th class="p-4">Поставщик-Монополист</th><th class="p-4 text-right">Зависимость</th></tr>`;
                     const data = await fetchAPI(`/dependency?days=${days}`);
                     tbody.innerHTML = (data || []).length === 0 ? '<tr><td colspan="3" class="p-8 text-center text-slate-500">Зависимых заведений не найдено</td></tr>' : (data || []).map(i => `<tr>
-                        <td class="p-4 font-bold text-white">${i.restaurant_name}</td>
-                        <td class="p-4 text-xs text-rose-300">${i.supplier_name}</td>
+                        <td class="p-4 font-bold text-white">${escapeHtml(i.restaurant_name)}</td>
+                        <td class="p-4 text-xs text-rose-300">${escapeHtml(i.supplier_name)}</td>
                         <td class="p-4 text-right font-black text-rose-500">${i.dependency_percent.toFixed(1)}%</td>
                     </tr>`).join('');
                 }
@@ -455,7 +536,7 @@
                     thead.innerHTML = `<tr class="text-[10px] text-slate-500 uppercase"><th class="p-4">Поставщик</th><th class="p-4 text-right">Доставок</th><th class="p-4 text-right">Ср. Чек</th><th class="p-4 text-right">Оборот</th></tr>`;
                     const data = await fetchAPI(`/logistics?days=${days}`);
                     tbody.innerHTML = (data || []).length === 0 ? '<tr><td colspan="4" class="p-8 text-center text-slate-500">Нет данных по логистике</td></tr>' : (data || []).map(i => `<tr>
-                        <td class="p-4 font-bold text-white">${i.supplier_name}</td>
+                        <td class="p-4 font-bold text-white">${escapeHtml(i.supplier_name)}</td>
                         <td class="p-4 text-right">${i.total_deliveries}</td>
                         <td class="p-4 text-right font-bold">${i.avg_invoice_sum.toFixed(2)} ₽</td>
                         <td class="p-4 text-right">${i.total_turnover.toLocaleString()} ₽</td>
@@ -491,6 +572,134 @@
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#cbd5e1' } } } }
             });
         }
+
+        // --- DEAL BUILDER LOGIC ---
+        let dealsRawData = [];
+        let cohorts = [
+            { id: 1, name: "Мелкий опт", min: 0, max: 50, color: "text-slate-400 bg-slate-800" },
+            { id: 2, name: "Средний опт", min: 51, max: 200, color: "text-emerald-400 bg-emerald-900/30" },
+            { id: 3, name: "Крупный опт", min: 201, max: 99999, color: "text-amber-400 bg-amber-900/30" }
+        ];
+
+        function renderCohortInputs() {
+            const c = document.getElementById('cohorts-container');
+            if (!c) return;
+            c.innerHTML = cohorts.map((ch, idx) => `
+                <div class="flex items-center gap-1 bg-slate-950 p-1.5 rounded border border-slate-800">
+                    <input type="text" value="${escapeHtml(ch.name)}" onchange="updateCohort(${idx}, 'name', this.value)" class="w-24 bg-transparent text-xs text-white outline-none" placeholder="Имя">
+                    <span class="text-slate-600 text-xs">от</span>
+                    <input type="number" value="${ch.min}" onchange="updateCohort(${idx}, 'min', this.value)" class="w-12 bg-transparent text-xs text-center text-white outline-none">
+                    <span class="text-slate-600 text-xs">до</span>
+                    <input type="number" value="${ch.max}" onchange="updateCohort(${idx}, 'max', this.value)" class="w-16 bg-transparent text-xs text-center text-white outline-none border-r border-slate-700 pr-1">
+                    <button onclick="removeCohort(${idx})" class="text-rose-500 hover:text-rose-400 px-1 text-xs">✕</button>
+                </div>
+            `).join('');
+            renderDealsTable(); // re-render table to apply new cohorts instantly
+        }
+
+        function updateCohort(idx, field, val) {
+            if(field === 'name') cohorts[idx][field] = val;
+            else cohorts[idx][field] = parseFloat(val) || 0;
+            renderDealsTable();
+        }
+
+        function addCohortRow() {
+            cohorts.push({ id: Date.now(), name: "Новая", min: 0, max: 100, color: "text-indigo-400 bg-indigo-900/30" });
+            renderCohortInputs();
+        }
+
+        function removeCohort(idx) {
+            cohorts.splice(idx, 1);
+            renderCohortInputs();
+        }
+
+        async function loadDealsData() {
+            const type = document.getElementById('deal-type').value;
+            const query = document.getElementById('deal-query').value.trim();
+            const days = document.getElementById('global-days').value;
+            
+            if(!query) return;
+            
+            const tbody = document.getElementById('deals-tbody');
+            tbody.innerHTML = '<tr><td colspan="7" class="p-8 text-center text-indigo-400">Сбор данных...</td></tr>';
+            
+            try {
+                dealsRawData = await fetchAPI(`/deals?type=${type}&q=${encodeURIComponent(query)}&days=${days}`);
+                renderDealsTable();
+            } catch(e) {
+                tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-red-500">${e.message}</td></tr>`;
+            }
+        }
+
+        document.getElementById('deal-target-price')?.addEventListener('input', renderDealsTable);
+
+        function renderDealsTable() {
+            const tbody = document.getElementById('deals-tbody');
+            if (!tbody) return;
+            if (!dealsRawData || dealsRawData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="p-8 text-center text-slate-500">Ничего не найдено</td></tr>';
+                return;
+            }
+
+            const targetPrice = parseFloat(document.getElementById('deal-target-price')?.value) || 0;
+
+            tbody.innerHTML = dealsRawData.map(d => {
+                // Find matching cohort
+                let cohortHtml = '<span class="text-[10px] text-slate-500">Вне групп</span>';
+                for (let ch of cohorts) {
+                    if (d.total_volume >= ch.min && d.total_volume <= ch.max) {
+                        cohortHtml = `<span class="px-2 py-1 rounded text-[10px] font-bold ${ch.color}">${escapeHtml(ch.name)}</span>`;
+                        break;
+                    }
+                }
+
+                // Calculate Profit/Savings potential
+                let potentialHtml = '-';
+                if (targetPrice > 0) {
+                    const diff = d.latest_price - targetPrice;
+                    const totalDiff = diff * d.total_volume;
+                    if (totalDiff > 0) {
+                        potentialHtml = `<span class="text-emerald-400 font-black">+${totalDiff.toLocaleString('ru-RU')} ₽</span>`;
+                    } else if (totalDiff < 0) {
+                        potentialHtml = `<span class="text-rose-400 font-bold">${totalDiff.toLocaleString('ru-RU')} ₽</span>`;
+                    } else {
+                        potentialHtml = `<span class="text-slate-500">0 ₽</span>`;
+                    }
+                }
+
+                const restName = escapeHtml(d.restaurant_name);
+                const suppName = escapeHtml(d.supplier_name);
+                const prodName = escapeHtml(d.product_name);
+                const unit = escapeHtml(d.unit || 'ед.');
+                const latestDate = escapeHtml(d.latest_date);
+
+                return `
+                    <tr class="hover:bg-slate-800/30">
+                        <td class="p-4 font-bold text-white text-xs">${restName}</td>
+                        <td class="p-4 text-xs text-slate-400">${suppName}</td>
+                        <td class="p-4 text-xs text-indigo-300 font-semibold">${prodName}</td>
+                        <td class="p-4 text-right font-black">${d.total_volume.toFixed(1)} ${unit}</td>
+                        <td class="p-4 text-right">${cohortHtml}</td>
+                        <td class="p-4 text-right">
+                            <div class="font-bold text-white">${d.latest_price.toFixed(2)} ₽ / ${unit}</div>
+                            <div class="text-[9px] text-slate-500">${latestDate}</div>
+                        </td>
+                        <td class="p-4 text-right">${potentialHtml}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Call renderCohortInputs initially when the script loads to show default cohorts
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                renderCohortInputs();
+                const targetPriceEl = document.getElementById('deal-target-price');
+                if (targetPriceEl) {
+                    targetPriceEl.addEventListener('input', renderDealsTable);
+                }
+            }, 500); 
+        });
 
         document.addEventListener('DOMContentLoaded', checkAuth);
     </script>

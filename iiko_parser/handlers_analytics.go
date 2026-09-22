@@ -225,6 +225,196 @@ func handleAnalytics(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(records)
 }
 
+type WriteoffAccountBreakdown struct {
+	AccountName string  `json:"account_name"`
+	Quantity    float64 `json:"quantity"`
+	SharePct    float64 `json:"share_pct"`
+}
+
+type ToxicWriteoffRecord struct {
+	PositionName     string                     `json:"position_name"`
+	TotalWrittenOff  float64                    `json:"total_written_off"`
+	Unit             string                     `json:"unit"`
+	AvgPurchasePrice float64                    `json:"avg_purchase_price"`
+	TotalLossRub     float64                    `json:"total_loss_rub"`
+	WasteRatioPct    float64                    `json:"waste_ratio_pct"`
+	Breakdown        []WriteoffAccountBreakdown `json:"breakdown"`
+}
+
+func handleToxicWriteoffs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Только GET метод", http.StatusMethodNotAllowed)
+		return
+	}
+
+	companyIDStr := r.URL.Query().Get("company_id")
+	if companyIDStr == "" {
+		http.Error(w, "Отсутствует обязательный параметр company_id", http.StatusBadRequest)
+		return
+	}
+
+	var companyID int
+	if _, err := fmt.Sscanf(companyIDStr, "%d", &companyID); err != nil || companyID <= 0 {
+		http.Error(w, "Некорректный company_id", http.StatusBadRequest)
+		return
+	}
+
+	if !checkAccountantAccessUser(GetAuthUser(r), companyID) {
+		http.Error(w, "Доступ к аналитике данного заведения запрещен", http.StatusForbidden)
+		return
+	}
+
+	daysStr := r.URL.Query().Get("days")
+	days := 30
+	if daysStr != "" {
+		if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
+			days = d
+		}
+	}
+
+	query := `
+WITH writeoffs AS (
+    SELECT 
+        COALESCE(pos.external_id, '') AS product_uuid,
+        o.position_name,
+        SUM(o.quantity) AS total_written_off,
+        MAX(pos.unit) AS pos_unit
+    FROM operations o
+    LEFT JOIN positions pos ON pos.name = o.position_name AND pos.company_id = o.company_id
+    WHERE o.company_id = $1 
+      AND o.type = 'writeoff'
+      AND o.created_at >= NOW() - ($2 * INTERVAL '1 day')
+    GROUP BY pos.external_id, o.position_name
+),
+purchases_by_uuid AS (
+    SELECT 
+        iiko_product_uuid AS product_uuid,
+        SUM(quantity * multiplier) AS total_purchased,
+        SUM(total_sum) AS total_spent,
+        MAX(unit) AS ph_unit
+    FROM purchase_history
+    WHERE company_id = $1 
+      AND iiko_product_uuid != ''
+      AND invoice_date >= CURRENT_DATE - ($2 * INTERVAL '1 day')
+    GROUP BY iiko_product_uuid
+),
+purchases_by_name AS (
+    SELECT 
+        LOWER(TRIM(COALESCE(NULLIF(iiko_product_name, ''), product_name_in_invoice))) AS norm_name,
+        SUM(quantity * multiplier) AS total_purchased,
+        SUM(total_sum) AS total_spent,
+        MAX(unit) AS ph_unit
+    FROM purchase_history
+    WHERE company_id = $1 
+      AND invoice_date >= CURRENT_DATE - ($2 * INTERVAL '1 day')
+    GROUP BY LOWER(TRIM(COALESCE(NULLIF(iiko_product_name, ''), product_name_in_invoice)))
+)
+SELECT 
+    w.position_name,
+    w.total_written_off,
+    COALESCE(NULLIF(pu.ph_unit, ''), NULLIF(pn.ph_unit, ''), NULLIF(w.pos_unit, ''), 'ед.') AS unit,
+    CASE 
+        WHEN COALESCE(pu.total_purchased, pn.total_purchased, 0) > 0 
+        THEN COALESCE(pu.total_spent, pn.total_spent, 0) / COALESCE(pu.total_purchased, pn.total_purchased, 1)
+        ELSE 0 
+    END AS avg_purchase_price,
+    w.total_written_off * (
+        CASE 
+            WHEN COALESCE(pu.total_purchased, pn.total_purchased, 0) > 0 
+            THEN COALESCE(pu.total_spent, pn.total_spent, 0) / COALESCE(pu.total_purchased, pn.total_purchased, 1)
+            ELSE 0 
+        END
+    ) AS total_loss_rub,
+    CASE 
+        WHEN COALESCE(pu.total_purchased, pn.total_purchased, 0) > 0 
+        THEN (w.total_written_off / COALESCE(pu.total_purchased, pn.total_purchased, 1)) * 100.0
+        ELSE 0 
+    END AS waste_ratio_pct
+FROM writeoffs w
+LEFT JOIN purchases_by_uuid pu ON (w.product_uuid != '' AND w.product_uuid = pu.product_uuid)
+LEFT JOIN purchases_by_name pn ON (w.product_uuid = '' AND LOWER(TRIM(w.position_name)) = pn.norm_name)
+WHERE w.total_written_off > 0
+ORDER BY total_loss_rub DESC, w.total_written_off DESC
+LIMIT 10;`
+
+	rows, err := db.Query(query, companyID, days) // Pass days directly as integer!
+	if err != nil {
+		http.Error(w, "Ошибка выполнения аналитики списаний: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	records := make([]ToxicWriteoffRecord, 0)
+	for rows.Next() {
+		var rec ToxicWriteoffRecord
+		if err := rows.Scan(
+			&rec.PositionName,
+			&rec.TotalWrittenOff,
+			&rec.Unit,
+			&rec.AvgPurchasePrice,
+			&rec.TotalLossRub,
+			&rec.WasteRatioPct,
+		); err != nil {
+			continue
+		}
+		rec.Breakdown = make([]WriteoffAccountBreakdown, 0)
+		records = append(records, rec)
+	}
+
+	if len(records) > 0 {
+		posNames := make([]string, len(records))
+		for i, r := range records {
+			posNames[i] = r.PositionName
+		}
+
+		breakdownQuery := `
+SELECT 
+    o.position_name,
+    COALESCE(NULLIF(wa.name, ''), 'Расход продуктов (Стандарт)') AS account_name,
+    SUM(o.quantity) AS qty
+FROM operations o
+LEFT JOIN writeoff_accounts wa ON (wa.external_id = o.account_id AND wa.company_id = o.company_id)
+WHERE o.company_id = $1 
+  AND o.type = 'writeoff'
+  AND o.created_at >= NOW() - ($2 * INTERVAL '1 day')
+  AND o.position_name = ANY($3)
+GROUP BY o.position_name, COALESCE(NULLIF(wa.name, ''), 'Расход продуктов (Стандарт)')
+ORDER BY qty DESC;`
+
+		bRows, bErr := db.Query(breakdownQuery, companyID, days, pq.Array(posNames))
+		if bErr == nil {
+			defer bRows.Close()
+			breakdowns := make(map[string][]WriteoffAccountBreakdown)
+			for bRows.Next() {
+				var posName, accountName string
+				var qty float64
+				if err := bRows.Scan(&posName, &accountName, &qty); err == nil {
+					breakdowns[posName] = append(breakdowns[posName], WriteoffAccountBreakdown{
+						AccountName: accountName,
+						Quantity:    qty,
+					})
+				}
+			}
+
+			for i := range records {
+				bdList := breakdowns[records[i].PositionName]
+				if bdList == nil {
+					bdList = make([]WriteoffAccountBreakdown, 0)
+				}
+				for j := range bdList {
+					if records[i].TotalWrittenOff > 0 {
+						bdList[j].SharePct = (bdList[j].Quantity / records[i].TotalWrittenOff) * 100.0
+					}
+				}
+				records[i].Breakdown = bdList
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(records)
+}
+
 func handleMarketSearch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Только GET метод", http.StatusMethodNotAllowed)
@@ -264,7 +454,8 @@ func handleMarketSearch(w http.ResponseWriter, r *http.Request) {
 			ph.product_name_in_invoice,
 			COALESCE(ph.clean_category, '') as clean_category,
 			COALESCE(ph.brand, '') as brand,
-			ph.price_per_base_unit
+			ph.price_per_base_unit,
+			COALESCE(ph.unit, 'ед.') as unit
 		FROM purchase_history ph
 		JOIN companies c ON ph.company_id = c.id
 		WHERE ph.brand ILIKE ANY($1) 
@@ -291,6 +482,7 @@ func handleMarketSearch(w http.ResponseWriter, r *http.Request) {
 			&rec.CleanCategory,
 			&rec.Brand,
 			&rec.PricePerUnit,
+			&rec.Unit,
 		); err == nil {
 			records = append(records, rec)
 		}
@@ -327,13 +519,14 @@ type HistoryInvoiceItem struct {
 type UpdateHistoryItemsRequest struct {
 	CompanyID     int                 `json:"company_id"`
 	InvoiceNumber string              `json:"invoice_number"`
+	SupplierName  string              `json:"supplier_name"`
 	Items         []UpdateHistoryItem `json:"items"`
 }
 
 type UpdateHistoryItem struct {
 	ID               int     `json:"id"`
-	Quantity         float64 `json:"quantity"`
-	Multiplier       float64 `json:"multiplier"`
+	FinalQty         float64 `json:"final_qty"`
+	Unit             string  `json:"unit"`
 	TotalSum         float64 `json:"total_sum"`
 	PricePerBaseUnit float64 `json:"price_per_base_unit"`
 }
@@ -495,9 +688,17 @@ func handleUpdateInvoiceItems(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
+	if req.SupplierName != "" {
+		_, err = tx.Exec("UPDATE purchase_history SET supplier_name = $1 WHERE company_id = $2 AND invoice_number = $3", req.SupplierName, req.CompanyID, req.InvoiceNumber)
+		if err != nil {
+			http.Error(w, "Ошибка обновления поставщика: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	stmt, err := tx.Prepare(`
 		UPDATE purchase_history
-		SET quantity = $1, multiplier = $2, total_sum = $3, price_per_base_unit = $4
+		SET quantity = $1, multiplier = 1.0, unit = $2, total_sum = $3, price_per_base_unit = $4
 		WHERE id = $5 AND company_id = $6
 	`)
 	if err != nil {
@@ -507,12 +708,15 @@ func handleUpdateInvoiceItems(w http.ResponseWriter, r *http.Request) {
 	defer stmt.Close()
 
 	for _, it := range req.Items {
-		finalQty := it.Quantity * it.Multiplier
 		pricePerUnit := it.PricePerBaseUnit
-		if pricePerUnit <= 0 && finalQty > 0 {
-			pricePerUnit = it.TotalSum / finalQty
+		if pricePerUnit <= 0 && it.FinalQty > 0 {
+			pricePerUnit = it.TotalSum / it.FinalQty
 		}
-		_, err := stmt.Exec(it.Quantity, it.Multiplier, it.TotalSum, pricePerUnit, it.ID, req.CompanyID)
+		unit := it.Unit
+		if unit == "" {
+			unit = "кг/шт"
+		}
+		_, err := stmt.Exec(it.FinalQty, unit, it.TotalSum, pricePerUnit, it.ID, req.CompanyID)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Ошибка обновления строки id=%d: %v", it.ID, err), http.StatusInternalServerError)
 			return

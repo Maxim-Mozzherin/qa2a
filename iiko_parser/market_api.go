@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/lib/pq"
 )
 
 func checkMarketAuth(r *http.Request) bool {
@@ -147,7 +149,7 @@ func handleMarketDossier(w http.ResponseWriter, r *http.Request) {
 func handleMarketCleanup(w http.ResponseWriter, r *http.Request) {
 	if !checkMarketAuth(r) { sendMarketError(w, "Unauthorized", http.StatusUnauthorized); return }
 	
-	res, err := db.Exec("DELETE FROM purchase_history WHERE clean_category IN ('Без категории', 'Глутамат натрия', '')")
+	res, err := db.Exec("DELETE FROM purchase_history WHERE clean_category IN ('Глутамат натрия', 'Тест') OR (product_name_in_invoice ILIKE '%тест%' AND total_sum = 0)")
 	if err != nil {
 		sendMarketError(w, err.Error(), 500)
 		return
@@ -168,7 +170,8 @@ func handleMarketArbitrage(w http.ResponseWriter, r *http.Request) {
 			SELECT 
 				product_name_in_invoice,
 				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price_per_base_unit) as median_price,
-				COUNT(*) as purchases_count
+				COUNT(*) as purchases_count,
+				MAX(unit) as unit
 			FROM purchase_history
 			WHERE invoice_date >= NOW() - INTERVAL '1 day' * $1
 			GROUP BY product_name_in_invoice
@@ -181,7 +184,8 @@ func handleMarketArbitrage(w http.ResponseWriter, r *http.Request) {
 			ph.price_per_base_unit,
 			ms.median_price,
 			((ph.price_per_base_unit - ms.median_price) / ms.median_price) * 100 as overprice_percent,
-			TO_CHAR(ph.invoice_date, 'YYYY-MM-DD') as invoice_date
+			TO_CHAR(ph.invoice_date, 'YYYY-MM-DD') as invoice_date,
+			ms.unit
 		FROM purchase_history ph
 		JOIN companies c ON ph.company_id = c.id
 		JOIN market_stats ms ON ph.product_name_in_invoice = ms.product_name_in_invoice
@@ -199,6 +203,7 @@ func handleMarketArbitrage(w http.ResponseWriter, r *http.Request) {
 		MedianPrice     float64 `json:"median_price"`
 		OverpricePct    float64 `json:"overprice_percent"`
 		InvoiceDate     string  `json:"invoice_date"`
+		Unit            string  `json:"unit"`
 	}
 
 	results := make([]ArbitrageRecord, 0)
@@ -207,7 +212,7 @@ func handleMarketArbitrage(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var rec ArbitrageRecord
-			if rows.Scan(&rec.RestaurantName, &rec.SupplierName, &rec.ProductName, &rec.ActualPrice, &rec.MedianPrice, &rec.OverpricePct, &rec.InvoiceDate) == nil {
+			if rows.Scan(&rec.RestaurantName, &rec.SupplierName, &rec.ProductName, &rec.ActualPrice, &rec.MedianPrice, &rec.OverpricePct, &rec.InvoiceDate, &rec.Unit) == nil {
 				results = append(results, rec)
 			}
 		}
@@ -265,10 +270,11 @@ func handleMarketSupplierDossier(w http.ResponseWriter, r *http.Request) {
 	type TopItem struct {
 		Name     string  `json:"name"`
 		TotalSum float64 `json:"total_sum"`
+		Unit     string  `json:"unit"`
 	}
 	topItems := make([]TopItem, 0)
 	rowsTop, _ := db.Query(`
-		SELECT product_name_in_invoice, COALESCE(SUM(total_sum), 0) as total
+		SELECT product_name_in_invoice, COALESCE(SUM(total_sum), 0) as total, MAX(unit) as unit
 		FROM purchase_history
 		WHERE (
 			supplier_uuid IN (SELECT supplier_uuid FROM purchase_history WHERE supplier_name ILIKE $1 AND supplier_uuid != '')
@@ -282,7 +288,7 @@ func handleMarketSupplierDossier(w http.ResponseWriter, r *http.Request) {
 		defer rowsTop.Close()
 		for rowsTop.Next() {
 			var ti TopItem
-			if rowsTop.Scan(&ti.Name, &ti.TotalSum) == nil {
+			if rowsTop.Scan(&ti.Name, &ti.TotalSum, &ti.Unit) == nil {
 				topItems = append(topItems, ti)
 			}
 		}
@@ -306,7 +312,7 @@ func handleMarketInflation(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		WITH first_period AS (
-			SELECT product_name_in_invoice, AVG(price_per_base_unit) as avg_start
+			SELECT product_name_in_invoice, AVG(price_per_base_unit) as avg_start, MAX(unit) as unit
 			FROM purchase_history
 			WHERE invoice_date >= NOW() - INTERVAL '1 day' * $1 
 			  AND invoice_date < NOW() - INTERVAL '1 day' * ($1 - 30)
@@ -324,7 +330,8 @@ func handleMarketInflation(w http.ResponseWriter, r *http.Request) {
 			fp.product_name_in_invoice,
 			fp.avg_start,
 			lp.avg_end,
-			((lp.avg_end - fp.avg_start) / NULLIF(fp.avg_start, 0)) * 100 as inflation_percent
+			((lp.avg_end - fp.avg_start) / NULLIF(fp.avg_start, 0)) * 100 as inflation_percent,
+			fp.unit
 		FROM first_period fp
 		JOIN last_period lp ON fp.product_name_in_invoice = lp.product_name_in_invoice
 		WHERE lp.avg_end > fp.avg_start * 1.05 
@@ -337,6 +344,7 @@ func handleMarketInflation(w http.ResponseWriter, r *http.Request) {
 		PriceStart  float64 `json:"price_start"`
 		PriceEnd    float64 `json:"price_end"`
 		Inflation   float64 `json:"inflation_percent"`
+		Unit        string  `json:"unit"`
 	}
 
 	results := make([]InflationRecord, 0)
@@ -345,7 +353,7 @@ func handleMarketInflation(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var rec InflationRecord
-			if rows.Scan(&rec.ProductName, &rec.PriceStart, &rec.PriceEnd, &rec.Inflation) == nil {
+			if rows.Scan(&rec.ProductName, &rec.PriceStart, &rec.PriceEnd, &rec.Inflation, &rec.Unit) == nil {
 				results = append(results, rec)
 			}
 		}
@@ -424,7 +432,8 @@ func handleMarketDumping(w http.ResponseWriter, r *http.Request) {
 			ph.product_name_in_invoice,
 			ph.price_per_base_unit,
 			ph.price_per_base_unit - $3 as potential_profit,
-			TO_CHAR(ph.invoice_date, 'YYYY-MM-DD') as invoice_date
+			TO_CHAR(ph.invoice_date, 'YYYY-MM-DD') as invoice_date,
+			COALESCE(ph.unit, 'ед.') as unit
 		FROM purchase_history ph
 		JOIN companies c ON ph.company_id = c.id
 		WHERE ph.product_name_in_invoice ILIKE $1 
@@ -441,6 +450,7 @@ func handleMarketDumping(w http.ResponseWriter, r *http.Request) {
 		ActualPrice     float64 `json:"actual_price"`
 		PotentialProfit float64 `json:"potential_profit"`
 		InvoiceDate     string  `json:"invoice_date"`
+		Unit            string  `json:"unit"`
 	}
 
 	results := make([]DumpingRecord, 0)
@@ -449,7 +459,7 @@ func handleMarketDumping(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var rec DumpingRecord
-			if rows.Scan(&rec.RestaurantName, &rec.SupplierName, &rec.ProductName, &rec.ActualPrice, &rec.PotentialProfit, &rec.InvoiceDate) == nil {
+			if rows.Scan(&rec.RestaurantName, &rec.SupplierName, &rec.ProductName, &rec.ActualPrice, &rec.PotentialProfit, &rec.InvoiceDate, &rec.Unit) == nil {
 				results = append(results, rec)
 			}
 		}
@@ -622,3 +632,111 @@ func handleMarketCompanies(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(list)
 }
+
+// handleMarketDeals gathers Total Volume and Latest Price for the Deal Builder
+func handleMarketDeals(w http.ResponseWriter, r *http.Request) {
+	if !checkMarketAuth(r) { sendMarketError(w, "Unauthorized", http.StatusUnauthorized); return }
+
+	searchType := r.URL.Query().Get("type") // "product", "company", "supplier"
+	queryStr := r.URL.Query().Get("q")
+	days := 30
+	fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
+
+	if strings.TrimSpace(queryStr) == "" {
+		sendMarketError(w, "Empty search query", http.StatusBadRequest)
+		return
+	}
+
+	rawTokens := strings.Split(queryStr, ",")
+	var patterns []string
+	for _, t := range rawTokens {
+		trimmed := strings.TrimSpace(t)
+		if trimmed != "" {
+			patterns = append(patterns, "%"+trimmed+"%")
+		}
+	}
+
+	if len(patterns) == 0 {
+		sendMarketError(w, "Empty search query", http.StatusBadRequest)
+		return
+	}
+
+	// Build the WHERE clause dynamically
+	var whereClause string
+	if searchType == "company" {
+		whereClause = "c.name ILIKE ANY($1)"
+	} else if searchType == "supplier" {
+		whereClause = "ph.supplier_name ILIKE ANY($1)"
+	} else { // default to product
+		whereClause = "ph.product_name_in_invoice ILIKE ANY($1)"
+	}
+
+	// Use CTEs to get Total Volume and DISTINCT ON to get the strictly latest price
+	sqlQuery := fmt.Sprintf(`
+		WITH totals AS (
+			SELECT 
+				ph.company_id, 
+				c.name as restaurant_name,
+				ph.product_name_in_invoice, 
+				MAX(ph.supplier_name) as supplier_name, 
+				SUM(ph.quantity * ph.multiplier) as total_volume,
+				MAX(ph.unit) as unit
+			FROM purchase_history ph
+			JOIN companies c ON ph.company_id = c.id
+			WHERE ph.invoice_date >= NOW() - INTERVAL '1 day' * $2
+			  AND %s
+			GROUP BY ph.company_id, c.name, ph.product_name_in_invoice
+		),
+		latest_prices AS (
+			SELECT DISTINCT ON (company_id, product_name_in_invoice) 
+				company_id, 
+				product_name_in_invoice, 
+				price_per_base_unit as latest_price, 
+				TO_CHAR(invoice_date, 'YYYY-MM-DD') as latest_date
+			FROM purchase_history
+			WHERE invoice_date >= NOW() - INTERVAL '1 day' * $2
+			ORDER BY company_id, product_name_in_invoice, invoice_date DESC
+		)
+		SELECT 
+			t.restaurant_name,
+			t.supplier_name,
+			t.product_name_in_invoice,
+			t.total_volume,
+			t.unit,
+			lp.latest_price,
+			lp.latest_date
+		FROM totals t
+		JOIN latest_prices lp ON t.company_id = lp.company_id AND t.product_name_in_invoice = lp.product_name_in_invoice
+		ORDER BY t.total_volume DESC
+		LIMIT 200
+	`, whereClause)
+
+	type DealRecord struct {
+		RestaurantName string  `json:"restaurant_name"`
+		SupplierName   string  `json:"supplier_name"`
+		ProductName    string  `json:"product_name"`
+		TotalVolume    float64 `json:"total_volume"`
+		Unit           string  `json:"unit"`
+		LatestPrice    float64 `json:"latest_price"`
+		LatestDate     string  `json:"latest_date"`
+	}
+
+	results := make([]DealRecord, 0)
+	rows, err := db.Query(sqlQuery, pq.Array(patterns), days)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var rec DealRecord
+			if rows.Scan(&rec.RestaurantName, &rec.SupplierName, &rec.ProductName, &rec.TotalVolume, &rec.Unit, &rec.LatestPrice, &rec.LatestDate) == nil {
+				results = append(results, rec)
+			}
+		}
+	} else {
+		sendMarketError(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+

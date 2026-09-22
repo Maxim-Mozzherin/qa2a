@@ -1,10 +1,17 @@
+
 package main
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
-	"iiko_parser/crypto"
+	"fmt"
 	"net/http"
 	"os"
+	"strings"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func getEnv(key, defaultVal string) string {
@@ -14,8 +21,45 @@ func getEnv(key, defaultVal string) string {
 	return defaultVal
 }
 
-func generateAuthToken(login, password string) string {
-	return crypto.HashPasswordSHA1(login + ":" + password)
+type AuthUser struct {
+	ID               int
+	AccountingFirmID *int
+	Login            string
+	Role             string
+}
+
+type contextKey string
+
+const authUserKey contextKey = "authUser"
+
+// ContextWithAuthUser attaches AuthUser to the request context
+func ContextWithAuthUser(ctx context.Context, u *AuthUser) context.Context {
+	return context.WithValue(ctx, authUserKey, u)
+}
+
+// GetAuthUser extracts the authenticated user from the request context
+func GetAuthUser(r *http.Request) *AuthUser {
+	if r == nil {
+		return nil
+	}
+	if u, ok := r.Context().Value(authUserKey).(*AuthUser); ok {
+		return u
+	}
+	return nil
+}
+
+func getAuthUserByToken(token string) (*AuthUser, error) {
+	token = strings.TrimSpace(strings.TrimPrefix(token, "Bearer "))
+	if token == "" {
+		return nil, fmt.Errorf("empty token")
+	}
+	var u AuthUser
+	query := `SELECT id, accounting_firm_id, login, role FROM accounting_users WHERE access_token = $1 AND is_active = true`
+	err := db.QueryRow(query, token).Scan(&u.ID, &u.AccountingFirmID, &u.Login, &u.Role)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
 }
 
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -25,12 +69,14 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			token = r.URL.Query().Get("token")
 		}
 
-		expectedToken := generateAuthToken(buhLogin, buhPassword)
-		if token != expectedToken {
-			http.Error(w, "Unauthorized (Недействительный токен авторизации)", http.StatusUnauthorized)
+		user, err := getAuthUserByToken(token)
+		if err != nil || user == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		next(w, r)
+
+		ctx := ContextWithAuthUser(r.Context(), user)
+		next(w, r.WithContext(ctx))
 	}
 }
 
@@ -49,16 +95,62 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Login != buhLogin || req.Password != buhPassword {
-		http.Error(w, "Неверный логин или пароль", http.StatusForbidden)
-		return
+	var userID int
+	var hash string
+	var dbRole string
+	err := db.QueryRow("SELECT id, password_hash, role FROM accounting_users WHERE login = $1 AND is_active = true", req.Login).Scan(&userID, &hash, &dbRole)
+	if err == nil {
+		if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)); err == nil {
+			tokenBytes := make([]byte, 32)
+			if _, err := rand.Read(tokenBytes); err != nil {
+				http.Error(w, "Ошибка генерации токена", http.StatusInternalServerError)
+				return
+			}
+			token := hex.EncodeToString(tokenBytes)
+			_, err = db.Exec("UPDATE accounting_users SET access_token = $1 WHERE id = $2", token, userID)
+			if err != nil {
+				http.Error(w, "Ошибка сохранения токена", http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"status": "success",
+				"token":  token,
+				"role":   dbRole,
+			})
+			return
+		}
 	}
 
-	token := generateAuthToken(buhLogin, buhPassword)
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"status": "success",
-		"token":  token,
-	})
+	http.Error(w, "Неверный логин или пароль", http.StatusForbidden)
 }
+
+func checkAccountantAccessUser(user *AuthUser, companyID int) bool {
+	if user == nil || companyID <= 0 {
+		return false
+	}
+	// Superadmin and global_accountant have unrestricted godmode access
+	if user.Role == "superadmin" || user.Role == "global_accountant" {
+		return true
+	}
+	if user.AccountingFirmID == nil {
+		return false
+	}
+	var hasAccess bool
+	query := `SELECT EXISTS(SELECT 1 FROM companies WHERE id = $1 AND accounting_firm_id = $2)`
+	err := db.QueryRow(query, companyID, *user.AccountingFirmID).Scan(&hasAccess)
+	return err == nil && hasAccess
+}
+
+func checkAccountantAccess(token string, companyID int) bool {
+	if companyID <= 0 || strings.TrimSpace(token) == "" {
+		return false
+	}
+	user, err := getAuthUserByToken(token)
+	if err != nil {
+		return false
+	}
+	return checkAccountantAccessUser(user, companyID)
+}
+
