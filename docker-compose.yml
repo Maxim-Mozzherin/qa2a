@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: qa2a-dev-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASS:-postgres_dev_pass}
+      POSTGRES_DB: ${DB_NAME:-qa2a}
+    ports:
+      - "${DEV_DB_PORT:-5434}:5432"
+    volumes:
+      - qa2a_postgres_dev_data:/var/lib/postgresql/data
+      - ./qa2a_reboot/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-admin} -d ${DB_NAME:-qa2a}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  qa2a_backend:
+    build:
+      context: ./qa2a_reboot
+      dockerfile: Dockerfile
+    container_name: qa2a-backend-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: "8082"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_USER: "${DB_USER:-admin}"
+      DB_PASS: "${DB_PASS:-postgres_dev_pass}"
+      DB_NAME: "${DB_NAME:-qa2a}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef}"
+      EXTERNAL_API_KEY: "${EXTERNAL_API_KEY:-dev-external-api-key}"
+      BOT_TOKEN: "${BOT_TOKEN:-123456789:ABCDEF_mock_dev_telegram_bot_token}"
+      ADMIN_TG_ID: "${ADMIN_TG_ID:-0}"
+    ports:
+      - "${QA2A_PORT:-8085}:8082"
+    volumes:
+      - qa2a_uploads_data:/app/uploads
+
+  iiko_parser:
+    build:
+      context: ./iiko_parser
+      dockerfile: Dockerfile
+    container_name: iiko-parser-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qa2a_backend:
+        condition: service_started
+    environment:
+      PORT: "8099"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_USER: "${DB_USER:-admin}"
+      DB_PASS: "${DB_PASS:-postgres_dev_pass}"
+      DB_NAME: "${DB_NAME:-qa2a}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef}"
+      EXTERNAL_API_KEY: "${EXTERNAL_API_KEY:-dev-external-api-key}"
+      AI_API_KEY: "${AI_API_KEY:-dummy-key}"
+      AI_BASE_URL: "${AI_BASE_URL:-http://127.0.0.1:20128/v1/chat/completions}"
+      AI_MODEL: "${AI_MODEL:-gemini/gemini-3.5-flash,gemini/gemini-3.0-flash}"
+      QA2A_URL: "http://qa2a_backend:8082"
+      SUPERADMIN_TOKEN: "${SUPERADMIN_TOKEN:-superadmin-secret-token}"
+    ports:
+      - "${PARSER_PORT:-8098}:8099"
+
+volumes:
+  qa2a_postgres_dev_data:
+  qa2a_uploads_data:

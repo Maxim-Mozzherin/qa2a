@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS companies (
     iiko_api_login VARCHAR(255) NOT NULL DEFAULT '',
     iiko_api_password VARCHAR(255) NOT NULL DEFAULT '',
     iiko_writeoff_account VARCHAR(255) NOT NULL DEFAULT '97036ddb-b2e1-cd47-1669-c145daa9f9c5',
+    invite_code VARCHAR(50) UNIQUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
@@ -303,17 +304,6 @@ CREATE INDEX IF NOT EXISTS idx_product_mappings_lookup
     ON product_mappings (company_id, vendor_name);
 
 
--- Patches incorporated automatically
-﻿
-ALTER TABLE marketplace_suppliers ADD COLUMN invite_code VARCHAR(50) UNIQUE;
-
-﻿
-ALTER TABLE marketplace_offers ADD COLUMN views_count INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE marketplace_offers ADD COLUMN clicks_count INTEGER NOT NULL DEFAULT 0;
-
-
--- Global patches incorporated automatically
-﻿
 -- Marketplace tables
 
 CREATE TABLE IF NOT EXISTS marketplace_suppliers (
@@ -321,6 +311,7 @@ CREATE TABLE IF NOT EXISTS marketplace_suppliers (
     company_name VARCHAR(255) NOT NULL,
     contact_phone VARCHAR(50) NOT NULL DEFAULT '',
     contact_email VARCHAR(255) NOT NULL DEFAULT '',
+    invite_code VARCHAR(50) UNIQUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
@@ -332,6 +323,8 @@ CREATE TABLE IF NOT EXISTS marketplace_offers (
     price_type VARCHAR(50) NOT NULL DEFAULT 'exact', -- exact, from, request
     price_value NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+    views_count INTEGER NOT NULL DEFAULT 0,
+    clicks_count INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
@@ -339,7 +332,7 @@ CREATE TABLE IF NOT EXISTS marketplace_offers (
 CREATE INDEX IF NOT EXISTS idx_marketplace_offers_active ON marketplace_offers(is_active);
 CREATE INDEX IF NOT EXISTS idx_marketplace_offers_keywords ON marketplace_offers USING gin(keywords);
 
-﻿
+
 CREATE TABLE IF NOT EXISTS marketplace_supplier_users (
     id SERIAL PRIMARY KEY,
     supplier_id INT NOT NULL REFERENCES marketplace_suppliers(id) ON DELETE CASCADE,
@@ -354,7 +347,7 @@ CREATE TABLE IF NOT EXISTS marketplace_supplier_users (
 
 CREATE INDEX IF NOT EXISTS idx_supplier_users_active ON marketplace_supplier_users(supplier_id, is_active);
 
-﻿
+
 INSERT INTO marketplace_suppliers (company_name, contact_phone) VALUES ('Демо-Поставщик', '+79991234567') ON CONFLICT DO NOTHING;
 INSERT INTO marketplace_offers (supplier_id, title, description, price_type, price_value, keywords) VALUES ((SELECT id FROM marketplace_suppliers LIMIT 1), 'Сливки Чудское 33%', 'Свежая поставка, от 10 коробок.', 'from', 320.00, '["сливки", "молоко"]'::jsonb);
 INSERT INTO marketplace_offers (supplier_id, title, description, price_type, price_value, keywords) VALUES ((SELECT id FROM marketplace_suppliers LIMIT 1), 'Угорь жареный (уннаги)', 'Премиум качество, коробки по 5кг', 'exact', 1150.00, '["угорь", "суши", "рыба"]'::jsonb);

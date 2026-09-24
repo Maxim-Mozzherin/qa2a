@@ -94,15 +94,33 @@ go build -o iiko-parser .
 ./iiko-parser
 ```
 
-### 2. Мониторинг на продакшн-сервере:
+### 2. Быстрый запуск в Docker Compose (для разработки и тестирования):
 
 ```bash
-# Статус служб
-systemctl status qa2a.service iiko-parser.service --no-pager
+# 1. Скопировать шаблон переменных окружения
+cp .env.example .env
+
+# 2. Запустить весь стек (PostgreSQL + QA2A Core + iiko_parser)
+docker compose up --build -d
+
+# 3. Проверить состояние контейнеров и доступность сервисов
+docker compose ps
+curl http://localhost:8085/health   # QA2A Core
+curl http://localhost:8098/health   # iiko AI Parser
+
+# 4. Просмотр логов в реальном времени
+docker compose logs -f
+```
+
+### 3. Мониторинг на продакшн-сервере:
+
+```bash
+# Статус служб systemd
+systemctl status qa2a.service iiko_parser.service --no-pager
 
 # Логи в реальном времени
 journalctl -u qa2a.service -f
-journalctl -u iiko-parser.service -f
+journalctl -u iiko_parser.service -f
 ```
 
 ---
