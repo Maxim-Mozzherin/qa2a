@@ -362,3 +362,18 @@ func TestCompanyInvite_Entropy(t *testing.T) {
 	}
 }
 
+func TestHealthCheck(t *testing.T) {
+	req := httptest.NewRequest("GET", "/health", nil)
+	rec := httptest.NewRecorder()
+	handleHealthCheck(rec, req)
+
+	// In unit test without DB, it safely returns 503 with JSON error, without panicking!
+	if rec.Code != http.StatusOK && rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 200 or 503, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "iiko_parser") {
+		t.Errorf("expected body to contain service name 'iiko_parser', got %s", body)
+	}
+}
+

@@ -168,6 +168,9 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("/health", handleHealthCheck)
+	mux.HandleFunc("/api/health", handleHealthCheck)
+
 	mux.Handle("/", http.FileServer(http.Dir("./static")))
 	mux.HandleFunc("/api/uploads/tickets/", authMiddleware(handleServeTicketMedia))
 
@@ -282,4 +285,26 @@ func main() {
 	_ = srv.Shutdown(ctxShutdown)
 	_ = db.Close()
 	log.Println("✅ Микросервис iiko_parser безопасно остановлен.")
+}
+
+func handleHealthCheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if db == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"error","service":"iiko_parser","error":"database not initialized"}`))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"error","service":"iiko_parser","error":%q}`, err.Error())))
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok","service":"iiko_parser"}`))
 }

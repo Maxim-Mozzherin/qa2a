@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -48,6 +49,29 @@ func New(
 		externalApiKey:     externalApiKey,
 		joinLimiter:        ratelimit.NewLimiter(5, 1*time.Minute, 5*time.Minute, 10000),
 	}
+}
+
+// HealthHandler выполняет проверку жизнеспособности сервера и соединения с базой данных.
+func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if h.inventoryService == nil || h.inventoryService.GetRepo() == nil || h.inventoryService.GetRepo().GetDb() == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"error","service":"qa2a-backend","error":"database not initialized"}`))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := h.inventoryService.GetRepo().GetDb().PingContext(ctx); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"error","service":"qa2a-backend","error":%q}`, err.Error())))
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok","service":"qa2a-backend"}`))
 }
 
 // ============================================================================

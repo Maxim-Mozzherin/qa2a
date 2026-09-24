@@ -126,3 +126,19 @@ func TestCreateExternalTemplateHandler_Security(t *testing.T) {
 		t.Errorf("expected 401 Unauthorized for empty Bearer token, got %d", recEmptyBearer.Code)
 	}
 }
+
+func TestHealthHandler(t *testing.T) {
+	h := &Handler{}
+	req := httptest.NewRequest("GET", "/health", nil)
+	rec := httptest.NewRecorder()
+	h.HealthHandler(rec, req)
+
+	// In unit test where DB is nil, it gracefully returns 503 with JSON and does not panic
+	if rec.Code != http.StatusOK && rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 200 or 503, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "qa2a-backend") {
+		t.Errorf("expected body to contain service name 'qa2a-backend', got %s", body)
+	}
+}

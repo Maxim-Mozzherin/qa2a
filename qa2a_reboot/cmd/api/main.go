@@ -155,6 +155,8 @@ func main() {
 	// ==========================================
 	// ОТКРЫТЫЕ И ВНЕШНИЕ МАРШРУТЫ API
 	// ==========================================
+	r.HandleFunc("/health", h.HealthHandler).Methods("GET", "OPTIONS")
+	api.HandleFunc("/health", h.HealthHandler).Methods("GET", "OPTIONS")
 	api.HandleFunc("/auth", h.AuthHandler).Methods("POST", "OPTIONS")
 	api.HandleFunc("/join", h.JoinCompanyHandler).Methods("POST", "OPTIONS")
 	api.HandleFunc("/companies", h.CreateCompanyHandler).Methods("POST", "OPTIONS")
