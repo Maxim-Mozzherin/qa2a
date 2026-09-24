@@ -1,6 +1,5 @@
-qa2a-server
-*.log
 .env
+cookies.txt
 .env.*
 .tmp.driveupload/
 qa2a-server
