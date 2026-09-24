@@ -1,6 +1,6 @@
 module qa2a
 
-go 1.23.6
+go 1.26.0
 
 require (
 	github.com/gorilla/mux v1.8.1
@@ -10,3 +10,5 @@ require (
 )
 
 require github.com/jung-kurt/gofpdf v1.16.2
+
+require golang.org/x/crypto v0.57.0 // indirect

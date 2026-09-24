@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"iiko_parser/crypto"
+	"iiko_parser/pkg/netutil"
 	"net/http"
 )
 
@@ -68,7 +69,12 @@ func handleCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if host == "" {
-		http.Error(w, "iik0 не подключена. Настройте интеграцию в Telegram-боте.", http.StatusUnauthorized)
+		http.Error(w, "iiko не подключена. Настройте интеграцию в Telegram-боте.", http.StatusUnauthorized)
+		return
+	}
+
+	if err := netutil.ValidateHost(host); err != nil {
+		http.Error(w, "Недопустимый адрес сервера iiko RMS (заблокировано политикой безопасности SSRF): "+err.Error(), http.StatusBadRequest)
 		return
 	}
 

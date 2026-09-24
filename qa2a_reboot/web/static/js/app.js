@@ -132,6 +132,9 @@ let supplierContactsCache = [];
 let currentProductSuppliers = [];
 let currentInvAct = null;
 
+let miniAppTicketsInterval = null;
+let miniAppRequestsInterval = null;
+
 // Состояние модуля графиков смен
 let scheduleStaff = [];
 let staffPreferences = {};
@@ -300,10 +303,11 @@ async function initApp() {
         allMemberships = data.memberships || [];
 
 
-        if (data.is_supplier && localStorage.getItem("skip_supplier") !== "true") {
-            openSupplierPortal();
-            return;
-        }
+        // [FROZEN] Вход в портал поставщика временно заморожен
+        // if (data.is_supplier && localStorage.getItem("skip_supplier") !== "true") {
+        //     openSupplierPortal();
+        //     return;
+        // }
 
         if (allMemberships.length === 0) {
             document.getElementById("onboarding").style.display = "block";
@@ -326,7 +330,19 @@ async function initApp() {
             
             await loadAllData();
             renderCompanyList();
-            switchTab('request');
+            checkPendingWriteoffsVisibility();
+            startActiveRequestsPolling();
+            
+            // Check if the user already clicked a tab during the loading phase
+            const activeNav = document.querySelector('.nav-item.active');
+            if (!activeNav || activeNav.id === 'nav-request') {
+                switchTab('request');
+            } else {
+                const activeId = activeNav.id.replace('nav-', '');
+                switchTab(activeId); // Re-apply to ensure UI is in sync
+            }
+            
+            processOfflineQueue();
         }
     } catch (e) {
         console.error("[initApp] Ошибка инициализации:", e);
@@ -368,7 +384,8 @@ async function loadAllData() {
 // ============================================================================
 
 function switchTab(id) {
-    if (id === 'request') { if(typeof loadSpecialOffers === 'function') loadSpecialOffers(); }
+    // [FROZEN] Карусель предложений заморожена
+    // if (id === 'request') { if(typeof loadSpecialOffers === 'function') loadSpecialOffers(); }
     document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
     const target = document.getElementById('tab-' + id);
     if (target) target.style.display = 'block';
@@ -381,10 +398,42 @@ function switchTab(id) {
         loadAdminData();
     }
 
-    if (id === 'writeoff' || id === 'transfer') {
-        const prefix = id === 'writeoff' ? 'w' : 'tr';
-        const dateInput = document.getElementById(prefix + '_date');
-        const fakeInput = document.getElementById(prefix + '_date_fake');
+    if (id === 'request') {
+        loadActiveRequestsCount();
+    }
+
+    if (id === 'writeoff') {
+        checkPendingWriteoffsVisibility();
+        const dateInput = document.getElementById('w_date');
+        const fakeInput = document.getElementById('w_date_fake');
+        
+        if (dateInput) {
+            const now = new Date();
+            // Calculate local date adjusted for Asia/Yekaterinburg (UTC+5)
+            const utcHours = now.getUTCHours();
+            const yektHours = (utcHours + 5) % 24;
+            const isShiftAdjustment = yektHours < 6;
+
+            const yektNow = new Date(now.getTime() + 5 * 3600 * 1000);
+            if (isShiftAdjustment) {
+                yektNow.setUTCDate(yektNow.getUTCDate() - 1);
+            }
+
+            const year = yektNow.getUTCFullYear();
+            const month = String(yektNow.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(yektNow.getUTCDate()).padStart(2, '0');
+
+            dateInput.value = `${year}-${month}-${day}T12:00`;
+            if (fakeInput) {
+                fakeInput.textContent = isShiftAdjustment ? `${day}.${month}.${year} (Смена)` : `${day}.${month}.${year}`;
+                fakeInput.style.color = "var(--text)";
+            }
+        }
+    }
+
+    if (id === 'transfer') {
+        const dateInput = document.getElementById('tr_date');
+        const fakeInput = document.getElementById('tr_date_fake');
         
         if (dateInput) {
             const now = new Date();
@@ -393,10 +442,8 @@ function switchTab(id) {
             const day = String(now.getDate()).padStart(2, '0');
             const hours = String(now.getHours()).padStart(2, '0');
             const minutes = String(now.getMinutes()).padStart(2, '0');
-            const val = `${year}-${month}-${day}T${hours}:${minutes}`;
             
-            dateInput.value = val;
-            
+            dateInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
             if (fakeInput) {
                 fakeInput.textContent = now.toLocaleDateString('ru-RU') + ', ' + now.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
                 fakeInput.style.color = "var(--text)";
@@ -540,11 +587,28 @@ async function selectPos(prefix, name, unit) {
         if (product && product.external_id) {
             if (supplierSelectGroup) supplierSelectGroup.style.display = 'block';
             if (supplierSearchInput) {
+                // FAST-FAIL FOR OFFLINE MODE: Do not wait for fetch timeout
+                if (!navigator.onLine) {
+                    supplierSearchInput.placeholder = 'Нет сети';
+                    selectSupplier('DIRECT', '📦 Разовая закупка (Офлайн)', '');
+                    return; // Exit early to prevent hanging
+                }
+
                 try {
                     const currentSelectionUUID = document.getElementById('req_supplier_uuid').value;
                     supplierSearchInput.placeholder = '⏳ Поиск поставщиков...';
+                    
+                    // Add an explicit AbortController for faster timeout just in case network is "lieing" (e.g. bad Edge connection)
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 seconds max
 
-                    const res = await fetch(API + `/positions/${product.external_id}/suppliers`, { headers: getHeaders() });
+                    const res = await fetch(API + `/positions/${product.external_id}/suppliers`, { 
+                        headers: getHeaders(),
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+
                     if (res.ok) {
                         const data = await res.json() || { is_fallback: true, suppliers: [] };
                         const isFallback = data.is_fallback;
@@ -561,6 +625,8 @@ async function selectPos(prefix, name, unit) {
                             selectSupplier(targetSupplier.uuid, targetSupplier.name, targetSupplier.tg_username || '');
                         }
                         supplierSearchInput.placeholder = 'Начните вводить имя поставщика...';
+                    } else {
+                        throw new Error("Failed to fetch suppliers");
                     }
                 } catch (e) {
                     selectSupplier('DIRECT', '📦 Обычная закупка', '');
@@ -697,11 +763,18 @@ async function submitOperation(type, prefix) {
     if (type === 'transfer') body.to_location_id = parseInt(toLocId);
 
     try {
+        if (!navigator.onLine) throw new Error("Сбой сети");
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
         const res = await fetch(API + '/operations', { 
             method: 'POST', 
             headers: getHeaders(), 
-            body: JSON.stringify(body) 
+            body: JSON.stringify(body),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
         if (res.ok) {
             if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
@@ -717,12 +790,28 @@ async function submitOperation(type, prefix) {
 
             const warningEl = document.getElementById(prefix + '_ghost_warning');
             if (warningEl) warningEl.style.display = 'none';
+
+            loadHistory();
         } else {
             const err = await res.json().catch(() => ({ error: "Ошибка сервера" }));
             alert("Ошибка: " + (err.error || err.message || "Сбой"));
         }
-    } catch (e) { 
-        alert("Сбой сети при отправке операции"); 
+    } catch (e) {
+        if (!navigator.onLine || e.name === 'AbortError' || e.message.includes('Failed to fetch') || e.message.includes('NetworkError') || e.message.includes('Сбой сети')) {
+            addToOfflineQueue('/operations', 'POST', body);
+            if (tg.showAlert) tg.showAlert("Нет сети! Операция сохранена локально и отправится автоматически.");
+            else alert("Нет сети! Сохранено локально.");
+            
+            document.getElementById(prefix + '_search').value = '';
+            document.getElementById(prefix + '_name').value = '';
+            document.getElementById(prefix + '_qty').value = '';
+            const commentInput = document.getElementById(prefix + '_comment');
+            if (commentInput) commentInput.value = '';
+            const warningEl = document.getElementById(prefix + '_ghost_warning');
+            if (warningEl) warningEl.style.display = 'none';
+        } else {
+            alert("Ошибка: " + e.message);
+        }
     } finally {
         if (btn) {
             btn.disabled = false;
@@ -847,21 +936,37 @@ async function submitProcurementRequest() {
     };
 
     try {
+        if (!navigator.onLine) throw new Error("Сбой сети");
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
         const res = await fetch(API + '/procurements', { 
             method: 'POST', 
             headers: getHeaders(), 
-            body: JSON.stringify(payload) 
+            body: JSON.stringify(payload),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
         
         if (res.ok) {
             if (tg.showAlert) tg.showAlert("Заявка успешно отправлена на согласование!"); else alert("Заявка отправлена!");
             requestCart = []; 
             renderRequestCart();
+            loadActiveRequestsCount();
         } else { 
             alert("Ошибка при отправке: " + await res.text()); 
         }
     } catch (e) { 
-        alert("Ошибка сети при отправке заявки"); 
+        if (!navigator.onLine || e.name === 'AbortError' || e.message.includes('Failed to fetch') || e.message.includes('NetworkError') || e.message.includes('Сбой сети')) {
+            addToOfflineQueue('/procurements', 'POST', payload);
+            requestCart = []; 
+            renderRequestCart();
+            if (tg.showAlert) tg.showAlert("Нет сети! Заявка сохранена локально и отправится автоматически.");
+            else alert("Нет сети! Заявка сохранена локально и отправится автоматически.");
+        } else {
+            alert("Ошибка: " + e.message);
+        }
     } finally {
         if (btn) {
             btn.disabled = false;
@@ -870,10 +975,37 @@ async function submitProcurementRequest() {
     }
 }
 
-async function openActiveRequests() {
-    openDrawer('active_requests');
+let activeRequestsInterval = null;
+
+async function loadActiveRequestsCount() {
+    const badge = document.getElementById('badge_active_requests');
+    if (!badge) return;
+    try {
+        const res = await fetch(API + '/procurements?status=pending', { headers: getHeaders() });
+        if (res.ok) {
+            const requests = await res.json() || [];
+            const count = Array.isArray(requests) ? requests.length : 0;
+            badge.textContent = count;
+            badge.style.display = count > 0 ? 'inline-block' : 'none';
+        }
+    } catch (e) {
+        console.error("Active requests count error:", e);
+    }
+}
+
+function startActiveRequestsPolling() {
+    loadActiveRequestsCount();
+    if (!activeRequestsInterval) {
+        activeRequestsInterval = setInterval(loadActiveRequestsCount, 12000);
+    }
+}
+
+async function loadActiveRequests(isBackground = false) {
     const listEl = document.getElementById('activePendingRequestsList');
-    listEl.innerHTML = "Загрузка...";
+    if (!listEl) return;
+    if (!isBackground) {
+        listEl.innerHTML = "Загрузка...";
+    }
 
     const myMembership = allMemberships.find(m => m.company_id == currentCompanyId);
     const canApprove = myMembership && ['owner', 'admin', 'manager'].includes(myMembership.role);
@@ -881,6 +1013,12 @@ async function openActiveRequests() {
     try {
         const res = await fetch(API + '/procurements?status=pending', { headers: getHeaders() });
         const requests = await res.json() || [];
+        const badge = document.getElementById('badge_active_requests');
+        if (badge) {
+            const count = Array.isArray(requests) ? requests.length : 0;
+            badge.textContent = count;
+            badge.style.display = count > 0 ? 'inline-block' : 'none';
+        }
         if (requests.length === 0) { 
             listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding: 20px 0; font-size:12px;">Нет активных заявок на согласовании</div>'; 
             return; 
@@ -894,7 +1032,7 @@ async function openActiveRequests() {
                 <div class="pulse-item" style="display:block; margin-bottom:12px; padding:15px;">
                     <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
                         <span style="font-size:10px; color:var(--text-muted);">${new Date(req.created_at).toLocaleDateString('ru-RU')}</span>
-                        <span style="font-size:12px; font-weight:800; color:var(--accent);">Создал: ${escapeHtml(req.user_name)}</span>
+                        <span style="font-size:12px; font-weight:800; color:var(--accent);">Создал: ${escapeHtml(formatUserWithTitle(req))}</span>
                     </div>
                     <div style="font-size:13px; line-height:1.4;">${itemsHtml}</div>
                     ${actionHtml}
@@ -902,8 +1040,21 @@ async function openActiveRequests() {
             `;
         }).join('');
     } catch (e) {
-        listEl.innerHTML = '<div style="color:#F56565; font-size:12px; text-align:center; padding: 20px 0;">Ошибка загрузки</div>';
+        if (!isBackground) {
+            listEl.innerHTML = '<div style="color:#F56565; font-size:12px; text-align:center; padding: 20px 0;">Ошибка загрузки</div>';
+        }
     }
+}
+
+async function loadActiveRequestsBackground() {
+    return loadActiveRequests(true);
+}
+
+async function openActiveRequests() {
+    openDrawer('active_requests');
+    loadActiveRequests(false);
+    if (miniAppRequestsInterval) clearInterval(miniAppRequestsInterval);
+    miniAppRequestsInterval = setInterval(() => loadActiveRequestsBackground(), 10000);
 }
 
 async function updateReqStatus(reqId, status) {
@@ -917,6 +1068,7 @@ async function updateReqStatus(reqId, status) {
         if (res.ok) {
             if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
             closeDrawer(); 
+            loadActiveRequestsCount();
             if (status === 'approved') {
                 orderApprovedRequest(reqId);
             } else {
@@ -947,12 +1099,11 @@ async function loadApprovedRequests() {
             <div class="pulse-item" style="display:flex; justify-content:space-between; align-items:center;">
                 <div class="pulse-info">
                     <div style="font-weight:700;">Заявка #${req.id}</div>
-                    <span style="font-size:11px;">${new Date(req.created_at).toLocaleDateString('ru-RU')} • Автор: ${escapeHtml(req.user_name)}</span>
+                    <span style="font-size:11px;">${new Date(req.created_at).toLocaleDateString('ru-RU')} • Автор: ${escapeHtml(formatUserWithTitle(req))}</span>
                 </div>
                 <div style="display:flex; gap:6px;">
-                    <button type="button" class="btn-tiny" onclick="downloadPDF(${req.id})" style="border-color:var(--text-muted); color:var(--text-muted);">PDF</button>
                     ${canSend ? `
-                        <button type="button" class="btn-tiny" onclick="orderApprovedRequest(${req.id})" style="background:#48BB78; color:white; border-color:#48BB78;">📝 Заказать</button>
+                        <button type="button" class="btn-tiny" onclick="orderApprovedRequest(${req.id})" style="background:#48BB78; color:white; border-color:#48BB78;">📝 Заказать у поставщика</button>
                     ` : ''}
                 </div>
             </div>
@@ -1039,20 +1190,25 @@ function copyOrderText(id) {
 function sendOrderToTg(id, tgUsername) {
     const el = document.getElementById(id);
     if (!el) return;
-    navigator.clipboard.writeText(el.value);
+    
+    const text = el.value;
+    
+    // Fallback: Still copy to clipboard just in case
+    navigator.clipboard.writeText(text);
     if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
     
     let username = tgUsername.trim();
     if (username.startsWith('@')) username = username.substring(1);
-    if (!username) return alert("У поставщика не указан TG!");
+    if (!username) return alert("У поставщика не указан Telegram username!");
     
-    const tgUrl = `https://t.me/${username}`;
-    if (tg.openTelegramLink) tg.openTelegramLink(tgUrl); else window.open(tgUrl, '_blank');
-}
-
-function downloadPDF(id) {
-    const url = `${API}/procurements/download/${id}?tg_id=${userToken}&c_id=${currentCompanyId}`;
-    if (tg.openLink) tg.openLink(url); else window.open(url, '_blank'); 
+    // Magic: Pre-fill text in Telegram
+    const tgUrl = `https://t.me/${username}?text=${encodeURIComponent(text)}`;
+    
+    if (tg.openTelegramLink) {
+        tg.openTelegramLink(tgUrl);
+    } else {
+        window.open(tgUrl, '_blank');
+    }
 }
 
 // ============================================================================
@@ -1060,6 +1216,20 @@ function downloadPDF(id) {
 // ============================================================================
 
 async function loadAdminData() {
+    const myMembership = allMemberships.find(m => m.company_id == currentCompanyId);
+    const myRole = myMembership?.role;
+    
+    const iikoBlock = document.getElementById('iiko_integration_block');
+    if (iikoBlock) {
+        if (myRole === 'owner' || myRole === 'manager') {
+            iikoBlock.style.display = 'block';
+        } else {
+            iikoBlock.style.display = 'none';
+        }
+    }
+
+    checkAccountingTicketVisibility();
+    loadJoinRequests();
     loadApprovedRequests();
     loadIikoSettings();
     loadHistory();
@@ -1202,7 +1372,7 @@ async function loadHistory() {
                             <small style="color:var(--text-muted); font-weight:normal;">(${op.display_type})</small>
                             ${iikoBadge}
                         </div>
-                        <span>${escapeHtml(op.user_name)} • ${parseLocalDate(op.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                        <span>${escapeHtml(formatUserWithTitle(op))} • ${parseLocalDate(op.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
                     </div>
                     <div class="pulse-val" style="color:${color}">
                         ${sign}${op.real_qty} ${op.unit}
@@ -1239,7 +1409,7 @@ function openOperationDetails(idx) {
             </div>
             <div style="margin-bottom:10px; font-size:13px; display:flex; justify-content:space-between;">
                 <span style="color:var(--text-muted)">Сотрудник:</span>
-                <b>${escapeHtml(op.user_name)}</b>
+                <b>${escapeHtml(formatUserWithTitle(op))}</b>
             </div>
             <div style="margin-bottom:10px; font-size:13px; display:flex; justify-content:space-between;">
                 <span style="color:var(--text-muted)">Дата и время:</span>
@@ -1292,9 +1462,54 @@ function openOperationDetails(idx) {
     openDrawer('op_details');
 }
 
+function closeEditWriteoffDrawer() {
+    if (window.editWriteoffFrom === 'pending_writeoffs') {
+        openPendingWriteoffsDrawer();
+    } else {
+        openDrawer('history');
+    }
+}
+
+function openEditWriteoffFromPending(op) {
+    if (!op) return;
+    window.editWriteoffFrom = 'pending_writeoffs';
+
+    document.getElementById('edit_op_id').value = op.id;
+    document.getElementById('edit_w_search').value = op.position_name;
+    document.getElementById('edit_w_qty').value = Math.abs(op.quantity);
+    document.getElementById('edit_w_unit_display').value = op.unit || 'ед.';
+    document.getElementById('edit_w_comment').value = op.comment || '';
+
+    const srcLoc = document.getElementById('w_location');
+    const dbLoc = document.getElementById('edit_w_location');
+    if (srcLoc && dbLoc) {
+        dbLoc.innerHTML = srcLoc.innerHTML;
+        dbLoc.value = op.location_id;
+    }
+
+    const srcAcc = document.getElementById('w_account_id');
+    const dbAcc = document.getElementById('edit_w_account_id');
+    if (srcAcc && dbAcc) {
+        dbAcc.innerHTML = srcAcc.innerHTML;
+        dbAcc.value = op.account_id;
+    }
+
+    const dateInput = document.getElementById('edit_w_date');
+    if (dateInput) {
+        const d = parseLocalDate(op.created_at);
+        d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+        const val = d.toISOString().slice(0, 16);
+        dateInput.value = val;
+        updateEditFakeDate(val);
+    }
+
+    openDrawer('edit_writeoff');
+}
+
 function openEditWriteoffForm(idx) {
     const op = historyCache[idx];
     if (!op) return;
+    window.editWriteoffFrom = 'history';
 
     document.getElementById('edit_op_id').value = op.id;
     document.getElementById('edit_w_search').value = op.position_name;
@@ -1356,10 +1571,16 @@ async function submitEditWriteoff() {
 
         if (res.ok) {
             if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-            closeDrawer();
-            loadHistory(); 
+            if (window.editWriteoffFrom === 'pending_writeoffs') {
+                openPendingWriteoffsDrawer();
+                loadPendingWriteoffsCount();
+            } else {
+                closeDrawer();
+                loadHistory(); 
+            }
         } else {
-            alert("Ошибка сохранения списания");
+            const errData = await res.json().catch(() => ({}));
+            alert(errData.error || "Ошибка сохранения списания");
         }
     } catch (e) {
         alert("Сбой сети при сохранении");
@@ -1635,14 +1856,25 @@ async function saveInventoryProgress(finalize) {
     if (btnFinal) btnFinal.disabled = true;
 
     try {
+        if (!navigator.onLine) throw new Error("Сбой сети");
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+
         let res = await fetch(API + `/inventories/${currentInvAct.id}`, {
-            method: 'PUT', headers: getHeaders(), body: JSON.stringify(currentInvAct.items)
+            method: 'PUT', headers: getHeaders(), body: JSON.stringify(currentInvAct.items), signal: controller.signal
         });
+        clearTimeout(timeoutId);
         if (!res.ok) throw new Error(await res.text());
 
         if (finalize) {
-            res = await fetch(API + `/inventories/${currentInvAct.id}/finalize`, { method: 'POST', headers: getHeaders() });
+            const finalController = new AbortController();
+            const finalTimeoutId = setTimeout(() => finalController.abort(), 6000);
+
+            res = await fetch(API + `/inventories/${currentInvAct.id}/finalize`, { method: 'POST', headers: getHeaders(), signal: finalController.signal });
+            clearTimeout(finalTimeoutId);
             if (!res.ok) throw new Error(await res.text());
+            
             if (tg.showAlert) tg.showAlert("Успешно выгружено в iiko!"); else alert("Успешно!");
             closeDrawer(); 
             openInventoryList();
@@ -1650,7 +1882,20 @@ async function saveInventoryProgress(finalize) {
             if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
         }
     } catch(e) {
-        alert("Ошибка: " + e.message);
+        if (!navigator.onLine || e.name === 'AbortError' || e.message.includes('Failed to fetch') || e.message.includes('NetworkError') || e.message.includes('Сбой сети')) {
+            addToOfflineQueue(`/inventories/${currentInvAct.id}`, 'PUT', currentInvAct.items);
+            
+            if (finalize) {
+                addToOfflineQueue(`/inventories/${currentInvAct.id}/finalize`, 'POST', null);
+                if (tg.showAlert) tg.showAlert("Нет сети! Акт сохранен и будет завершен автоматически при появлении интернета.");
+                else alert("Нет сети! Акт завершится автоматически.");
+                closeDrawer();
+            } else {
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+            }
+        } else {
+            alert("Ошибка: " + e.message);
+        }
     } finally {
         if (btnDraft) btnDraft.disabled = false; 
         if (btnFinal) btnFinal.disabled = false;
@@ -1767,8 +2012,9 @@ async function removeMember() {
 
 async function loadIikoSettings() {
     const myMembership = allMemberships.find(m => m.company_id == currentCompanyId);
-    const btnIiko = document.getElementById('btn_iiko_settings_sub'); 
-    if (!myMembership || myMembership.role !== 'owner') { 
+    const blockIiko = document.getElementById('iiko_integration_block');
+    const btnIiko = document.getElementById('btn_iiko_settings_sub');
+    if (!myMembership || (myMembership.role !== 'owner' && myMembership.role !== 'manager')) { 
         if (btnIiko) btnIiko.style.display = 'none'; 
         return; 
     }
@@ -2134,6 +2380,14 @@ function copyScheduleText() {
 // ============================================================================
 
 function openDrawer(id) {
+    if (typeof miniAppTicketsInterval !== 'undefined' && miniAppTicketsInterval) {
+        clearInterval(miniAppTicketsInterval);
+        miniAppTicketsInterval = null;
+    }
+    if (typeof miniAppRequestsInterval !== 'undefined' && miniAppRequestsInterval) {
+        clearInterval(miniAppRequestsInterval);
+        miniAppRequestsInterval = null;
+    }
     hideNavBar();
     document.getElementById('overlay').classList.add('visible');
     document.querySelectorAll('.drawer').forEach(d => d.classList.remove('open'));
@@ -2142,6 +2396,14 @@ function openDrawer(id) {
 }
 
 function closeDrawer() {
+    if (miniAppTicketsInterval) {
+        clearInterval(miniAppTicketsInterval);
+        miniAppTicketsInterval = null;
+    }
+    if (miniAppRequestsInterval) {
+        clearInterval(miniAppRequestsInterval);
+        miniAppRequestsInterval = null;
+    }
     document.getElementById('overlay').classList.remove('visible');
     document.querySelectorAll('.drawer').forEach(d => d.classList.remove('open'));
     showNavBar();
@@ -2188,15 +2450,65 @@ async function joinByCode() {
     const code = prompt("Введите инвайт-код:");
     if (!code) return;
     const res = await fetch(API + '/join', { method: 'POST', headers: getHeaders(), body: JSON.stringify({ code }) });
-    if (res.ok) location.reload(); else alert("Ошибка вступления");
+    if (res.ok) {
+        const data = await res.json();
+        alert(data.message || "Заявка отправлена!");
+    } else {
+        alert("Ошибка вступления");
+    }
 }
 
 async function joinByCodeFromOnboarding() {
     const code = document.getElementById('onboarding_invite_code').value.trim();
     if (!code) return alert("Введите код доступа!");
     const res = await fetch(API + '/join', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Telegram-ID': String(userToken) }, body: JSON.stringify({ code }) });
-    if (res.ok) location.reload(); else alert("Ошибка вступления");
+    if (res.ok) {
+        const data = await res.json();
+        alert(data.message || "Заявка отправлена!");
+    } else {
+        alert("Ошибка вступления");
+    }
 }
+
+async function loadJoinRequests() {
+    const listEl = document.getElementById('joinRequestsList');
+    if (!listEl) return;
+    try {
+        const res = await fetch(API + '/join-requests', { headers: getHeaders() });
+        if (res.ok) {
+            const reqs = await res.json() || [];
+            if (reqs.length === 0) {
+                listEl.innerHTML = '';
+            } else {
+                listEl.innerHTML = '<div class="section-title">Заявки на вступление</div>' + reqs.map(r => `
+                    <div class="pulse-item" style="border: 1px solid var(--accent);">
+                        <div class="pulse-info"><div>${escapeHtml(r.user_name)}</div><span style="color:var(--accent);">Хочет присоединиться</span></div>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn-tiny" style="background:#48BB78; color:white; border:none;" onclick="approveJoinRequest(${r.id})">Принять</button>
+                            <button class="btn-tiny" style="background:#F56565; color:white; border:none;" onclick="rejectJoinRequest(${r.id})">✕</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch(e) {}
+}
+
+async function approveJoinRequest(id) {
+    if (!confirm("Одобрить заявку?")) return;
+    await fetch(API + '/join-requests/' + id + '/approve', { method: 'POST', headers: getHeaders() });
+    loadAdminData();
+}
+
+async function rejectJoinRequest(id) {
+    if (!confirm("Отклонить заявку?")) return;
+    await fetch(API + '/join-requests/' + id + '/reject', { method: 'POST', headers: getHeaders() });
+    loadAdminData();
+}
+
+window.loadJoinRequests = loadJoinRequests;
+window.approveJoinRequest = approveJoinRequest;
+window.rejectJoinRequest = rejectJoinRequest;
 
 window.copyInviteCode = () => {
     const code = document.getElementById('displayInviteCode').textContent;
@@ -2234,6 +2546,39 @@ function updateEditFakeDate(val) {
 function translateRole(role) {
     const roles = { 'owner': 'Владелец', 'admin': 'Админ', 'manager': 'Менеджер', 'user': 'Сотрудник' };
     return roles[role] || role;
+}
+
+function formatUserWithTitle(nameOrObj, username, customTitle, role) {
+    let name = nameOrObj;
+    if (nameOrObj && typeof nameOrObj === 'object') {
+        name = nameOrObj.user_name || nameOrObj.full_name;
+        username = nameOrObj.username;
+        customTitle = nameOrObj.custom_title;
+        role = nameOrObj.user_role || nameOrObj.role;
+    }
+
+    let cleanUname = (username || '').replace(/^@/, '').trim();
+    let displayName = (name || '').trim();
+    
+    if (!displayName && cleanUname) {
+        displayName = cleanUname;
+    }
+    if (!displayName) {
+        displayName = 'Сотрудник';
+    }
+
+    let userPart = displayName;
+    if (cleanUname && displayName.toLowerCase() !== cleanUname.toLowerCase() && displayName.toLowerCase() !== ('@' + cleanUname).toLowerCase()) {
+        userPart = `${displayName} (@${cleanUname})`;
+    } else if (cleanUname && !displayName.startsWith('@')) {
+        userPart = `@${cleanUname}`;
+    }
+
+    const title = (customTitle || '').trim() || (role ? translateRole(role) : '');
+    if (title) {
+        return `${userPart} · ${title}`;
+    }
+    return userPart;
 }
 
 function parseLocalDate(dateStr) {
@@ -2290,7 +2635,6 @@ window.updateReqStatus = updateReqStatus;
 window.orderApprovedRequest = orderApprovedRequest;
 window.copyOrderText = copyOrderText;
 window.sendOrderToTg = sendOrderToTg;
-window.downloadPDF = downloadPDF;
 window.startInventory = startInventory;
 window.openInventoryAct = openInventoryAct;
 window.filterInventory = filterInventory;
@@ -2313,6 +2657,7 @@ window.updateFakeDate = updateFakeDate;
 window.updateTransferFakeDate = updateTransferFakeDate;
 window.updateEditFakeDate = updateEditFakeDate;
 window.escapeHtml = escapeHtml;
+window.formatUserWithTitle = formatUserWithTitle;
 
 // ============================================================================
 // SUPPLIER PORTAL
@@ -2449,6 +2794,7 @@ async function saveSupplierOffer() {
 }
 
 async function loadSpecialOffers() {
+    return; // [FROZEN] Заморозка запроса спецпредложений
     try {
         const token = userToken;
         if (!token) return;
@@ -2500,3 +2846,705 @@ async function deleteSupplierOffer(id) {
     }
     });
 }
+
+function renderSpecialOffers(offers) {
+    const section = document.getElementById("special_offers_section");
+    const carousel = document.getElementById("offers_carousel");
+    if (!section || !carousel) return;
+
+    if (!offers || offers.length === 0) {
+        section.style.display = "none";
+        return;
+    }
+
+    carousel.innerHTML = offers.map(o => 
+        '<div class="card" style="min-width: 220px; max-width: 240px; scroll-snap-align: start; text-align: left; padding: 14px; flex-shrink: 0;">\n' +
+        '    <div style="font-size: 10px; font-weight: 800; color: var(--accent); text-transform: uppercase; margin-bottom: 4px;">Спецпредложение</div>\n' +
+        '    <div style="font-weight: 700; font-size: 13px; margin-bottom: 6px; line-height: 1.2;">' + escapeHtml(o.title) + '</div>\n' +
+        '    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; max-height: 32px; overflow: hidden; text-overflow: ellipsis;">' + escapeHtml(o.description || '') + '</div>\n' +
+        '    <div style="font-weight: 800; font-size: 14px; color: #10B981; margin-bottom: 10px;">' + (o.priceStr || 'По запросу') + '</div>\n' +
+        '    <button type="button" class="btn-tiny" onclick="addOfferToCart(\'' + escapeHtml(o.title) + '\')" style="width: 100%; text-align: center;">В заявку</button>\n' +
+        '</div>'
+    ).join('');
+
+    section.style.display = "block";
+
+    const ids = offers.map(o => o.id);
+    fetch("/api/marketplace/offers/views", {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify(ids)
+    }).catch(() => {});
+}
+
+function addOfferToCart(title) {
+    document.getElementById('req_search').value = title;
+    document.getElementById('req_name').value = title;
+    document.getElementById('req_qty').value = '1';
+    document.getElementById('req_unit_display').value = 'уп/шт';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ============================================================================
+// ПАНЕЛЬ СОГЛАСОВАНИЯ СПИСАНИЙ ("АКТИВНЫЕ СПИСАНИЯ")
+// ============================================================================
+
+let pendingWriteoffsInterval = null;
+let pendingWriteoffsCache = [];
+let pendingNotesCache = {};
+let shiftNoteDebounceTimers = {};
+
+function checkPendingWriteoffsVisibility() {
+    const btn = document.getElementById('btn_pending_writeoffs');
+    if (!btn) return;
+    const myMembership = allMemberships.find(m => m.company_id == currentCompanyId);
+    if (myMembership && ['owner', 'admin', 'manager'].includes(myMembership.role)) {
+        btn.style.display = 'inline-flex';
+        loadPendingWriteoffsCount();
+        if (!pendingWriteoffsInterval) {
+            pendingWriteoffsInterval = setInterval(loadPendingWriteoffsCount, 12000);
+        }
+    } else {
+        btn.style.display = 'none';
+        if (pendingWriteoffsInterval) {
+            clearInterval(pendingWriteoffsInterval);
+            pendingWriteoffsInterval = null;
+        }
+    }
+}
+
+async function loadPendingWriteoffsCount() {
+    const badge = document.getElementById('badge_pending_writeoffs');
+    const btn = document.getElementById('btn_pending_writeoffs');
+    if (!btn || btn.style.display === 'none') return;
+
+    try {
+        const res = await fetch(API + '/operations/pending-count', { headers: getHeaders() });
+        if (res.ok) {
+            const data = await res.json();
+            const count = data.count || 0;
+            if (badge) {
+                badge.textContent = count;
+                badge.style.display = count > 0 ? 'inline-block' : 'none';
+            }
+        }
+    } catch (e) {
+        console.error("Pending count load error:", e);
+    }
+}
+
+async function openPendingWriteoffsDrawer() {
+    openDrawer('pending_writeoffs');
+    const loadingEl = document.getElementById('pending_writeoffs_loading');
+    const listEl = document.getElementById('pending_writeoffs_list');
+    if (loadingEl) loadingEl.style.display = 'block';
+    if (listEl) listEl.innerHTML = '';
+
+    try {
+        const res = await fetch(API + '/operations/pending', { headers: getHeaders() });
+        if (!res.ok) throw new Error("Сбой загрузки списаний");
+        const data = await res.json();
+        pendingWriteoffsCache = data.items || [];
+        pendingNotesCache = data.notes || {};
+        renderPendingWriteoffs();
+        loadPendingWriteoffsCount();
+    } catch (e) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (listEl) {
+            listEl.innerHTML = `<div style="text-align:center; padding:20px; color:var(--danger);">Ошибка: ${escapeHtml(e.message)}</div>`;
+        }
+    }
+}
+
+function renderPendingWriteoffs() {
+    const loadingEl = document.getElementById('pending_writeoffs_loading');
+    const listEl = document.getElementById('pending_writeoffs_list');
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (!listEl) return;
+
+    if (pendingWriteoffsCache.length === 0) {
+        listEl.innerHTML = `
+            <div style="text-align:center; padding: 40px 20px; color: var(--text-muted);">
+                <div style="font-size: 36px; margin-bottom: 12px;">✅</div>
+                <div style="font-weight: 700; font-size: 15px; margin-bottom: 6px;">Все списания согласованы</div>
+                <div style="font-size: 13px; line-height: 1.4;">Новых списаний в ожидании проверки нет.</div>
+            </div>
+        `;
+        return;
+    }
+
+    const groups = {};
+    pendingWriteoffsCache.forEach(item => {
+        const key = item.account_id + '|' + item.business_date;
+        if (!groups[key]) {
+            groups[key] = {
+                account_id: item.account_id,
+                account_name: item.account_name || 'Расход продуктов',
+                business_date: item.business_date,
+                items: []
+            };
+        }
+        groups[key].items.push(item);
+    });
+
+    let html = '';
+    Object.values(groups).forEach(g => {
+        const noteKey = g.account_id + '_' + g.business_date;
+        const currentNote = pendingNotesCache[noteKey] || '';
+        
+        let dateFormatted = g.business_date;
+        if (g.business_date && g.business_date.includes('-')) {
+            const parts = g.business_date.split('-');
+            if (parts.length === 3) dateFormatted = `${parts[2]}.${parts[1]}.${parts[0]}`;
+        }
+
+        html += `
+            <div class="card" style="margin-bottom: 16px; border: 1px solid var(--border); border-radius: 14px; padding: 14px; background: var(--surface);">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 10px;">
+                    <div>
+                        <div style="font-size: 14px; font-weight: 800; color: var(--text);">📁 ${escapeHtml(g.account_name)}</div>
+                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">📅 Смена: <b>${dateFormatted}</b> · Позиций: <b>${g.items.length}</b></div>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 12px;">
+                    <input type="text" 
+                           id="note_${escapeHtml(g.account_id)}_${escapeHtml(g.business_date)}"
+                           value="${escapeHtml(currentNote)}" 
+                           maxlength="200"
+                           placeholder="Комментарий к списанию в iiko (опционально, до 200 симв.)" 
+                           oninput="debounceSaveShiftNote('${escapeHtml(g.account_id)}', '${escapeHtml(g.business_date)}', this.value)"
+                           style="font-size: 12px; padding: 8px 10px; margin-bottom: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; width: 100%;">
+                    <div id="note_status_${escapeHtml(g.account_id)}_${escapeHtml(g.business_date)}" style="font-size: 10px; color: var(--text-muted); margin-top: 3px; min-height: 14px;"></div>
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+        `;
+
+        g.items.forEach(item => {
+            const qtyDisplay = `${item.quantity > 0 ? item.quantity : Math.abs(item.quantity)} ${escapeHtml(item.unit || 'ед.')}`;
+            const timeStr = item.created_at ? new Date(item.created_at).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'}) : '';
+
+            html += `
+                <div id="pending_item_${item.id}" style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; gap: 8px;">
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;">
+                            <span style="font-size: 13px; font-weight: 700; color: var(--text);">${escapeHtml(item.position_name)}</span>
+                            <span style="font-size: 12px; font-weight: 800; color: #EF4444;">${qtyDisplay}</span>
+                            ${item.is_unlisted ? '<span style="font-size: 9px; background: rgba(245, 158, 11, 0.2); color: #D97706; padding: 1px 4px; border-radius: 4px; font-weight: 700;">Неучтенка</span>' : ''}
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">
+                            📍 ${escapeHtml(item.location_name || 'Склад')} · 👤 ${escapeHtml(formatUserWithTitle(item))} ${timeStr ? '· ' + timeStr : ''}
+                        </div>
+                        ${item.comment ? `<div style="font-size: 11px; color: var(--text-muted); font-style: italic; margin-top: 3px;">💬 "${escapeHtml(item.comment)}"</div>` : ''}
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                        <button type="button" onclick="editPendingWriteoff(${item.id})" style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 14px;" title="Редактировать">
+                            ✏️
+                        </button>
+                        <button type="button" onclick="approvePendingWriteoff(${item.id})" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #10B981; border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; font-weight: 800;" title="Утвердить">
+                            ✓
+                        </button>
+                        <button type="button" onclick="rejectPendingWriteoff(${item.id})" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #EF4444; border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 14px; font-weight: 800;" title="Отклонить">
+                            ✕
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += `
+                </div>
+            </div>
+        `;
+    });
+
+    listEl.innerHTML = html;
+}
+
+function debounceSaveShiftNote(accountID, businessDate, note) {
+    const key = accountID + '_' + businessDate;
+    const statusEl = document.getElementById(`note_status_${accountID}_${businessDate}`);
+    if (statusEl) statusEl.textContent = 'Сохранение...';
+
+    if (shiftNoteDebounceTimers[key]) {
+        clearTimeout(shiftNoteDebounceTimers[key]);
+    }
+
+    shiftNoteDebounceTimers[key] = setTimeout(async () => {
+        try {
+            const res = await fetch(API + '/operations/shift-note', {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify({ account_id: accountID, business_date: businessDate, note: note })
+            });
+            if (res.ok) {
+                pendingNotesCache[key] = note;
+                if (statusEl) {
+                    statusEl.textContent = '✓ Сохранено для iiko';
+                    statusEl.style.color = '#10B981';
+                    setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 2500);
+                }
+            } else {
+                if (statusEl) {
+                    statusEl.textContent = 'Ошибка сохранения';
+                    statusEl.style.color = '#EF4444';
+                }
+            }
+        } catch (e) {
+            if (statusEl) {
+                statusEl.textContent = 'Сбой сети';
+                statusEl.style.color = '#EF4444';
+            }
+        }
+    }, 500);
+}
+
+async function approvePendingWriteoff(id) {
+    try {
+        const res = await fetch(API + `/operations/${id}/approve`, {
+            method: 'POST',
+            headers: getHeaders()
+        });
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            alert(errData.error || 'Ошибка утверждения списания');
+            return;
+        }
+
+        if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+        pendingWriteoffsCache = pendingWriteoffsCache.filter(item => item.id !== id);
+        renderPendingWriteoffs();
+        loadPendingWriteoffsCount();
+    } catch (e) {
+        alert('Сбой сети при утверждении');
+    }
+}
+
+async function rejectPendingWriteoff(id) {
+    if (!confirm('Отклонить списание? Списанный товар будет возвращен на склад.')) {
+        return;
+    }
+
+    try {
+        const res = await fetch(API + `/operations/${id}/reject`, {
+            method: 'POST',
+            headers: getHeaders()
+        });
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            alert(errData.error || 'Ошибка отклонения списания');
+            return;
+        }
+
+        if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('warning');
+        pendingWriteoffsCache = pendingWriteoffsCache.filter(item => item.id !== id);
+        renderPendingWriteoffs();
+        loadPendingWriteoffsCount();
+    } catch (e) {
+        alert('Сбой сети при отклонении');
+    }
+}
+
+function editPendingWriteoff(id) {
+    const item = pendingWriteoffsCache.find(x => x.id === id);
+    if (!item) return;
+    openEditWriteoffFromPending(item);
+}
+
+// ============================================================================
+// СЕРВИС-ДЕСК / ЗАЯВКИ В БУХГАЛТЕРИЮ
+// ============================================================================
+
+function checkAccountingTicketVisibility() {
+    const block = document.getElementById('block_accounting_ticket');
+    if (!block) return;
+    const myMembership = allMemberships.find(m => m.company_id == currentCompanyId);
+    if (myMembership && ['owner', 'admin', 'manager'].includes(myMembership.role)) {
+        block.style.display = 'block';
+    } else {
+        block.style.display = 'none';
+    }
+}
+
+async function openAccountingTicketDrawer() {
+    openDrawer('accounting_ticket');
+    loadAccountingTicketsHistory();
+    if (miniAppTicketsInterval) clearInterval(miniAppTicketsInterval);
+    miniAppTicketsInterval = setInterval(() => loadAccountingTicketsHistory(true), 10000);
+}
+
+async function loadAccountingTicketsHistory(isBackground = false) {
+    const listEl = document.getElementById('accounting_tickets_history');
+    if (!listEl) return;
+    if (!isBackground) {
+        listEl.innerHTML = '<div style="font-size:12px; color:var(--text-muted); text-align:center; padding:10px;">Загрузка истории...</div>';
+    }
+
+    try {
+        const res = await fetch(API + '/accounting/tickets', { headers: getHeaders() });
+        if (!res.ok) throw new Error("Ошибка загрузки");
+        const tickets = await res.json() || [];
+
+        if (tickets.length === 0) {
+            listEl.innerHTML = '<div style="font-size:12px; color:var(--text-muted); text-align:center; padding:15px;">У вас пока нет заявок</div>';
+            return;
+        }
+
+        const catMap = { 'ttk': 'ТТК / Меню', 'writeoff': 'Списание', 'invoice': 'Накладная', 'inventory': 'Инвентаризация', 'other': 'Общее' };
+        const statusMap = {
+            'new': { label: 'На рассмотрении', color: '#D97706', bg: 'rgba(217,119,6,0.1)' },
+            'in_progress': { label: 'В работе', color: '#2563EB', bg: 'rgba(37,99,235,0.1)' },
+            'resolved': { label: 'Выполнена', color: '#10B981', bg: 'rgba(16,185,129,0.1)' },
+            'rejected': { label: 'Отклонена', color: '#EF4444', bg: 'rgba(239,68,68,0.1)' }
+        };
+
+        listEl.innerHTML = tickets.map(t => {
+            const st = statusMap[t.status] || statusMap['new'];
+            let mediaHtml = '';
+            try {
+                const paths = typeof t.media_paths === 'string' ? JSON.parse(t.media_paths || '[]') : (t.media_paths || []);
+                if (Array.isArray(paths) && paths.length > 0) {
+                    const items = paths.map(p => {
+                        const isVideo = p.endsWith('.mp4') || p.endsWith('.mov');
+                        let normPath = p;
+                        if (normPath.startsWith('/uploads/')) {
+                            normPath = '/api' + normPath;
+                        } else if (!normPath.startsWith('/api/')) {
+                            normPath = '/api/uploads/tickets/' + normPath;
+                        }
+                        if (isVideo) {
+                            return `<video data-secure-src="${normPath}" controls style="max-height: 120px; max-width: 140px; border-radius: 8px; border: 1px solid var(--border); opacity: 0.5;"></video>`;
+                        } else {
+                            return `<a href="javascript:void(0)" target="_blank"><img data-secure-src="${normPath}" style="max-height: 100px; max-width: 120px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); opacity: 0.5;"></a>`;
+                        }
+                    }).join('');
+                    mediaHtml = `<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom: 8px;">${items}</div>`;
+                }
+            } catch(e) {}
+
+            return `
+                <div style="background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:14px; margin-bottom:10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <span style="font-size:11px; font-weight:800; color:var(--accent); text-transform:uppercase;">#${t.id} ${catMap[t.category] || t.category}</span>
+                        <span style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; background:${st.bg}; color:${st.color};">${st.label}</span>
+                    </div>
+                    <div style="font-size:13px; font-weight:600; line-height:1.4; margin-bottom:8px;">${escapeHtml(t.description)}</div>
+                    ${mediaHtml}
+                    ${t.accountant_comment ? `<div style="background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:10px; margin-top:8px; font-size:12px;"><div style="font-weight:700; color:var(--text-muted); margin-bottom:2px;">Ответ бухгалтера:</div><div style="color:var(--text); font-style:italic;">${escapeHtml(t.accountant_comment)}</div></div>` : ''}
+                    <div style="font-size:10px; color:var(--text-muted); margin-top:8px;">${new Date(t.created_at).toLocaleDateString('ru-RU')} • ${escapeHtml(t.user_name)}</div>
+                </div>`;
+        }).join('');
+
+        // Authenticated loading of ticket media blobs
+        listEl.querySelectorAll('[data-secure-src]').forEach(el => {
+            const src = el.getAttribute('data-secure-src');
+            if (!src) return;
+            el.removeAttribute('data-secure-src');
+            const token = userToken;
+            fetch(src, { headers: token ? { 'X-Telegram-ID': token } : {} })
+                .then(res => res.ok ? res.blob() : null)
+                .then(blob => {
+                    if (blob) {
+                        const blobUrl = URL.createObjectURL(blob);
+                        el.src = blobUrl;
+                        el.style.opacity = '1';
+                        const parentLink = el.closest('a');
+                        if (parentLink) parentLink.href = blobUrl;
+                    }
+                })
+                .catch(() => {});
+        });
+    } catch (e) {
+        if (!isBackground) {
+            listEl.innerHTML = '<div style="font-size:12px; color:#EF4444; text-align:center;">Сбой загрузки</div>';
+        }
+    }
+}
+
+async function submitAccountingTicket() {
+    const desc = document.getElementById('ticket_description').value.trim();
+    const category = document.getElementById('ticket_category').value;
+    const fileInput = document.getElementById('ticket_media');
+
+    if (!desc) {
+        return alert("Опишите суть вопроса!");
+    }
+
+    // Проверка суммарного размера файлов (до 50 МБ)
+    let totalSize = 0;
+    if (fileInput && fileInput.files.length > 0) {
+        for (let i = 0; i < fileInput.files.length; i++) {
+            totalSize += fileInput.files[i].size;
+        }
+        if (totalSize > 50 * 1024 * 1024) {
+            return alert("Суммарный объем файлов превышает 50 МБ. Пожалуйста, прикрепите файлы меньшего размера.");
+        }
+    }
+
+    const btn = document.getElementById('btn_submit_ticket');
+    btn.disabled = true;
+    btn.innerText = "Отправка...";
+
+    const formData = new FormData();
+    formData.append("category", category);
+    formData.append("description", desc);
+    if (fileInput && fileInput.files.length > 0) {
+        for (let i = 0; i < fileInput.files.length; i++) {
+            formData.append("media", fileInput.files[i]);
+        }
+    }
+
+    try {
+        const res = await fetch(API + '/accounting/tickets', {
+            method: 'POST',
+            // ВАЖНО: При FormData нельзя жестко задавать Content-Type (браузер сам ставит boundary)
+            headers: { 
+                'X-Telegram-ID': String(userToken), 
+                'X-Company-ID': String(currentCompanyId) 
+            },
+            body: formData
+        });
+
+        if (res.ok) {
+            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+            if (tg.showAlert) tg.showAlert("Заявка успешно направлена в бухгалтерию!"); else alert("Заявка отправлена!");
+            document.getElementById('ticket_description').value = '';
+            if (fileInput) fileInput.value = '';
+            loadAccountingTicketsHistory(true);
+        } else {
+            alert("Ошибка при создании заявки");
+        }
+    } catch (e) {
+        alert("Сбой сети");
+    } finally {
+        btn.disabled = false;
+        btn.innerText = "Отправить бухгалтеру";
+    }
+}
+
+window.openAccountingTicketDrawer = openAccountingTicketDrawer;
+window.submitAccountingTicket = submitAccountingTicket;
+window.loadAccountingTicketsHistory = loadAccountingTicketsHistory;
+window.loadActiveRequests = loadActiveRequests;
+window.loadActiveRequestsBackground = loadActiveRequestsBackground;
+
+// ============================================================================
+// OFFLINE SYNC MANAGER (Offline-First Mode)
+// ============================================================================
+
+let isSyncing = false;
+let offlinePollInterval = null;
+
+function startOfflinePolling() {
+    if (!offlinePollInterval) {
+        offlinePollInterval = setInterval(() => {
+            // Try to process queue every 5 seconds if we have internet and are not currently syncing
+            if (navigator.onLine && !isSyncing) {
+                processOfflineQueue();
+            }
+        }, 5000);
+    }
+}
+
+function stopOfflinePolling() {
+    if (offlinePollInterval) {
+        clearInterval(offlinePollInterval);
+        offlinePollInterval = null;
+    }
+}
+
+function showOfflineBanner(show, isSyncingState = false) {
+    let banner = document.getElementById('offline-banner');
+    if (!show) {
+        if (banner) banner.remove();
+        return;
+    }
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'offline-banner';
+        banner.style.position = 'fixed';
+        banner.style.top = '90px';
+        banner.style.left = '0';
+        banner.style.right = '0';
+        banner.style.zIndex = '2000';
+        banner.style.width = '100%';
+        banner.style.textAlign = 'center';
+        banner.style.padding = '8px';
+        banner.style.fontSize = '12px';
+        banner.style.fontWeight = 'bold';
+        banner.style.boxSizing = 'border-box';
+        banner.style.color = '#ffffff';
+        document.body.appendChild(banner);
+    }
+    if (isSyncingState) {
+        banner.style.backgroundColor = '#48BB78';
+        banner.textContent = '✅ Сеть восстановлена. Выгружаем данные...';
+    } else {
+        banner.style.backgroundColor = '#F56565';
+        banner.textContent = '⚠️ Нет сети. Данные сохраняются на устройстве.';
+    }
+}
+
+function addToOfflineQueue(url, method, payload) {
+    let queue = [];
+    try {
+        queue = JSON.parse(localStorage.getItem('qa2a_offline_queue') || '[]');
+    } catch (e) {
+        queue = [];
+    }
+
+    const companyId = currentCompanyId || localStorage.getItem('selected_company_id') || "";
+    const uniqueId = 'queue_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+    if (method === 'PUT') {
+        const existingIdx = queue.findIndex(item => item.url === url && item.method === 'PUT' && item.companyId === companyId);
+        if (existingIdx !== -1) {
+            queue[existingIdx].payload = payload;
+        } else {
+            queue.push({ id: uniqueId, url, method, payload, companyId });
+        }
+    } else {
+        queue.push({ id: uniqueId, url, method, payload, companyId });
+    }
+
+    localStorage.setItem('qa2a_offline_queue', JSON.stringify(queue));
+    showOfflineBanner(true);
+    startOfflinePolling(); // Start polling as soon as an item is queued
+}
+
+function removeExecutedOfflineQueueItem(executedId) {
+    try {
+        const freshQueue = JSON.parse(localStorage.getItem('qa2a_offline_queue') || '[]');
+        let updatedQueue;
+        if (executedId) {
+            updatedQueue = freshQueue.filter(it => it.id !== executedId);
+        } else {
+            updatedQueue = freshQueue.slice(1);
+        }
+        localStorage.setItem('qa2a_offline_queue', JSON.stringify(updatedQueue));
+        return updatedQueue;
+    } catch (e) {
+        return [];
+    }
+}
+
+async function processOfflineQueue() {
+    if (!navigator.onLine || isSyncing === true) {
+        // If app initialized offline but queue has items, ensure polling is running
+        let q = [];
+        try { q = JSON.parse(localStorage.getItem('qa2a_offline_queue') || '[]'); } catch (e) {}
+        if (q.length > 0) startOfflinePolling();
+        return;
+    }
+
+    let initialQueue = [];
+    try {
+        initialQueue = JSON.parse(localStorage.getItem('qa2a_offline_queue') || '[]');
+    } catch (e) {
+        initialQueue = [];
+    }
+
+    if (!initialQueue || initialQueue.length === 0) {
+        showOfflineBanner(false);
+        stopOfflinePolling(); // Safely stop polling when nothing is left
+        return;
+    }
+
+    isSyncing = true;
+    showOfflineBanner(true, true);
+    let drainedMatchingCurrent = false;
+
+    while (true) {
+        let currentQueue = [];
+        try {
+            currentQueue = JSON.parse(localStorage.getItem('qa2a_offline_queue') || '[]');
+        } catch (e) {
+            break;
+        }
+
+        if (currentQueue.length === 0) break;
+        const item = currentQueue[0];
+        const headers = getHeaders();
+        if (item.companyId) {
+            headers['X-Company-ID'] = String(item.companyId);
+        }
+
+        try {
+            const res = await fetch(API + item.url, {
+                method: item.method,
+                headers: headers,
+                body: item.payload ? JSON.stringify(item.payload) : null
+            });
+
+            if (res.ok) {
+                if (!item.companyId || String(item.companyId) === String(currentCompanyId || "")) {
+                    drainedMatchingCurrent = true;
+                }
+                removeExecutedOfflineQueueItem(item.id);
+            } else if ([400, 401, 403, 404, 422].includes(res.status)) {
+                removeExecutedOfflineQueueItem(item.id); // Drop strictly invalid client requests, keep 408/429 for retry
+            } else if (res.status >= 500) {
+                break; // Server error, try again later
+            }
+        } catch (err) {
+            break; // Network failed during sync, break the loop
+        }
+    }
+
+    isSyncing = false;
+
+    let finalQueue = [];
+    try {
+        finalQueue = JSON.parse(localStorage.getItem('qa2a_offline_queue') || '[]');
+    } catch (e) {
+        finalQueue = [];
+    }
+
+    if (finalQueue.length === 0) {
+        showOfflineBanner(false);
+        stopOfflinePolling(); // Queue is empty, stop the 5-sec polling
+        
+        // Refresh UI if necessary
+        if (drainedMatchingCurrent) {
+            const histDrawer = document.getElementById('drawer_history');
+            if (histDrawer && histDrawer.classList.contains('open')) {
+                loadHistory();
+            }
+            const invDrawer = document.getElementById('drawer_inventory_list');
+            if (invDrawer && invDrawer.classList.contains('open')) {
+                openInventoryList();
+            }
+            const actDrawer = document.getElementById('drawer_active_requests');
+            if (actDrawer && actDrawer.classList.contains('open')) {
+                loadActiveRequestsBackground();
+            }
+        }
+    } else {
+        showOfflineBanner(true, false);
+        startOfflinePolling(); // Keep polling because queue isn't empty yet
+    }
+}
+
+window.addEventListener('offline', () => showOfflineBanner(true));
+window.addEventListener('online', processOfflineQueue);
+
+window.showOfflineBanner = showOfflineBanner;
+window.addToOfflineQueue = addToOfflineQueue;
+window.processOfflineQueue = processOfflineQueue;
+window.startOfflinePolling = startOfflinePolling;
+window.stopOfflinePolling = stopOfflinePolling;
+
+window.openPendingWriteoffsDrawer = openPendingWriteoffsDrawer;
+window.approvePendingWriteoff = approvePendingWriteoff;
+window.rejectPendingWriteoff = rejectPendingWriteoff;
+window.editPendingWriteoff = editPendingWriteoff;
+window.debounceSaveShiftNote = debounceSaveShiftNote;
+window.closeEditWriteoffDrawer = closeEditWriteoffDrawer;
+window.openEditWriteoffFromPending = openEditWriteoffFromPending;
+window.checkPendingWriteoffsVisibility = checkPendingWriteoffsVisibility;
+window.loadPendingWriteoffsCount = loadPendingWriteoffsCount;
+window.loadActiveRequestsCount = loadActiveRequestsCount;
+window.startActiveRequestsPolling = startActiveRequestsPolling;
+

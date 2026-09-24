@@ -6,12 +6,13 @@ import (
 	"iiko_parser/crypto"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
 func authIiko(host, login, pass string) (string, error) {
 	passHash := crypto.HashPasswordSHA1(pass)
-	authURL := fmt.Sprintf("%s/resto/api/auth?login=%s&pass=%s", strings.TrimSuffix(host, "/"), login, passHash)
+	authURL := fmt.Sprintf("%s/resto/api/auth?login=%s&pass=%s", strings.TrimSuffix(host, "/"), url.QueryEscape(login), url.QueryEscape(passHash))
 
 	resp, err := iikoHTTPClient.Get(authURL)
 	if err != nil {

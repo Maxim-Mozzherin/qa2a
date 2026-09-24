@@ -1,11 +1,15 @@
 package service
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
-	"github.com/jmoiron/sqlx"
-	"qa2a/internal/repository"
 	"strings"
-	"time"
+
+	"qa2a/internal/repository"
+
+	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 )
 
 type MarketplaceService struct {
@@ -49,7 +53,7 @@ func (s *MarketplaceService) GetOffersForCompany(companyID int) ([]OfferResponse
 	}
 
 	var purchasedCategories []string
-	_ = db.Select(&purchasedCategories, "SELECT DISTINCT clean_category FROM purchase_history WHERE company_id = $1 AND clean_category != '", companyID)
+	_ = db.Select(&purchasedCategories, "SELECT DISTINCT clean_category FROM purchase_history WHERE company_id = $1 AND clean_category != ''", companyID)
 
 	var result []OfferResponse
 	for _, o := range activeOffers {
@@ -138,6 +142,9 @@ type CreateOfferReq struct {
 }
 
 func (s *MarketplaceService) SaveSupplierOffer(supplierID int, req CreateOfferReq) error {
+	if req.Keywords == "" {
+		req.Keywords = "[]"
+	}
 	db := s.repo.GetDb()
     if req.ID > 0 {
 		_, err := db.Exec(`
@@ -162,15 +169,26 @@ func (s *MarketplaceService) DeleteSupplierOffer(supplierID, offerID int) error 
 func (s *MarketplaceService) RegisterSupplier(tgID int64, username string) (int, error) {
 	db := s.repo.GetDb()
 	var supplierID int
-	err := db.Get(&supplierID, "SELECT id FROM marketplace_suppliers WHERE company_name = $1 LIMIT 1", username)
-	if err != nil {
-		// Generate an invite code
-		inviteCode := fmt.Sprintf("SUP-%d", time.Now().UnixNano()%1000000)
-		err = db.QueryRow("INSERT INTO marketplace_suppliers (company_name, invite_code) VALUES ($1, $2) RETURNING id", username, inviteCode).Scan(&supplierID)
-		if err != nil {
-			return 0, err
-		}
+
+	// Check if tgID is already registered in marketplace_supplier_users. If yes, return existing supplier_id.
+	err := db.Get(&supplierID, "SELECT supplier_id FROM marketplace_supplier_users WHERE tg_id = $1 LIMIT 1", tgID)
+	if err == nil && supplierID > 0 {
+		return supplierID, nil
 	}
+
+	// Generate cryptographically random invite code (SUP- + 6 hex chars)
+	randomBytes := make([]byte, 3)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return 0, fmt.Errorf("ошибка генерации случайного кода: %w", err)
+	}
+	inviteCode := fmt.Sprintf("SUP-%s", strings.ToUpper(hex.EncodeToString(randomBytes)))
+
+	// Always insert a new record in marketplace_suppliers (do not query by plain company_name)
+	err = db.QueryRow("INSERT INTO marketplace_suppliers (company_name, invite_code) VALUES ($1, $2) RETURNING id", username, inviteCode).Scan(&supplierID)
+	if err != nil {
+		return 0, err
+	}
+
 	_, err = db.Exec("INSERT INTO marketplace_supplier_users (supplier_id, tg_id, tg_username) VALUES ($1, $2, $3) ON CONFLICT (tg_id) DO UPDATE SET supplier_id = EXCLUDED.supplier_id, tg_username = EXCLUDED.tg_username", supplierID, tgID, username)
 	return supplierID, err
 }
@@ -179,11 +197,9 @@ func (s *MarketplaceService) RecordOfferViews(offerIDs []int) error {
 	if len(offerIDs) == 0 {
 		return nil
 	}
-	db := s.repo.GetDb()
-	for _, id := range offerIDs {
-		db.Exec("UPDATE marketplace_offers SET views_count = views_count + 1 WHERE id = $1", id)
-	}
-	return nil
+	query := `UPDATE marketplace_offers SET views_count = views_count + 1 WHERE id = ANY($1)`
+	_, err := s.repo.GetDb().Exec(query, pq.Array(offerIDs))
+	return err
 }
 
 func (s *MarketplaceService) RecordOfferClick(offerID int) error {

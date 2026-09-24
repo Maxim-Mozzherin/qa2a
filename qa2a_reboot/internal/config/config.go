@@ -17,12 +17,16 @@ type Config struct {
 
 	// Telegram Bot API
 	BotToken string
+	AdminTgID int64
 
 	// Ключ для внешних интеграций (межсервисный обмен с iiko_parser)
 	ExternalApiKey string
 
 	// Симметричный ключ AES-256 (32 байта) для шифрования паролей iiko RMS в БД
 	EncryptionKey string
+
+	// Токен суперадмина платформы
+	SuperadminToken string
 
 	// Параметры подключения к PostgreSQL
 	DBHost    string
@@ -46,10 +50,12 @@ func Load() (*Config, error) {
 	_ = godotenv.Load("/opt/qa2a-reboot/.env")
 
 	cfg := &Config{
-		Port:           getEnv("PORT", "8082"),
-		BotToken:       os.Getenv("BOT_TOKEN"),
-		ExternalApiKey: getEnv("EXTERNAL_API_KEY", "moztech-secret-token-8099"),
-		EncryptionKey:  getEnv("ENCRYPTION_KEY", "qa2a-reboot-default-aes-secret-key-32b"),
+		Port:            getEnv("PORT", "8082"),
+		BotToken:        os.Getenv("BOT_TOKEN"),
+		AdminTgID:       getEnvAsInt64("ADMIN_TG_ID", 386309614),
+		ExternalApiKey:  os.Getenv("EXTERNAL_API_KEY"),
+		EncryptionKey:   os.Getenv("ENCRYPTION_KEY"),
+		SuperadminToken: os.Getenv("SUPERADMIN_TOKEN"),
 
 		DBHost:    getEnv("DB_HOST", "localhost"),
 		DBPort:    getEnv("DB_PORT", "5433"), // Дефолтный порт PostgreSQL для QA2A
@@ -62,6 +68,19 @@ func Load() (*Config, error) {
 		DBMaxIdleConns:    getEnvAsInt("DB_MAX_IDLE_CONNS", 10),
 		DBConnMaxLifetime: getEnvAsDuration("DB_CONN_MAX_LIFETIME", 15*time.Minute),
 		DBConnMaxIdleTime: getEnvAsDuration("DB_CONN_MAX_IDLE_TIME", 5*time.Minute),
+	}
+
+	if len(cfg.EncryptionKey) < 32 {
+		return nil, fmt.Errorf("критический секрет ENCRYPTION_KEY должен быть задан в .env и содержать >= 32 символов (текущая длина: %d)", len(cfg.EncryptionKey))
+	}
+	if cfg.ExternalApiKey == "" {
+		return nil, fmt.Errorf("критический секрет EXTERNAL_API_KEY отсутствует в .env")
+	}
+	if cfg.DBPass == "" {
+		return nil, fmt.Errorf("критический секрет DB_PASS отсутствует в .env")
+	}
+	if cfg.BotToken == "" {
+		return nil, fmt.Errorf("критический секрет BOT_TOKEN отсутствует в .env")
 	}
 
 	return cfg, nil
@@ -110,6 +129,18 @@ func getEnvAsInt(key string, defaultVal int) int {
 		return defaultVal
 	}
 	val, err := strconv.Atoi(valStr)
+	if err != nil {
+		return defaultVal
+	}
+	return val
+}
+
+func getEnvAsInt64(key string, defaultVal int64) int64 {
+	valStr := os.Getenv(key)
+	if valStr == "" {
+		return defaultVal
+	}
+	val, err := strconv.ParseInt(valStr, 10, 64)
 	if err != nil {
 		return defaultVal
 	}

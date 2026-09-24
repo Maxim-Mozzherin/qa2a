@@ -15,9 +15,11 @@ type Mapping struct {
 
 type AiResponse struct {
 	VendorName         string   `json:"vendor_name"`
+	VendorINN          string   `json:"vendor_inn"`
 	DocNumber          string   `json:"doc_number"`
 	DocDate            string   `json:"doc_date"`
 	Consignee          string   `json:"consignee"`
+	ConsigneeINN       string   `json:"consignee_inn"`
 	Shipper            string   `json:"shipper"`
 	DocPrintedTotalSum float64  `json:"doc_printed_total_sum"`
 	Items              []AiItem `json:"items"`
@@ -36,8 +38,9 @@ type PromptPreset struct {
 }
 
 type AiItem struct {
-	Num           int     `json:"num"` // AI visual anchor
-	Name          string  `json:"name"`
+	OriginalPrefix string  `json:"original_prefix"` // Микро-якорь для защиты от галлюцинаций (первые 1-2 слова)
+	Num            int     `json:"num"` // AI visual anchor
+	Name           string  `json:"name"`
 	CleanCategory string  `json:"clean_category"` // Базовая категория (для рынка)
 	Brand         string  `json:"brand"`          // Производитель/Бренд (для рынка)
 	Quantity      float64 `json:"quantity"`

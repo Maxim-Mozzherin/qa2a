@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -184,3 +185,69 @@ func handleUpdateAccountingTicket(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
+
+func handleServeTicketMedia(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	user := GetAuthUser(r)
+	if user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	rawFilename := strings.TrimPrefix(r.URL.Path, "/api/uploads/tickets/")
+	filename := filepath.Base(rawFilename)
+	if filename == "" || filename != rawFilename || filename == "." || filename == ".." ||
+		strings.Contains(rawFilename, "/") || strings.Contains(rawFilename, "\\") {
+		http.Error(w, "Invalid filename", http.StatusBadRequest)
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(filename))
+	allowedExts := map[string]bool{
+		".jpg": true, ".jpeg": true, ".png": true, ".webp": true,
+		".mp4": true, ".mov": true,
+	}
+	if !allowedExts[ext] {
+		http.Error(w, "Forbidden file extension", http.StatusForbidden)
+		return
+	}
+
+	// Filename format: <companyID>_<timestamp>_<idx><ext>
+	parts := strings.SplitN(filename, "_", 2)
+	if len(parts) < 2 {
+		http.Error(w, "Invalid filename format", http.StatusBadRequest)
+		return
+	}
+	var companyID int
+	if _, err := fmt.Sscanf(parts[0], "%d", &companyID); err != nil || companyID <= 0 {
+		http.Error(w, "Invalid company ID in filename", http.StatusBadRequest)
+		return
+	}
+
+	if !checkAccountantAccessUser(user, companyID) {
+		http.Error(w, "Access denied to company ticket media", http.StatusForbidden)
+		return
+	}
+
+	baseDir := "/opt/qa2a-reboot/uploads/tickets"
+	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+		baseDir = "uploads/tickets"
+	}
+	fullPath := filepath.Join(baseDir, filename)
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeFile(w, r, fullPath)
+}
+

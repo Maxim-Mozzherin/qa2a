@@ -1,1 +1,2 @@
-PGPASSWORD="!123Maxim.!" psql -h localhost -p 5433 -U admin -d qa2a -c "SELECT id, company_id, name, is_default FROM parser_prompt_presets ORDER BY id;"
+#!/usr/bin/env bash
+psql -h "${DB_HOST:-localhost}" -p "${DB_PORT:-5433}" -U "${DB_USER:-admin}" -d "${DB_NAME:-qa2a}" -c "SELECT id, company_id, name, is_default FROM parser_prompt_presets ORDER BY id;"

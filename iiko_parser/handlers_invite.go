@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 func handleGenerateInvite(w http.ResponseWriter, r *http.Request) {
@@ -27,9 +28,10 @@ func handleGenerateInvite(w http.ResponseWriter, r *http.Request) {
 		AccountingFirmID *int   `json:"accounting_firm_id"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	if req.Name == "" {
+	if strings.TrimSpace(req.Name) == "" {
 		req.Name = "Новое заведение"
 	}
+	req.Name = strings.TrimSpace(req.Name)
 
 	var firmID *int = user.AccountingFirmID
 	if user.Role == "superadmin" || user.Role == "global_accountant" {
@@ -47,19 +49,28 @@ func handleGenerateInvite(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	b := make([]byte, 3)
-	rand.Read(b)
+	// 16 bytes = 128-bit cryptographic entropy
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		http.Error(w, "Ошибка генерации инвайт-кода", http.StatusInternalServerError)
+		return
+	}
 	inviteCode := strings.ToUpper(hex.EncodeToString(b))
+	expiresAt := time.Now().Add(7 * 24 * time.Hour)
 
-	// Insert shell company
-	_, err := db.Exec("INSERT INTO companies (name, invite_code, accounting_firm_id) VALUES ($1, $2, $3)", req.Name, inviteCode, firmID)
+	// Вставляем инвайт в таблицу company_invites для безопасной атомарной активации
+	_, err := db.Exec(`
+		INSERT INTO company_invites (code, name, accounting_firm_id, expires_at, is_used) 
+		VALUES ($1, $2, $3, $4, FALSE)
+	`, inviteCode, req.Name, firmID, expiresAt)
 	if err != nil {
-		http.Error(w, "Ошибка БД", http.StatusInternalServerError)
+		http.Error(w, "Ошибка БД: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"invite_code": inviteCode,
+		"expires_at":  expiresAt.Format(time.RFC3339),
 	})
 }

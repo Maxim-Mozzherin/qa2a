@@ -319,10 +319,10 @@ if (els.btnImport) {
 
         const payload = {
             company_id: parseInt(companyId),
-            token: currentToken,
             store_uuid: storeUuid,
             supplier_uuid: supplierUuid,
             vendor_name: currentDocData.vendor_name,
+            vendor_inn: currentDocData.vendor_inn || "",
             consignee: currentDocData.consignee,
             shipper: currentDocData.shipper,
             invoice_number: currentDocData.doc_number,
@@ -334,10 +334,11 @@ if (els.btnImport) {
         els.loaderImport.classList.remove('hidden');
 
         try {
-            const res = await fetch('api/import?token=' + getAuthToken(), {
+            const res = await fetch('api/import', {
                 method: 'POST',
                 headers: { 
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getAuthToken()
                 },
                 body: JSON.stringify(payload)
             });
@@ -450,10 +451,11 @@ if (btnSaveTemplate) {
         };
 
         try {
-            const res = await fetch('api/templates/save?token=' + getAuthToken(), {
+            const res = await fetch('api/templates/save', {
                 method: 'POST',
                 headers: { 
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getAuthToken()
                 },
                 body: JSON.stringify(payload)
             });
@@ -550,9 +552,12 @@ if (btnInviteCompany) {
         const cmpName = prompt("Введите название заведения для инвайта:", "Новое заведение");
         if (!cmpName) return;
         try {
-            const res = await fetch("api/invite/generate?token=" + getAuthToken(), { 
+            const res = await fetch("api/invite/generate", { 
                 method: "POST", 
-                headers: {"Content-Type": "application/json"}, 
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer " + getAuthToken()
+                }, 
                 body: JSON.stringify({name: cmpName}) 
             });
             if (!res.ok) throw new Error(await res.text());
@@ -582,7 +587,12 @@ if (btnInviteAccountant) {
     btnInviteAccountant.addEventListener("click", async () => {
         try {
             btnInviteAccountant.innerText = "⏳ Генерация...";
-            const res = await fetch("api/accountant-invite/generate?token=" + getAuthToken(), { method: "POST" });
+            const res = await fetch("api/accountant-invite/generate", { 
+                method: "POST",
+                headers: {
+                    "Authorization": "Bearer " + getAuthToken()
+                }
+            });
             if (!res.ok) throw new Error(await res.text());
             const data = await res.json();
             

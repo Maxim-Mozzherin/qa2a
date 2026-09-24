@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,7 +19,29 @@ import (
 	"qa2a/internal/middleware"
 	"qa2a/internal/repository"
 	"qa2a/internal/service"
+	"qa2a/internal/bot"
 )
+
+type neuteredFileSystem struct {
+	fs http.FileSystem
+}
+
+func (nfs neuteredFileSystem) Open(path string) (http.File, error) {
+	f, err := nfs.fs.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	s, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if s.IsDir() {
+		f.Close()
+		return nil, os.ErrPermission
+	}
+	return f, nil
+}
 
 func main() {
 	// 1. Устанавливаем пути поиска шрифтов для PDF-генератора
@@ -50,23 +73,61 @@ func main() {
 	iikoSvc := service.NewIikoService(repo, cfg.EncryptionKey)
 	invSvc := service.NewInventoryService(repo, iikoSvc)
 	mktSvc := service.NewMarketplaceService(repo)
-	accSvc := service.NewAccountantService(repo)
 
-	h := handlers.New(authSvc, invSvc, repSvc, iikoSvc, mktSvc, accSvc, cfg.BotToken)
+	h := handlers.New(authSvc, invSvc, repSvc, iikoSvc, mktSvc, cfg.BotToken, cfg.AdminTgID, cfg.ExternalApiKey)
+
+	// Admin Telegram Bot
+	tgBot := bot.New(cfg.BotToken, cfg.AdminTgID, repo)
+	tgBot.Start()
 
 	// 4. Запуск фонового регламентного планировщика (выгрузка в iiko в 06:30 МСК)
 	scheduler := service.NewScheduler(repo, iikoSvc)
+	scheduler.OnExportComplete = func() {
+		tgBot.SendFullBackup()
+	}
 	scheduler.Start()
 
 	// 5. Маршрутизация HTTP
 	r := mux.NewRouter()
 
-	// Глобальное логирование входящих запросов и базовые CORS заголовки
+	allowedOrigins := []string{
+		"https://web.telegram.org",
+		"https://webk.telegram.org",
+		"https://webz.telegram.org",
+	}
+	if envOrigins := os.Getenv("ALLOWED_ORIGINS"); envOrigins != "" {
+		for _, o := range strings.Split(envOrigins, ",") {
+			if trimmed := strings.TrimSpace(o); trimmed != "" {
+				allowedOrigins = append(allowedOrigins, trimmed)
+			}
+		}
+	}
+
+	// Глобальное логирование входящих запросов и строгие CORS заголовки
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+			origin := req.Header.Get("Origin")
+			if origin != "" {
+				isAllowed := false
+				for _, o := range allowedOrigins {
+					if o == "*" || strings.EqualFold(o, origin) {
+						isAllowed = true
+						break
+					}
+					if strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:") {
+						isAllowed = true
+						break
+					}
+				}
+				if isAllowed {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Access-Control-Allow-Credentials", "true")
+					w.Header().Set("Vary", "Origin")
+				}
+			}
+
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Telegram-ID, X-Company-ID")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Telegram-ID, X-Company-ID, X-Firm-Token")
 
 			if req.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusOK)
@@ -87,6 +148,8 @@ func main() {
 	staticDir := http.Dir("web/static")
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(staticDir)))
 
+	_ = os.MkdirAll("uploads/tickets", 0750)
+
 	api := r.PathPrefix("/api").Subrouter()
 
 	// ==========================================
@@ -103,7 +166,7 @@ func main() {
 	// ==========================================
 	
 	supplierApi := api.PathPrefix("/supplier").Subrouter()
-	supplierApi.Use(middleware.SupplierAuthMiddleware(cfg.BotToken, func(tgID int64) int {
+	supplierApi.Use(middleware.SupplierAuthMiddleware(repo, cfg.BotToken, func(tgID int64) int {
 		id, _ := mktSvc.GetSupplierIDByTgID(tgID)
 		return id
 	}))
@@ -112,15 +175,7 @@ func main() {
 	supplierApi.HandleFunc("/offers", h.DeleteSupplierOfferHandler).Methods("DELETE", "OPTIONS")
 	api.HandleFunc("/supplier/register", h.RegisterSupplierHandler).Methods("POST", "OPTIONS")
 	api.HandleFunc("/supplier/join", h.JoinSupplierHandler).Methods("POST", "OPTIONS")
-	api.HandleFunc("/accountant/join", h.JoinAccountantHandler).Methods("POST", "OPTIONS")
 	api.HandleFunc("/supplier/me", h.GetSupplierMeHandler).Methods("GET", "OPTIONS")
-
-		accApi := api.PathPrefix("/accountant").Subrouter()
-	accApi.Use(middleware.AccountantAuthMiddleware(cfg.BotToken, func(tgID int64) int {
-		id, _ := accSvc.GetFirmIDByTgID(tgID)
-		return id
-	}))
-	accApi.HandleFunc("/companies", h.GetAccountantCompaniesHandler).Methods("GET", "OPTIONS")
 
 	protected := api.PathPrefix("/").Subrouter()
 	// Передаем токен бота для верификации HMAC-SHA256 подписей
@@ -134,6 +189,9 @@ func main() {
 	protected.HandleFunc("/members", h.GetMembersHandler).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/members", h.UpdateMemberRoleHandler).Methods("PUT", "OPTIONS")
 	protected.HandleFunc("/members/{id:[0-9]+}", h.RemoveMemberHandler).Methods("DELETE", "OPTIONS")
+	protected.HandleFunc("/join-requests", h.GetJoinRequestsHandler).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/join-requests/{id:[0-9]+}/approve", h.ApproveJoinRequestHandler).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/join-requests/{id:[0-9]+}/reject", h.RejectJoinRequestHandler).Methods("POST", "OPTIONS")
 
 	// Склады и номенклатура
 	protected.HandleFunc("/locations", h.GetLocationsHandler).Methods("GET", "OPTIONS")
@@ -147,6 +205,11 @@ func main() {
 	protected.HandleFunc("/balances", h.GetBalancesHandler).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/operations", h.GetOperationsHandler).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/operations", h.CreateOperationHandler).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/operations/pending", h.GetPendingWriteoffsHandler).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/operations/pending-count", h.GetPendingWriteoffsCountHandler).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/operations/shift-note", h.SaveShiftNoteHandler).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/operations/{id:[0-9]+}/approve", h.ApproveWriteoffHandler).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/operations/{id:[0-9]+}/reject", h.RejectWriteoffHandler).Methods("POST", "OPTIONS")
 	protected.HandleFunc("/operations/{id:[0-9]+}", h.UpdateOperationHandler).Methods("PUT", "OPTIONS")
 
 	// Заявки на закупку (Procurements)
@@ -154,7 +217,6 @@ func main() {
 	protected.HandleFunc("/procurements", h.CreateProcurementHandler).Methods("POST", "OPTIONS")
 	protected.HandleFunc("/procurements/status", h.UpdateProcurementStatusHandler).Methods("PUT", "OPTIONS")
 	protected.HandleFunc("/procurements/{id:[0-9]+}/suppliers", h.GetProcurementSuppliersHandler).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/procurements/download/{id:[0-9]+}", h.DownloadProcurementPDFHandler).Methods("GET", "OPTIONS")
 
 	// Инвентаризация и бланки
 	protected.HandleFunc("/inventories", h.GetInventoriesHandler).Methods("GET", "OPTIONS")
@@ -184,6 +246,11 @@ func main() {
 	protected.HandleFunc("/accounts", h.CreateAccountHandler).Methods("POST", "OPTIONS")
 	protected.HandleFunc("/accounts/{id:[0-9]+}", h.DeleteAccountHandler).Methods("DELETE", "OPTIONS")
 
+	// Заявки в бухгалтерию (Service Desk)
+	protected.HandleFunc("/accounting/tickets", h.GetAccountingTicketsHandler).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/accounting/tickets", h.CreateAccountingTicketHandler).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/uploads/tickets/{filename}", h.ServeTicketMediaHandler).Methods("GET", "OPTIONS")
+
 	// 6. Конфигурация HTTP-сервера с таймаутами
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -199,6 +266,10 @@ func main() {
 		fmt.Println("==========================================================")
 		fmt.Printf("🚀 Сервер QA2A успешно запущен на порту :%s\n", cfg.Port)
 		fmt.Println("==========================================================")
+		
+		// Отправляем уведомление в Telegram админу
+		tgBot.SendText(fmt.Sprintf("✅ Сервер QA2A (порт :%s) успешно запущен и готов к работе!", cfg.Port))
+		
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("❌ Ошибка работы веб-сервера: %v", err)
 		}

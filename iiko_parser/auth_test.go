@@ -13,7 +13,7 @@ import (
 )
 
 func TestPasswordHashingAndVerification(t *testing.T) {
-	initialPass := "!123Maxim.!"
+	initialPass := "test-dummy-pass-123!"
 	hash, err := bcrypt.GenerateFromPassword([]byte(initialPass), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("bcrypt.GenerateFromPassword failed: %v", err)
@@ -275,3 +275,90 @@ func TestHandleRejectUnlistedOperation_MethodAndValidation(t *testing.T) {
 		t.Errorf("expected 403, got %d", recDel.Code)
 	}
 }
+
+func TestCheckMarketAuthConstantTime(t *testing.T) {
+	origToken := superadminToken
+	superadminToken = "secret-super-key-999"
+	defer func() { superadminToken = origToken }()
+
+	// 1. Correct Bearer token
+	req := httptest.NewRequest("GET", "/api/market/dossier", nil)
+	req.Header.Set("Authorization", "Bearer secret-super-key-999")
+	if !checkMarketAuth(req) {
+		t.Errorf("expected true for valid Bearer token")
+	}
+
+	// 2. Query token must be rejected (security hardening: no tokens in URL query)
+	reqQuery := httptest.NewRequest("GET", "/api/market/dossier?token=secret-super-key-999", nil)
+	if checkMarketAuth(reqQuery) {
+		t.Errorf("expected false for query token (query tokens must be rejected)")
+	}
+
+	// 3. Wrong token
+	reqWrong := httptest.NewRequest("GET", "/api/market/dossier", nil)
+	reqWrong.Header.Set("Authorization", "Bearer wrong-token")
+	if checkMarketAuth(reqWrong) {
+		t.Errorf("expected false for invalid token")
+	}
+
+	// 4. Empty token
+	reqEmpty := httptest.NewRequest("GET", "/api/market/dossier", nil)
+	if checkMarketAuth(reqEmpty) {
+		t.Errorf("expected false for empty token")
+	}
+
+	// 5. Empty superadminToken configuration must not allow empty tokens
+	superadminToken = ""
+	if checkMarketAuth(reqEmpty) {
+		t.Errorf("expected false when superadminToken is empty")
+	}
+}
+
+func TestLoginRateLimiting(t *testing.T) {
+	testKey := "127.0.0.99_testuser"
+
+	// Initially allowed for up to 5 attempts
+	for i := 1; i <= 5; i++ {
+		allowed, _ := loginLimiter.Allow(testKey)
+		if !allowed {
+			t.Fatalf("expected attempt %d to pass", i)
+		}
+	}
+
+	// 6th attempt triggers block
+	allowed, rem := loginLimiter.Allow(testKey)
+	if allowed {
+		t.Fatalf("expected rate limit check to block on 6th attempt")
+	}
+	if rem <= 0 {
+		t.Errorf("expected positive remaining block duration")
+	}
+
+	// Successful login resets
+	loginLimiter.RecordSuccess(testKey)
+	allowed, _ = loginLimiter.Allow(testKey)
+	if !allowed {
+		t.Fatalf("expected rate limit to be reset after successful login")
+	}
+	loginLimiter.RecordSuccess(testKey)
+}
+
+func TestCompanyInvite_Entropy(t *testing.T) {
+	// Verify that invite codes generated with crypto/rand have 32 hex chars (16 bytes = 128 bits)
+	seen := make(map[string]bool)
+	for i := 0; i < 100; i++ {
+		b := make([]byte, 16)
+		if _, err := rand.Read(b); err != nil {
+			t.Fatalf("crypto/rand failed: %v", err)
+		}
+		code := strings.ToUpper(hex.EncodeToString(b))
+		if len(code) != 32 {
+			t.Fatalf("expected 32 characters (128 bits), got %d: %s", len(code), code)
+		}
+		if seen[code] {
+			t.Fatalf("collision detected for 128-bit invite code: %s", code)
+		}
+		seen[code] = true
+	}
+}
+

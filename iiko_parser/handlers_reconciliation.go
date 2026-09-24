@@ -83,7 +83,7 @@ func handleParseReconciliation(w http.ResponseWriter, r *http.Request) {
 	ctxCmd, cancelCmd := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancelCmd()
 
-	for i, header := range files {
+	for _, header := range files {
 		err := func() error {
 			file, err := header.Open()
 			if err != nil {
@@ -101,33 +101,44 @@ func handleParseReconciliation(w http.ResponseWriter, r *http.Request) {
 			if cleanFileName == "" {
 				cleanFileName = "act.pdf"
 			}
-			tempBase := fmt.Sprintf("rec_%d_%d_%d_%s", companyID, time.Now().UnixNano(), i, cleanFileName)
-			filePath := filepath.Join("temp", tempBase)
+			// Create isolated temporary directory for this upload
+			tmpDir, err := os.MkdirTemp("", "pdf_rec_*")
+			if err != nil {
+				return fmt.Errorf("ошибка создания временной директории: %w", err)
+			}
+			defer os.RemoveAll(tmpDir)
+
+			filePath := filepath.Join(tmpDir, cleanFileName)
 
 			out, err := os.Create(filePath)
 			if err != nil {
 				return err
 			}
-			defer out.Close()
-			defer os.Remove(filePath)
 
 			if _, err = io.Copy(out, file); err != nil {
+				out.Close()
 				return err
 			}
 			_ = out.Close()
 
 			ext := strings.ToLower(filepath.Ext(cleanFileName))
+			allowedExts := map[string]bool{
+				".pdf": true, ".png": true, ".jpg": true, ".jpeg": true,
+				".webp": true, ".txt": true, ".csv": true, ".xlsx": true, ".xls": true,
+			}
+			if !allowedExts[ext] {
+				return fmt.Errorf("недопустимый тип файла акта сверки %s", ext)
+			}
 
 			if ext == ".pdf" {
-				txtPath := filePath + ".txt"
-				defer os.Remove(txtPath)
+				txtPath := filepath.Join(tmpDir, "extracted.txt")
 				cmdTxt := exec.CommandContext(ctxCmd, "pdftotext", "-layout", filePath, txtPath)
 				_ = cmdTxt.Run()
 				tb, _ := os.ReadFile(txtPath)
 				textBytes = append(textBytes, tb...)
 				textBytes = append(textBytes, []byte("\n\n")...)
 
-				imgPrefix := filePath + "_img"
+				imgPrefix := filepath.Join(tmpDir, "img")
 				cmdImg := exec.CommandContext(ctxCmd, "pdftoppm", "-jpeg", "-f", "1", "-l", "10", filePath, imgPrefix)
 				if err := cmdImg.Run(); err != nil {
 					log.Printf("pdftoppm error: %v", err)
@@ -153,7 +164,6 @@ func handleParseReconciliation(w http.ResponseWriter, r *http.Request) {
 					if err == nil {
 						imagesBase64 = append(imagesBase64, base64.StdEncoding.EncodeToString(imgBytes))
 					}
-					os.Remove(m)
 				}
 			} else if ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp" {
 				imgBytes, err := os.ReadFile(filePath)

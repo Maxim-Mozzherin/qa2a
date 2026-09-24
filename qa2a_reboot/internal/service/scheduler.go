@@ -1,7 +1,10 @@
 package service
 
 import (
+	"encoding/json"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,12 +15,13 @@ import (
 // Scheduler управляет регулярным выполнением фоновых регламентных процедур:
 // ежедневная ночная выгрузка списаний и перемещений в iiko RMS, ротация архива заявок.
 type Scheduler struct {
-	repo        *repository.Repository
-	iikoSvc     *IikoService
-	isRunning   atomic.Bool
-	isExporting sync.Mutex
-	quitChan    chan struct{}
-	wg          sync.WaitGroup
+	repo             *repository.Repository
+	iikoSvc          *IikoService
+	isRunning        atomic.Bool
+	isExporting      sync.Mutex
+	quitChan         chan struct{}
+	wg               sync.WaitGroup
+	OnExportComplete func() // Callback for automated backup
 }
 
 // NewScheduler создает новый экземпляр планировщика фоновых задач.
@@ -35,7 +39,8 @@ func (s *Scheduler) Start() {
 		log.Println("[scheduler] ⚠️ Планировщик уже запущен")
 		return
 	}
-
+	// Fix: Re-initialize the channel safely before starting the loop
+	s.quitChan = make(chan struct{})
 	s.wg.Add(1)
 	go s.scheduleLoop()
 }
@@ -49,21 +54,21 @@ func (s *Scheduler) Stop() {
 	}
 }
 
-// scheduleLoop организует цикл ожидания до следующего запуска в 06:30 (МСК).
+// scheduleLoop организует цикл ожидания до следующего запуска в 06:30 (YEKT / UTC+5).
 func (s *Scheduler) scheduleLoop() {
 	defer s.wg.Done()
 
-	// Загружаем Московскую таймзону (UTC+3)
-	loc, err := time.LoadLocation("Europe/Moscow")
+	// Загружаем таймзону Екатеринбурга (Asia/Yekaterinburg / UTC+5)
+	loc, err := time.LoadLocation("Asia/Yekaterinburg")
 	if err != nil {
-		log.Printf("[scheduler] ⚠️ Ошибка загрузки tz 'Europe/Moscow': %v. Используем фиксированное смещение +03:00", err)
-		loc = time.FixedZone("MSK", 3*60*60)
+		log.Printf("[scheduler] ⚠️ Ошибка загрузки tz 'Asia/Yekaterinburg': %v. Используем фиксированное смещение +05:00", err)
+		loc = time.FixedZone("YEKT", 5*60*60)
 	}
 
 	for {
 		now := time.Now().In(loc)
 
-		// Расчет следующего окна запуска: сегодня 06:30:00
+		// Расчет следующего окна запуска: сегодня 06:30:00 YEKT
 		nextRun := time.Date(now.Year(), now.Month(), now.Day(), 6, 30, 0, 0, loc)
 		if now.After(nextRun) {
 			nextRun = nextRun.Add(24 * time.Hour)
@@ -71,7 +76,7 @@ func (s *Scheduler) scheduleLoop() {
 
 		duration := time.Until(nextRun)
 		log.Printf("[scheduler] ⏳ Следующая регламентная выгрузка в iiko запланирована на %s (через %v)",
-			nextRun.Format("2006-01-02 15:04:05 MSK"), duration.Round(time.Minute))
+			nextRun.Format("2006-01-02 15:04:05 YEKT"), duration.Round(time.Minute))
 
 		timer := time.NewTimer(duration)
 
@@ -87,6 +92,9 @@ func (s *Scheduler) scheduleLoop() {
 
 		case <-timer.C:
 			s.executeSafeDailyExport()
+			if s.OnExportComplete != nil {
+				go s.OnExportComplete()
+			}
 		}
 	}
 }
@@ -121,6 +129,36 @@ func (s *Scheduler) RunDailyExport() {
 		log.Println("[scheduler] ✅ Архив заявок очищен от записей старше 30 дней")
 	}
 
+	// Очистка медиафайлов заявок старше 14 дней
+	func() {
+		var oldTickets []struct {
+			ID         int    `db:"id"`
+			MediaPaths string `db:"media_paths"`
+		}
+		query := `SELECT id, media_paths FROM accounting_tickets WHERE media_paths != '[]' AND created_at < NOW() - INTERVAL '14 days'`
+		if err := s.repo.GetDb().Select(&oldTickets, query); err == nil && len(oldTickets) > 0 {
+			deletedCount := 0
+			failedCount := 0
+			for _, t := range oldTickets {
+				var paths []string
+				if err := json.Unmarshal([]byte(t.MediaPaths), &paths); err == nil {
+					for _, p := range paths {
+						cleanName := filepath.Base(p)
+						if cleanName != "" && cleanName != "." && cleanName != ".." {
+							if err := os.Remove(filepath.Join("uploads", "tickets", cleanName)); err == nil {
+								deletedCount++
+							} else {
+								failedCount++
+							}
+						}
+					}
+				}
+				_, _ = s.repo.GetDb().Exec("UPDATE accounting_tickets SET media_paths = '[]' WHERE id = $1", t.ID)
+			}
+			log.Printf("[scheduler] ✅ Удалено медиа из старых заявок (%d заявок): удалено файлов: %d, ошибок удаления: %d", len(oldTickets), deletedCount, failedCount)
+		}
+	}()
+
 	// 2. Получение списка активных компаний с настроенным iiko API
 	companyIDs, err := s.repo.GetAllActiveCompanyIDs()
 	if err != nil {
@@ -149,7 +187,7 @@ func (s *Scheduler) RunDailyExport() {
 		default:
 		}
 
-		if err := s.iikoSvc.ExportDailyOperations(cid); err != nil {
+		if err := s.iikoSvc.ExportDailyOperations(cid, true); err != nil {
 			log.Printf("[scheduler] ⚠️ Сбой выгрузки для заведения #%d: %v", cid, err)
 			failedCount++
 		} else {

@@ -15,13 +15,9 @@ func (h *Handler) GetMarketplaceOffersHandler(w http.ResponseWriter, req *http.R
 		return
 	}
 
-	cIDStr := req.Header.Get("X-Company-ID")
-	if cIDStr == "" {
-		cIDStr = req.URL.Query().Get("c_id")
-	}
-	companyID, _ := strconv.Atoi(cIDStr)
+	companyID := h.getCompanyID(req)
 	if companyID == 0 {
-		http.Error(w, `{"error": "Missing company_id"}`, http.StatusBadRequest)
+		http.Error(w, `{"error": "Доступ к заведению запрещен или отсутствует"}`, http.StatusForbidden)
 		return
 	}
 
@@ -45,6 +41,9 @@ func (h *Handler) RecordOfferViewsHandler(w http.ResponseWriter, req *http.Reque
 	if err := json.NewDecoder(req.Body).Decode(&ids); err != nil {
 		http.Error(w, "Invalid body", http.StatusBadRequest)
 		return
+	}
+	if len(ids) > 100 {
+		ids = ids[:100]
 	}
 	h.marketplaceService.RecordOfferViews(ids)
 	w.WriteHeader(http.StatusOK)

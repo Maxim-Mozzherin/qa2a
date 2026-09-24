@@ -18,7 +18,10 @@ function startGlobalBadgePolling() {
 
 async function pollGlobalBadge() {
     try {
-        const res = await fetch(`api/accounting/tickets?company_id=0&token=` + getAuthToken());
+        const token = getAuthToken();
+        const res = await fetch(`api/accounting/tickets?company_id=0`, {
+            headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+        });
         if (!res.ok) return;
         const tickets = await res.json() || [];
         const newCount = tickets.filter(t => t.status === 'new').length;
@@ -50,7 +53,10 @@ async function loadGlobalInbox() {
     if (!container) return;
     container.innerHTML = '<div class="p-8 text-center text-slate-500 text-xs animate-pulse">Загрузка глобальных входящих заявок...</div>';
     try {
-        const res = await fetch(`api/accounting/tickets?company_id=0&token=` + getAuthToken());
+        const token = getAuthToken();
+        const res = await fetch(`api/accounting/tickets?company_id=0`, {
+            headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+        });
         if (!res.ok) throw new Error(await res.text());
         const tickets = await res.json() || [];
         const activeTickets = tickets.filter(t => t.status === 'new' || t.status === 'in_progress');
@@ -73,6 +79,7 @@ async function loadGlobalInbox() {
         }
 
         container.innerHTML = `<div class="space-y-4">${activeTickets.map(t => renderTicketCard(t)).join('')}</div>`;
+        loadSecureTicketMedia(container);
     } catch (err) {
         container.innerHTML = `<div class="p-6 text-center text-rose-500 text-xs font-semibold">❌ Ошибка загрузки входящих заявок: ${err.message}</div>`;
     }
@@ -93,7 +100,10 @@ async function loadAdminTickets(isBackground = false) {
         container.innerHTML = '<div class="p-8 text-center text-slate-500 text-xs animate-pulse">Загрузка истории заявок...</div>';
     }
     try {
-        const res = await fetch(`api/accounting/tickets?company_id=${companyId}&token=` + getAuthToken());
+        const token = getAuthToken();
+        const res = await fetch(`api/accounting/tickets?company_id=${companyId}`, {
+            headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+        });
         if (!res.ok) throw new Error(await res.text());
         adminTicketsCache = await res.json() || [];
         filterAdminTickets();
@@ -117,6 +127,28 @@ function stopTicketsPolling() {
     }
 }
 
+function loadSecureTicketMedia(container) {
+    if (!container) return;
+    const token = getAuthToken();
+    container.querySelectorAll('[data-ticket-media]').forEach(el => {
+        const src = el.getAttribute('data-ticket-media');
+        if (!src) return;
+        el.removeAttribute('data-ticket-media');
+        fetch(src, { headers: token ? { 'Authorization': 'Bearer ' + token } : {} })
+            .then(res => res.ok ? res.blob() : null)
+            .then(blob => {
+                if (blob) {
+                    const blobUrl = URL.createObjectURL(blob);
+                    el.src = blobUrl;
+                    el.style.opacity = '1';
+                    const parentLink = el.closest('a');
+                    if (parentLink) parentLink.href = blobUrl;
+                }
+            })
+            .catch(() => {});
+    });
+}
+
 function renderTicketCard(t) {
     const formattedId = String(t.id).padStart(5, '0');
 
@@ -126,10 +158,16 @@ function renderTicketCard(t) {
         if (Array.isArray(paths) && paths.length > 0) {
             const items = paths.map(p => {
                 const isVideo = p.endsWith('.mp4') || p.endsWith('.mov');
+                let normPath = p;
+                if (normPath.startsWith('/uploads/')) {
+                    normPath = '/api' + normPath;
+                } else if (!normPath.startsWith('/api/')) {
+                    normPath = '/api/uploads/tickets/' + normPath;
+                }
                 if (isVideo) {
-                    return `<video src="${p}" controls class="h-28 w-auto max-w-[200px] object-cover rounded-lg border border-slate-700 bg-black"></video>`;
+                    return `<video data-ticket-media="${normPath}" controls class="h-28 w-auto max-w-[200px] object-cover rounded-lg border border-slate-700 bg-black opacity-50"></video>`;
                 } else {
-                    return `<a href="${p}" target="_blank"><img src="${p}" class="h-24 w-auto object-cover rounded-lg border border-slate-700 hover:opacity-80 transition-opacity"></a>`;
+                    return `<a href="javascript:void(0)" target="_blank"><img data-ticket-media="${normPath}" class="h-24 w-auto object-cover rounded-lg border border-slate-700 hover:opacity-80 transition-opacity opacity-50"></a>`;
                 }
             }).join('');
             mediaHtml = `<div class="mt-3 flex flex-wrap gap-2">${items}</div>`;
@@ -217,6 +255,7 @@ function filterAdminTickets() {
     }
 
     container.innerHTML = filtered.map(t => renderTicketCard(t)).join('');
+    loadSecureTicketMedia(container);
 }
 
 async function saveTicketResolution(ticketId) {
@@ -226,9 +265,13 @@ async function saveTicketResolution(ticketId) {
     const status = statusEl.value;
     const comment = commentEl ? commentEl.value : "";
     try {
-        const res = await fetch('api/accounting/tickets/resolve?token=' + getAuthToken(), {
+        const token = getAuthToken();
+        const res = await fetch('api/accounting/tickets/resolve', {
             method: 'POST', 
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
+            },
             body: JSON.stringify({ ticket_id: ticketId, status, comment })
         });
         if (!res.ok) throw new Error(await res.text());

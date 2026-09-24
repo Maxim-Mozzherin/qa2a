@@ -72,7 +72,7 @@ func parseWithClaude(text string, imagesBase64 []string, customPrompt string) (*
 			continue
 		}
 
-		respBody, err = io.ReadAll(resp.Body)
+		respBody, err = io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 		resp.Body.Close()
 
 		if err != nil {

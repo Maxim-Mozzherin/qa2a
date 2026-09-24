@@ -8,12 +8,15 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"qa2a/internal/crypto"
 	"qa2a/internal/models"
 	"qa2a/internal/repository"
+	"qa2a/pkg/netutil"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -24,6 +27,7 @@ type IikoService struct {
 	repo          *repository.Repository
 	encryptionKey string
 	httpClient    *http.Client
+	exportMutexes sync.Map
 }
 
 // NewIikoService создает экземпляр сервиса iiko с настроенным HTTP-клиентом.
@@ -32,12 +36,8 @@ func NewIikoService(repo *repository.Repository, encryptionKey string) *IikoServ
 		repo:          repo,
 		encryptionKey: encryptionKey,
 		httpClient: &http.Client{
-			Timeout: 45 * time.Second,
-			Transport: &http.Transport{
-				MaxIdleConns:        50,
-				MaxIdleConnsPerHost: 10,
-				IdleConnTimeout:     90 * time.Second,
-			},
+			Timeout:   45 * time.Second,
+			Transport: netutil.NewSafeHTTPTransport(15 * time.Second),
 		},
 	}
 }
@@ -153,6 +153,87 @@ func (s *IikoService) buildIikoComment(opIDs []string, defaultPrefix, opDate str
 	return finalComment
 }
 
+// buildWriteoffComment формирует комментарий для документа списания в iiko
+// по регламенту:
+// 1. Все подтверждены: "QA2A [Утв: {ChefName} (@{Username})]: {OptionalNote}"
+// 2. Все не подтверждены: "QA2A [⚠️ БЕЗ УТВЕРЖДЕНИЯ ШЕФА]" или "QA2A [⚠️ БЕЗ УТВЕРЖДЕНИЯ ШЕФА]: {OptionalNote}"
+// 3. Частично подтверждены: "QA2A [Частично без утв. / Утв: {ChefName}]: {OptionalNote}"
+// Ограничение: не более 255 рун.
+func (s *IikoService) buildWriteoffComment(companyID int, accountID, businessDate string, opIDs []string) string {
+	details, err := s.repo.GetWriteoffExportDetails(companyID, opIDs)
+	if err != nil {
+		log.Printf("[iiko-export] ⚠️ Ошибка выборки деталей согласования списаний: %v", err)
+	}
+
+	hasApproved := false
+	hasPending := false
+	var chefName string
+
+	for _, d := range details {
+		if d.Status == "approved" {
+			hasApproved = true
+			if chefName == "" {
+				name := ""
+				if d.ChefFullName != nil && *d.ChefFullName != "" {
+					name = *d.ChefFullName
+				}
+				uname := ""
+				if d.ChefUsername != nil && *d.ChefUsername != "" {
+					uname = "@" + *d.ChefUsername
+				}
+				if name != "" && uname != "" {
+					chefName = fmt.Sprintf("%s (%s)", name, uname)
+				} else if name != "" {
+					chefName = name
+				} else if uname != "" {
+					chefName = uname
+				} else {
+					chefName = "Шеф"
+				}
+			}
+		} else {
+			hasPending = true
+		}
+	}
+
+	if chefName == "" {
+		chefName = "Шеф"
+	}
+
+	var optionalNote string
+	shiftNote, err := s.repo.GetShiftNote(companyID, accountID, businessDate)
+	if err == nil && shiftNote != nil {
+		optionalNote = strings.TrimSpace(shiftNote.Note)
+	}
+
+	var comment string
+	if hasApproved && !hasPending {
+		if optionalNote != "" {
+			comment = fmt.Sprintf("QA2A [Утв: %s]: %s", chefName, optionalNote)
+		} else {
+			comment = fmt.Sprintf("QA2A [Утв: %s]", chefName)
+		}
+	} else if !hasApproved {
+		if optionalNote != "" {
+			comment = fmt.Sprintf("QA2A [⚠️ БЕЗ УТВЕРЖДЕНИЯ ШЕФА]: %s", optionalNote)
+		} else {
+			comment = "QA2A [⚠️ БЕЗ УТВЕРЖДЕНИЯ ШЕФА]"
+		}
+	} else { // hasApproved && hasPending (mixed)
+		if optionalNote != "" {
+			comment = fmt.Sprintf("QA2A [Частично без утв. / Утв: %s]: %s", chefName, optionalNote)
+		} else {
+			comment = fmt.Sprintf("QA2A [Частично без утв. / Утв: %s]", chefName)
+		}
+	}
+
+	runes := []rune(comment)
+	if len(runes) > 255 {
+		comment = string(runes[:252]) + "..."
+	}
+	return comment
+}
+
 // ============================================================================
 // УПРАВЛЕНИЕ НАСТРОЙКАМИ IIKO RMS
 // ============================================================================
@@ -163,11 +244,17 @@ func (s *IikoService) SaveSettings(companyID, userID int, host, login, pass stri
 	if err != nil {
 		return fmt.Errorf("ошибка доступа к компании: %w", err)
 	}
-	if strings.ToLower(member.Role) != "owner" {
-		return fmt.Errorf("только Владелец может изменять параметры интеграции iiko RMS")
+	role := strings.ToLower(member.Role)
+	if role != "owner" && role != "admin" && role != "manager" {
+		return fmt.Errorf("только Владелец, Администратор или Управляющий может изменять параметры интеграции iiko RMS")
 	}
 
 	cleanHost := s.cleanHost(host)
+	if cleanHost != "" {
+		if err := netutil.ValidateHost(cleanHost); err != nil {
+			return fmt.Errorf("недопустимый адрес сервера iiko RMS: %w", err)
+		}
+	}
 	cleanLogin := strings.TrimSpace(login)
 
 	encryptedPass := ""
@@ -186,8 +273,12 @@ func (s *IikoService) SaveSettings(companyID, userID int, host, login, pass stri
 // GetSettings возвращает хост и логин, маскируя пароль звездочками.
 func (s *IikoService) GetSettings(companyID, userID int) (*models.IikoSettings, error) {
 	member, err := s.repo.GetMembership(companyID, userID)
-	if err != nil || strings.ToLower(member.Role) != "owner" {
-		return nil, fmt.Errorf("доступ запрещен: просматривать настройки может только Владелец")
+	if err != nil {
+		return nil, err
+	}
+	role := strings.ToLower(member.Role)
+	if role != "owner" && role != "admin" && role != "manager" {
+		return nil, fmt.Errorf("доступ запрещен: просматривать настройки может только Владелец, Администратор или Управляющий")
 	}
 
 	settings, err := s.repo.GetIikoSettings(companyID)
@@ -206,7 +297,7 @@ func (s *IikoService) Auth(host, login, password string) (string, error) {
 	cleanH := s.cleanHost(host)
 	passHash := crypto.HashPasswordSHA1(password)
 
-	authURL := fmt.Sprintf("%s/resto/api/auth?login=%s&pass=%s", cleanH, login, passHash)
+	authURL := fmt.Sprintf("%s/resto/api/auth?login=%s&pass=%s", cleanH, url.QueryEscape(login), url.QueryEscape(passHash))
 
 	resp, err := s.httpClient.Get(authURL)
 	if err != nil {
@@ -600,8 +691,15 @@ func (s *IikoService) ExportInventoryAct(companyID int, storeExternalID string, 
 // ============================================================================
 
 // ExportDailyOperations отправляет накопившиеся проводки в iiko (батчами, раздельно по типам).
-func (s *IikoService) ExportDailyOperations(companyID int) error {
-	log.Printf("[iiko-export] 🚀 Запуск выгрузки операций для заведения #%d", companyID)
+func (s *IikoService) ExportDailyOperations(companyID int, isScheduled bool) error {
+	val, _ := s.exportMutexes.LoadOrStore(companyID, &sync.Mutex{})
+	mtx := val.(*sync.Mutex)
+	if !mtx.TryLock() {
+		return fmt.Errorf("выгрузка для заведения #%d уже выполняется другим процессом", companyID)
+	}
+	defer mtx.Unlock()
+
+	log.Printf("[iiko-export] 🚀 Запуск выгрузки операций для заведения #%d (isScheduled=%v)", companyID, isScheduled)
 
 	settings, err := s.getDecryptedSettings(companyID)
 	if err != nil || settings.Host == "" {
@@ -613,8 +711,15 @@ func (s *IikoService) ExportDailyOperations(companyID int) error {
 		return fmt.Errorf("ошибка авторизации в iiko: %w", err)
 	}
 
+	var cutoffTime *time.Time
+	if isScheduled {
+		now := time.Now().In(repository.GetYekaterinburgLocation())
+		ct := time.Date(now.Year(), now.Month(), now.Day(), 6, 0, 0, 0, repository.GetYekaterinburgLocation())
+		cutoffTime = &ct
+	}
+
 	// 1. ВЫГРУЗКА СПИСАНИЙ ТОВАРОВ (JSON v2)
-	writeoffs, err := s.repo.GetGroupedWriteoffs(companyID)
+	writeoffs, err := s.repo.GetGroupedWriteoffs(companyID, cutoffTime)
 	if err != nil {
 		log.Printf("[iiko-export] ❌ Ошибка выборки списаний из БД: %v", err)
 	} else if len(writeoffs) > 0 {
@@ -631,64 +736,63 @@ func (s *IikoService) ExportDailyOperations(companyID int) error {
 			accountID := parts[1]
 			opDate := parts[2]
 
-			const chunkSize = 15 // Оптимизированный размер пакета для списаний
-			for i := 0; i < len(items); i += chunkSize {
-				end := i + chunkSize
-				if end > len(items) {
-					end = len(items)
-				}
-				chunk := items[i:end]
+			var iikoItems []map[string]interface{}
+			var exportedOpIDs []string
 
-				var iikoItems []map[string]interface{}
-				var exportedOpIDs []string
-
-				for _, item := range chunk {
-					iikoItems = append(iikoItems, map[string]interface{}{
-						"productId": item.ProductID,
-						"amount":    item.TotalAmount,
-					})
-					exportedOpIDs = append(exportedOpIDs, strings.Split(item.OpIDs, ",")...)
-				}
-
-				finalComment := s.buildIikoComment(exportedOpIDs, "Списание из QA2A", opDate)
-
-				payload := map[string]interface{}{
-					"storeId":      storeID,
-					"accountId":    accountID,
-					"dateIncoming": opDate,
-					"status":       "NEW",
-					"comment":      finalComment,
-					"items":        iikoItems,
-				}
-
-				payloadBytes, _ := json.Marshal(payload)
-				url := fmt.Sprintf("%s/resto/api/v2/documents/writeoff?key=%s", settings.Host, token)
-				req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
-				req.Header.Set("Content-Type", "application/json")
-
-				res, err := s.httpClient.Do(req)
-				if err != nil {
-					return fmt.Errorf("ошибка сети при выгрузке списания: %w", err)
-				}
-				respBody, _ := io.ReadAll(res.Body)
-				res.Body.Close()
-
-				if res.StatusCode != http.StatusOK {
-					return fmt.Errorf("iiko отклонил списание (код %d): %s", res.StatusCode, string(respBody))
-				}
-
-				var iikoResult IikoV2Response
-				if err := json.Unmarshal(respBody, &iikoResult); err == nil {
-					if strings.ToUpper(iikoResult.Result) == "ERROR" {
-						return fmt.Errorf("ошибка валидации списания iiko: %s", strings.Join(iikoResult.Errors, "; "))
-					}
-				}
-
-				if err := s.repo.MarkOperationsExported(companyID, exportedOpIDs); err != nil {
-					log.Printf("[iiko-export] ⚠️ Ошибка отметки списаний как выгруженных: %v", err)
-				}
-				log.Printf("[iiko-export] ✅ Пакет списания из %d позиций успешно выгружен в iiko", len(iikoItems))
+			for _, item := range items {
+				iikoItems = append(iikoItems, map[string]interface{}{
+					"productId": item.ProductID,
+					"amount":    item.TotalAmount,
+				})
+				exportedOpIDs = append(exportedOpIDs, strings.Split(item.OpIDs, ",")...)
 			}
+
+			finalComment := s.buildWriteoffComment(companyID, accountID, opDate, exportedOpIDs)
+
+			dateIncoming := opDate
+			if !strings.Contains(dateIncoming, "T") {
+				dateIncoming = dateIncoming + "T12:00:00"
+			}
+
+			payload := map[string]interface{}{
+				"storeId":      storeID,
+				"accountId":    accountID,
+				"dateIncoming": dateIncoming,
+				"status":       "NEW",
+				"comment":      finalComment,
+				"items":        iikoItems,
+			}
+
+			payloadBytes, _ := json.Marshal(payload)
+			url := fmt.Sprintf("%s/resto/api/v2/documents/writeoff?key=%s", settings.Host, token)
+			req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+			req.Header.Set("Content-Type", "application/json")
+
+			res, err := s.httpClient.Do(req)
+			if err != nil {
+				log.Printf("[iiko-export] ❌ Ошибка сети при выгрузке списания: %v\n", err)
+				continue
+			}
+			respBody, _ := io.ReadAll(res.Body)
+			res.Body.Close()
+
+			if res.StatusCode != http.StatusOK {
+				log.Printf("[iiko-export] ❌ iiko отклонил списание (код %d): %s\n", res.StatusCode, string(respBody))
+				continue
+			}
+
+			var iikoResult IikoV2Response
+			if err := json.Unmarshal(respBody, &iikoResult); err == nil {
+				if strings.ToUpper(iikoResult.Result) == "ERROR" {
+					log.Printf("[iiko-export] ❌ Ошибка валидации списания iiko: %s\n", strings.Join(iikoResult.Errors, "; "))
+					continue
+				}
+			}
+
+			if err := s.repo.MarkOperationsExported(companyID, exportedOpIDs); err != nil {
+				log.Printf("[iiko-export] ⚠️ Ошибка отметки списаний как выгруженных: %v", err)
+			}
+			log.Printf("[iiko-export] ✅ Консолидированный документ списания из %d позиций успешно выгружен в iiko (склад %s, смена %s)", len(iikoItems), storeID, opDate)
 		}
 	}
 
@@ -739,19 +843,22 @@ func (s *IikoService) ExportDailyOperations(companyID int) error {
 
 			res, err := s.httpClient.Do(req)
 			if err != nil {
-				return fmt.Errorf("ошибка сети при выгрузке перемещения: %w", err)
+				log.Printf("ошибка сети при выгрузке перемещения: %v\n", err)
+				continue
 			}
 			respBody, _ := io.ReadAll(res.Body)
 			res.Body.Close()
 
 			if res.StatusCode != http.StatusOK {
-				return fmt.Errorf("iiko отклонил перемещение (код %d): %s", res.StatusCode, string(respBody))
+				log.Printf("iiko отклонил перемещение (код %d): %s\n", res.StatusCode, string(respBody))
+				continue
 			}
 
 			var iikoResult IikoV2Response
 			if err := json.Unmarshal(respBody, &iikoResult); err == nil {
 				if strings.ToUpper(iikoResult.Result) == "ERROR" {
-					return fmt.Errorf("ошибка спецификации перемещения iiko: %s", strings.Join(iikoResult.Errors, "; "))
+					log.Printf("ошибка спецификации перемещения iiko: %s\n", strings.Join(iikoResult.Errors, "; "))
+					continue
 				}
 			}
 
@@ -817,18 +924,21 @@ func (s *IikoService) ExportDailyOperations(companyID int) error {
 
 			res, err := s.httpClient.Do(req)
 			if err != nil {
-				return fmt.Errorf("ошибка сети при выгрузке акта приготовления: %w", err)
+				log.Printf("ошибка сети при выгрузке акта приготовления: %v\n", err)
+				continue
 			}
 			respBody, _ := io.ReadAll(res.Body)
 			res.Body.Close()
 
 			if res.StatusCode != http.StatusOK {
-				return fmt.Errorf("iiko отклонил XML акт приготовления (код %d): %s", res.StatusCode, string(respBody))
+				log.Printf("iiko отклонил XML акт приготовления (код %d): %s\n", res.StatusCode, string(respBody))
+				continue
 			}
 
 			respStr := string(respBody)
 			if !strings.Contains(respStr, "<valid>true</valid>") {
-				return fmt.Errorf("ошибка валидации акта приготовления в iiko: %s", respStr)
+				log.Printf("ошибка валидации акта приготовления в iiko: %s\n", respStr)
+				continue
 			}
 
 			if err := s.repo.MarkOperationsExported(companyID, exportedOpIDs); err != nil {

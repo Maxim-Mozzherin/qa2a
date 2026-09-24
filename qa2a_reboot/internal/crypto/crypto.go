@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"golang.org/x/crypto/pbkdf2"
 )
 
 var (
@@ -21,9 +23,20 @@ var (
 	ErrInvalidCiphertext = errors.New("длина шифротекста меньше размера вектора инициализации (nonce)")
 )
 
-// deriveKey преобразует любую пользовательскую строку-секрет из .env
-// в строго 32-байтовый криптографический ключ (256 бит) через SHA-256.
+const (
+	pbkdf2Salt       = "qa2a-aead-salt-2026-v1"
+	pbkdf2Iterations = 100000
+	keyLen           = 32
+)
+
+// deriveKey преобразует мастер-ключ в 32-байтовый ключ (256 бит)
+// с помощью PBKDF2 (HMAC-SHA256, 100 000 итераций, криптостойкая соль).
 func deriveKey(passphrase string) []byte {
+	return pbkdf2.Key([]byte(passphrase), []byte(pbkdf2Salt), pbkdf2Iterations, keyLen, sha256.New)
+}
+
+// deriveKeyLegacy сохранен для плавной миграции данных, зашифрованных с помощью одиночного SHA-256.
+func deriveKeyLegacy(passphrase string) []byte {
 	hash := sha256.Sum256([]byte(passphrase))
 	return hash[:]
 }
@@ -69,20 +82,35 @@ func Decrypt(cryptoText, secret string) (string, error) {
 		return "", ErrEmptySecretKey
 	}
 
+	data, err := base64.StdEncoding.DecodeString(cryptoText)
+	if err != nil {
+		return "", fmt.Errorf("ошибка декодирования Base64: %w", err)
+	}
+
+	// 1. Попытка расшифровать с помощью актуального PBKDF2 ключа
 	key := deriveKey(secret)
 	block, err := aes.NewCipher(key)
+	if err == nil {
+		gcm, errGCM := cipher.NewGCM(block)
+		if errGCM == nil && len(data) >= gcm.NonceSize() {
+			nonceSize := gcm.NonceSize()
+			nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+			if plainText, errOpen := gcm.Open(nil, nonce, ciphertext, nil); errOpen == nil {
+				return string(plainText), nil
+			}
+		}
+	}
+
+	// 2. Fallback: расшифрование с помощью legacy SHA-256 ключа
+	legacyKey := deriveKeyLegacy(secret)
+	legacyBlock, err := aes.NewCipher(legacyKey)
 	if err != nil {
 		return "", fmt.Errorf("ошибка инициализации AES шифра: %w", err)
 	}
 
-	gcm, err := cipher.NewGCM(block)
+	gcm, err := cipher.NewGCM(legacyBlock)
 	if err != nil {
 		return "", fmt.Errorf("ошибка создания режима GCM: %w", err)
-	}
-
-	data, err := base64.StdEncoding.DecodeString(cryptoText)
-	if err != nil {
-		return "", fmt.Errorf("ошибка декодирования Base64: %w", err)
 	}
 
 	nonceSize := gcm.NonceSize()

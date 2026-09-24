@@ -47,6 +47,34 @@ func (s *InventoryService) GetRepo() *repository.Repository {
 // 1. СПИСАНИЯ ТОВАРОВ (WRITEOFF)
 // ============================================================================
 
+// SetInitialBalance фиксирует начальный остаток при создании позиции без отправки в списания iiko.
+func (s *InventoryService) SetInitialBalance(userID, companyID int, posName string, qty float64, unit string, locationID int) error {
+	if qty <= 0 || locationID <= 0 {
+		return fmt.Errorf("некорректное количество или склад")
+	}
+	trimmedPos := strings.TrimSpace(posName)
+	return s.repo.ExecuteInTx(func(tx *sqlx.Tx) error {
+		op := &models.Operation{
+			CompanyID:      companyID,
+			UserID:         userID,
+			Type:           "initial_balance",
+			PositionName:   trimmedPos,
+			Quantity:       qty,
+			Unit:           unit,
+			Status:         "approved",
+			LocationID:     locationID,
+			IsUnlisted:     false,
+			Comment:        "Начальный остаток при создании позиции",
+			ExportedToIiko: true, // MUST be true so it is never sent to iiko writeoff!
+			CreatedAt:      time.Now(),
+		}
+		if err := s.repo.CreateOperationTx(tx, op); err != nil {
+			return fmt.Errorf("ошибка фиксации операции начального баланса: %w", err)
+		}
+		return s.repo.UpdateBalanceTx(tx, companyID, locationID, trimmedPos, qty, unit)
+	})
+}
+
 // WriteOff выполняет регистрацию списания товара и атомарно уменьшает складской баланс.
 func (s *InventoryService) WriteOff(
 	userID, companyID int,
@@ -59,6 +87,9 @@ func (s *InventoryService) WriteOff(
 	accountID string,
 	opDate time.Time,
 ) error {
+	if qty <= 0 {
+		return fmt.Errorf("количество товара для списания должно быть строго больше нуля")
+	}
 	trimmedPos := strings.TrimSpace(posName)
 	if trimmedPos == "" {
 		return fmt.Errorf("наименование списываемого товара не указано")
@@ -69,7 +100,14 @@ func (s *InventoryService) WriteOff(
 
 	cleanAccountID := strings.TrimSpace(accountID)
 	if cleanAccountID == "" {
-		cleanAccountID = "97036ddb-b2e1-cd47-1669-c145daa9f9c5" // Дефолтная статья "Расход продуктов"
+		if s.repo != nil {
+			if defAcc, err := s.repo.GetWriteoffAccount(companyID); err == nil && strings.TrimSpace(defAcc) != "" {
+				cleanAccountID = strings.TrimSpace(defAcc)
+			}
+		}
+		if cleanAccountID == "" {
+			cleanAccountID = "97036ddb-b2e1-cd47-1669-c145daa9f9c5" // Fallback: дефолтная статья "Расход продуктов"
+		}
 	}
 
 	return s.repo.ExecuteInTx(func(tx *sqlx.Tx) error {
@@ -80,7 +118,7 @@ func (s *InventoryService) WriteOff(
 			PositionName: trimmedPos,
 			Quantity:     qty,
 			Unit:         unit,
-			Status:       "approved",
+			Status:       "pending",
 			LocationID:   locationID,
 			IsUnlisted:   isUnlisted,
 			Comment:      strings.TrimSpace(comment),
@@ -118,7 +156,7 @@ func (s *InventoryService) EditWriteoff(
 	}
 
 	return s.repo.ExecuteInTx(func(tx *sqlx.Tx) error {
-		oldOp, err := s.repo.GetOperationByID(companyID, opID)
+		oldOp, err := s.repo.GetOperationByIDTx(tx, companyID, opID)
 		if err != nil {
 			return fmt.Errorf("операция #%d не найдена: %w", opID, err)
 		}
@@ -127,6 +165,9 @@ func (s *InventoryService) EditWriteoff(
 		}
 		if oldOp.ExportedToIiko {
 			return fmt.Errorf("нельзя редактировать операцию, которая уже выгружена в iiko RMS")
+		}
+		if oldOp.Status == "approved" {
+			return fmt.Errorf("данное списание уже утверждено и заблокировано для редактирования")
 		}
 
 		if !oldOp.IsUnlisted {
@@ -147,6 +188,39 @@ func (s *InventoryService) EditWriteoff(
 		oldOp.CreatedAt = opDate
 
 		return s.repo.UpdateWriteoffTx(tx, oldOp)
+	})
+}
+
+// ApproveWriteoff утверждает операцию списания шефом или управляющим.
+func (s *InventoryService) ApproveWriteoff(companyID, opID, chefUserID int) error {
+	return s.repo.ApproveWriteoff(companyID, opID, chefUserID)
+}
+
+// RejectWriteoff отклоняет операцию списания с возвратом списанного остатка на склад.
+func (s *InventoryService) RejectWriteoff(companyID, opID, chefUserID int) error {
+	return s.repo.ExecuteInTx(func(tx *sqlx.Tx) error {
+		op, err := s.repo.GetOperationByIDTx(tx, companyID, opID)
+		if err != nil {
+			return fmt.Errorf("операция #%d не найдена: %w", opID, err)
+		}
+		if op.Type != "writeoff" {
+			return fmt.Errorf("отклонить можно только операцию списания")
+		}
+		if op.Status == "approved" {
+			return fmt.Errorf("операция уже утверждена и не может быть отклонена")
+		}
+		if op.Status == "rejected" {
+			return fmt.Errorf("операция уже отклонена")
+		}
+
+		// Если товар числился на складе, возвращаем остаток
+		if !op.IsUnlisted {
+			if err := s.repo.UpdateBalanceTx(tx, companyID, op.LocationID, op.PositionName, op.Quantity, op.Unit); err != nil {
+				return fmt.Errorf("ошибка возврата остатка при отклонении: %w", err)
+			}
+		}
+
+		return s.repo.RejectWriteoffTx(tx, companyID, opID, chefUserID)
 	})
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,11 +11,18 @@ import (
 )
 
 func checkMarketAuth(r *http.Request) bool {
-	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 	if token == "" {
-		token = r.URL.Query().Get("token")
+		return false
 	}
-	return token == superadminToken
+	if superadminToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(superadminToken)) == 1 {
+		return true
+	}
+	user, err := getAuthUserByToken(token)
+	if err == nil && user != nil && (user.Role == "superadmin" || user.Role == "global_accountant") {
+		return true
+	}
+	return false
 }
 
 func sendMarketError(w http.ResponseWriter, msg string, code int) {
@@ -147,6 +155,10 @@ func handleMarketDossier(w http.ResponseWriter, r *http.Request) {
 
 // Утилита для очистки (вызывается один раз)
 func handleMarketCleanup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendMarketError(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if !checkMarketAuth(r) { sendMarketError(w, "Unauthorized", http.StatusUnauthorized); return }
 	
 	res, err := db.Exec("DELETE FROM purchase_history WHERE clean_category IN ('Глутамат натрия', 'Тест') OR (product_name_in_invoice ILIKE '%тест%' AND total_sum = 0)")
@@ -183,7 +195,7 @@ func handleMarketArbitrage(w http.ResponseWriter, r *http.Request) {
 			ph.product_name_in_invoice,
 			ph.price_per_base_unit,
 			ms.median_price,
-			((ph.price_per_base_unit - ms.median_price) / ms.median_price) * 100 as overprice_percent,
+			((ph.price_per_base_unit - ms.median_price) / NULLIF(ms.median_price, 0)) * 100 as overprice_percent,
 			TO_CHAR(ph.invoice_date, 'YYYY-MM-DD') as invoice_date,
 			ms.unit
 		FROM purchase_history ph

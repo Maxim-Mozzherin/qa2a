@@ -134,7 +134,7 @@ func handleRejectUnlistedOperation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Soft delete: keep in history but remove from unlisted queue
-	query := `UPDATE operations SET is_unlisted = false, status = 'rejected', comment = comment || ' [Отклонено бухгалтером]' WHERE id = $1 AND company_id = $2 AND is_unlisted = true`
+	query := `UPDATE operations SET is_unlisted = false, status = 'rejected', comment = COALESCE(comment, '') || ' [Отклонено бухгалтером]' WHERE id = $1 AND company_id = $2 AND is_unlisted = true`
 	_, err := db.Exec(query, opID, companyID)
 	if err != nil {
 		http.Error(w, "Ошибка БД", http.StatusInternalServerError)

@@ -1,7 +1,9 @@
 async function loadPromptPresets(companyId) {
     try {
         const cId = companyId || (els.company ? els.company.value : "") || "0";
-        const res = await fetch('api/parser/presets?company_id=' + cId + '&token=' + getAuthToken());
+        const res = await fetch('api/parser/presets?company_id=' + cId, {
+            headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+        });
         if (!res.ok) return;
 
         promptPresets = await res.json() || [];
@@ -122,9 +124,12 @@ async function savePromptPreset() {
     };
 
     try {
-        const res = await fetch('api/parser/presets?token=' + getAuthToken(), {
+        const res = await fetch('api/parser/presets', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + getAuthToken()
+            },
             body: JSON.stringify(payload)
         });
 
@@ -161,8 +166,9 @@ async function deletePromptPreset() {
     }
 
     try {
-        const res = await fetch('api/parser/presets?id=' + activePresetId + '&token=' + getAuthToken(), {
-            method: 'DELETE'
+        const res = await fetch('api/parser/presets?id=' + activePresetId, {
+            method: 'DELETE',
+            headers: { 'Authorization': 'Bearer ' + getAuthToken() }
         });
 
         if (!res.ok) throw new Error(await res.text());
@@ -177,7 +183,9 @@ async function deletePromptPreset() {
 }
 async function resetToDefaultPrompt() {
     try {
-        const res = await fetch('api/parser/default-prompt?token=' + getAuthToken());
+        const res = await fetch('api/parser/default-prompt', {
+            headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+        });
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
         if (data.prompt && els.modalPromptTextarea) {

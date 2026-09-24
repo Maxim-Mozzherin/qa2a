@@ -5,11 +5,17 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"iiko_parser/pkg/ratelimit"
 )
+
+var registerLimiter = ratelimit.NewLimiter(5, 1*time.Minute, 10*time.Minute, 10000)
 
 func handleGenerateAccountantInvite(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -26,7 +32,10 @@ func handleGenerateAccountantInvite(w http.ResponseWriter, r *http.Request) {
 	creatorID := &user.ID
 
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		http.Error(w, "Ошибка генерации случайного кода", http.StatusInternalServerError)
+		return
+	}
 	inviteCode := hex.EncodeToString(b)
 	expiresAt := time.Now().Add(24 * time.Hour)
 
@@ -50,6 +59,12 @@ func handleRegisterAccountant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	clientIP := ratelimit.GetClientIP(r)
+	if allowed, remaining := registerLimiter.Allow(clientIP); !allowed {
+		http.Error(w, fmt.Sprintf("Слишком много попыток регистрации. Попробуйте через %d сек.", int(remaining.Seconds())+1), http.StatusTooManyRequests)
+		return
+	}
+
 	var req struct {
 		InviteCode string `json:"invite_code"`
 		Login      string `json:"login"`
@@ -61,8 +76,21 @@ func handleRegisterAccountant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Login = strings.TrimSpace(req.Login)
+	req.InviteCode = strings.TrimSpace(req.InviteCode)
+
 	if req.InviteCode == "" || req.Login == "" || req.Password == "" {
-		http.Error(w, "Все поля обязательны", http.StatusBadRequest)
+		http.Error(w, "Все поля обязательны для заполнения", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Login) < 3 {
+		http.Error(w, "Логин должен содержать не менее 3 символов", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Password) < 8 {
+		http.Error(w, "Пароль должен содержать не менее 8 символов", http.StatusBadRequest)
 		return
 	}
 
@@ -115,6 +143,8 @@ func handleRegisterAccountant(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Ошибка фиксации транзакции", http.StatusInternalServerError)
 		return
 	}
+
+	registerLimiter.RecordSuccess(clientIP)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{

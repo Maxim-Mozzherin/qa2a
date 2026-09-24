@@ -2,9 +2,9 @@ package service
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
-	"math/big"
 	"strings"
 
 	"qa2a/internal/models"
@@ -76,17 +76,28 @@ func (s *AuthService) CreateCompany(ownerID int, name string) (int, error) {
 		return 0, fmt.Errorf("название заведения не может быть пустым")
 	}
 
-	// Генерируем 4-значный инвайт-код с помощью crypto/rand
-	n, err := rand.Int(rand.Reader, big.NewInt(9000))
-	if err != nil {
-		return 0, fmt.Errorf("ошибка генерации кода доступа: %w", err)
+	var code string
+	for attempts := 0; attempts < 5; attempts++ {
+		b := make([]byte, 8)
+		if _, err := rand.Read(b); err != nil {
+			return 0, fmt.Errorf("ошибка генератора случайных чисел: %w", err)
+		}
+		candidate := "QA-" + strings.ToUpper(hex.EncodeToString(b))
+		var exists bool
+		_ = s.repo.GetDb().QueryRow("SELECT EXISTS(SELECT 1 FROM companies WHERE UPPER(invite_code) = UPPER($1))", candidate).Scan(&exists)
+		if !exists {
+			code = candidate
+			break
+		}
 	}
-	code := fmt.Sprintf("QA-%d", 1000+n.Int64())
+	if code == "" {
+		return 0, fmt.Errorf("не удалось сгенерировать уникальный код заведения")
+	}
 
 	var companyID int
 
 	// Выполняем создание инфраструктуры заведения в транзакции
-	err = s.repo.ExecuteInTx(func(tx *sqlx.Tx) error {
+	err := s.repo.ExecuteInTx(func(tx *sqlx.Tx) error {
 		queryComp := `INSERT INTO companies (name, invite_code) VALUES ($1, $2) RETURNING id`
 		if err := tx.QueryRow(queryComp, trimmedName, code).Scan(&companyID); err != nil {
 			return fmt.Errorf("ошибка вставки компании: %w", err)

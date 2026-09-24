@@ -22,11 +22,12 @@ type Company struct {
 
 // User представляет пользователя Telegram WebApp.
 type User struct {
-	ID        int       `json:"id" db:"id"`
-	TgID      int64     `json:"tg_id" db:"tg_id"`
-	Username  string    `json:"username" db:"username"`
-	FullName  string    `json:"full_name" db:"full_name"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	ID           int       `json:"id" db:"id"`
+	TgID         int64     `json:"tg_id" db:"tg_id"`
+	Username     string    `json:"username" db:"username"`
+	FullName     string    `json:"full_name" db:"full_name"`
+	TokenVersion int       `json:"token_version" db:"token_version"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
 }
 
 // Membership отражает членство пользователя в конкретной компании и его права.
@@ -89,18 +90,23 @@ type Operation struct {
 	CompanyID      int       `json:"company_id" db:"company_id"`
 	LocationID     int       `json:"location_id" db:"location_id"`
 	ToLocationID   int       `json:"to_location_id" db:"to_location_id"`
-	UserID         int       `json:"user_id" db:"user_id"`
-	UserName       string    `json:"user_name" db:"user_name"`
-	Type           string    `json:"type" db:"type"` // writeoff, transfer_in/out, assembly_in/out
-	PositionName   string    `json:"position_name" db:"position_name"`
-	Quantity       float64   `json:"quantity" db:"quantity"`
-	Unit           string    `json:"unit" db:"unit"`
-	Status         string    `json:"status" db:"status"`
-	CreatedAt      time.Time `json:"created_at" db:"created_at"`
-	IsUnlisted     bool      `json:"is_unlisted" db:"is_unlisted"`
-	Comment        string    `json:"comment" db:"comment"`
-	AccountID      string    `json:"account_id" db:"account_id"`
-	ExportedToIiko bool      `json:"exported_to_iiko" db:"exported_to_iiko"`
+	UserID         int        `json:"user_id" db:"user_id"`
+	UserName       string     `json:"user_name" db:"user_name"`
+	Username       string     `json:"username" db:"username"`
+	UserRole       string     `json:"user_role" db:"user_role"`
+	CustomTitle    string     `json:"custom_title" db:"custom_title"`
+	Type           string     `json:"type" db:"type"` // writeoff, transfer_in/out, assembly_in/out
+	PositionName   string     `json:"position_name" db:"position_name"`
+	Quantity       float64    `json:"quantity" db:"quantity"`
+	Unit           string     `json:"unit" db:"unit"`
+	Status         string     `json:"status" db:"status"`
+	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
+	IsUnlisted     bool       `json:"is_unlisted" db:"is_unlisted"`
+	Comment        string     `json:"comment" db:"comment"`
+	AccountID      string     `json:"account_id" db:"account_id"`
+	ExportedToIiko bool       `json:"exported_to_iiko" db:"exported_to_iiko"`
+	ApprovedBy     *int       `json:"approved_by,omitempty" db:"approved_by"`
+	ApprovedAt     *time.Time `json:"approved_at,omitempty" db:"approved_at"`
 }
 
 // WriteoffAccount представляет статью расходов (счет списания в iiko).
@@ -109,6 +115,49 @@ type WriteoffAccount struct {
 	CompanyID  int    `json:"company_id" db:"company_id"`
 	Name       string `json:"name" db:"name"`
 	ExternalID string `json:"external_id" db:"external_id"`
+}
+
+// WriteoffShiftNote хранит заметку шефа/управляющего для выгрузки списаний смены в iiko.
+type WriteoffShiftNote struct {
+	ID           int       `json:"id" db:"id"`
+	CompanyID    int       `json:"company_id" db:"company_id"`
+	AccountID    string    `json:"account_id" db:"account_id"`
+	BusinessDate string    `json:"business_date" db:"business_date"`
+	ChefUserID   *int      `json:"chef_user_id,omitempty" db:"chef_user_id"`
+	Note         string    `json:"note" db:"note"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// PendingWriteoffDTO представляет списание для панели согласования шефа/управляющего.
+type PendingWriteoffDTO struct {
+	ID           int       `json:"id" db:"id"`
+	CompanyID    int       `json:"company_id" db:"company_id"`
+	LocationID   int       `json:"location_id" db:"location_id"`
+	LocationName string    `json:"location_name" db:"location_name"`
+	UserID       int       `json:"user_id" db:"user_id"`
+	UserName     string    `json:"user_name" db:"user_name"`
+	Username     string    `json:"username" db:"username"`
+	UserRole     string    `json:"user_role" db:"user_role"`
+	CustomTitle  string    `json:"custom_title" db:"custom_title"`
+	PositionName string    `json:"position_name" db:"position_name"`
+	Quantity     float64   `json:"quantity" db:"quantity"`
+	Unit         string    `json:"unit" db:"unit"`
+	Status       string    `json:"status" db:"status"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	BusinessDate string    `json:"business_date" db:"business_date"`
+	Comment      string    `json:"comment" db:"comment"`
+	AccountID    string    `json:"account_id" db:"account_id"`
+	AccountName  string    `json:"account_name" db:"account_name"`
+	IsUnlisted   bool      `json:"is_unlisted" db:"is_unlisted"`
+}
+
+// WriteoffExportDetailsDTO содержит статус операции и данные утвердившего шефа для выгрузки в iiko.
+type WriteoffExportDetailsDTO struct {
+	ID           int     `db:"id"`
+	Status       string  `db:"status"`
+	ApprovedBy   *int    `db:"approved_by"`
+	ChefFullName *string `db:"chef_full_name"`
+	ChefUsername *string `db:"chef_username"`
 }
 
 // ============================================================================
@@ -128,15 +177,18 @@ type ProcurementItem struct {
 
 // ProcurementRequest объединяет строчки заказа для согласования руководством.
 type ProcurementRequest struct {
-	ID         int               `json:"id" db:"id"`
-	CompanyID  int               `json:"company_id" db:"company_id"`
-	UserID     int               `json:"user_id" db:"user_id"`
-	UserName   string            `json:"user_name" db:"user_name"`
-	ApprovedBy *int              `json:"approved_by,omitempty" db:"approved_by"`
-	Status     string            `json:"status" db:"status"` // pending, approved, rejected
-	CreatedAt  time.Time         `json:"created_at" db:"created_at"`
-	UpdatedAt  time.Time         `json:"updated_at" db:"updated_at"`
-	Items      []ProcurementItem `json:"items"`
+	ID          int               `json:"id" db:"id"`
+	CompanyID   int               `json:"company_id" db:"company_id"`
+	UserID      int               `json:"user_id" db:"user_id"`
+	UserName    string            `json:"user_name" db:"user_name"`
+	Username    string            `json:"username" db:"username"`
+	UserRole    string            `json:"user_role" db:"user_role"`
+	CustomTitle string            `json:"custom_title" db:"custom_title"`
+	ApprovedBy  *int              `json:"approved_by,omitempty" db:"approved_by"`
+	Status      string            `json:"status" db:"status"` // pending, approved, rejected
+	CreatedAt   time.Time         `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at" db:"updated_at"`
+	Items       []ProcurementItem `json:"items"`
 }
 
 // ============================================================================
@@ -279,3 +331,19 @@ type ProductMapping struct {
 	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
 }
 
+// AccountingTicket — обращение/заявка заведения в бухгалтерскую службу.
+type AccountingTicket struct {
+	ID                int       `json:"id" db:"id"`
+	CompanyID         int       `json:"company_id" db:"company_id"`
+	CompanyName       string    `json:"company_name,omitempty" db:"company_name"`
+	UserID            int       `json:"user_id" db:"user_id"`
+	UserName          string    `json:"user_name,omitempty" db:"user_name"`
+	Category          string    `json:"category" db:"category"`
+	Priority          string    `json:"priority" db:"priority"`
+	Description       string    `json:"description" db:"description"`
+	Status            string    `json:"status" db:"status"`
+	AccountantComment string    `json:"accountant_comment" db:"accountant_comment"`
+	MediaPaths        string    `json:"media_paths" db:"media_paths"` // Хранит JSON массив путей
+	CreatedAt         time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
+}

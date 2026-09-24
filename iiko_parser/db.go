@@ -1,7 +1,12 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"log"
+	"os"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -43,7 +48,18 @@ func initRootSuperadmin() {
 				log.Println("✅ Пользователь bugh назначен superadmin платформы")
 			}
 		} else {
-			initialPass := getEnv("INITIAL_SUPERADMIN_PASSWORD", "!123Maxim.!")
+			initialPass := getEnv("INITIAL_SUPERADMIN_PASSWORD", "")
+			if initialPass == "" {
+				randomBytes := make([]byte, 16)
+				_, _ = rand.Read(randomBytes)
+				initialPass = hex.EncodeToString(randomBytes)
+				credsContent := fmt.Sprintf("LOGIN=bugh\nPASSWORD=%s\nGENERATED_AT=%s\n", initialPass, time.Now().Format(time.RFC3339))
+				credsPath := "/opt/iiko_parser/.superadmin_credentials"
+				if errWrite := os.WriteFile(credsPath, []byte(credsContent), 0600); errWrite != nil {
+					_ = os.WriteFile(".superadmin_credentials", []byte(credsContent), 0600)
+				}
+				log.Println("⚠️ INITIAL_SUPERADMIN_PASSWORD не задан. Сгенерирован временный пароль для superadmin 'bugh' и сохранен в .superadmin_credentials (права 0600)")
+			}
 			hash, err := bcrypt.GenerateFromPassword([]byte(initialPass), bcrypt.DefaultCost)
 			if err != nil {
 				log.Printf("⚠️ Ошибка генерации хэша пароля superadmin: %v", err)
@@ -121,3 +137,26 @@ func initPromptPresets() {
 		log.Println("✅ Тексты 2-х системных пресетов актуализированы из констант")
 	}
 }
+
+func initCompanyInvites() {
+	_, err := db.Exec(`
+		ALTER TABLE companies ALTER COLUMN invite_code TYPE character varying(64);
+
+		CREATE TABLE IF NOT EXISTS company_invites (
+			code VARCHAR(64) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			accounting_firm_id INT REFERENCES accounting_firms(id) ON DELETE SET NULL,
+			expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+			is_used BOOLEAN NOT NULL DEFAULT FALSE,
+			used_by_user_id INT REFERENCES users(id) ON DELETE SET NULL,
+			company_id INT REFERENCES companies(id) ON DELETE SET NULL,
+			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+		);
+		CREATE INDEX IF NOT EXISTS idx_company_invites_code ON company_invites (code);
+		CREATE INDEX IF NOT EXISTS idx_company_invites_is_used ON company_invites (is_used);
+	`)
+	if err != nil {
+		log.Printf("⚠️ Ошибка инициализации company_invites: %v", err)
+	}
+}
+

@@ -165,7 +165,7 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 	ctxCmd, cancelCmd := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancelCmd()
 
-	for i, header := range files {
+	for _, header := range files {
 		err := func() error {
 			file, err := header.Open()
 			if err != nil {
@@ -184,34 +184,45 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 			if cleanFileName == "" {
 				cleanFileName = "document.pdf"
 			}
-			tempBase := fmt.Sprintf("upd_%d_%d_%d_%s", companyID, time.Now().UnixNano(), i, cleanFileName)
-			filePath := filepath.Join("temp", tempBase)
+			// Create isolated temporary directory for this upload
+			tmpDir, err := os.MkdirTemp("", "pdf_parse_*")
+			if err != nil {
+				return fmt.Errorf("ошибка создания временной директории: %w", err)
+			}
+			defer os.RemoveAll(tmpDir)
+
+			filePath := filepath.Join(tmpDir, cleanFileName)
 
 			out, err := os.Create(filePath)
 			if err != nil {
 				return err
 			}
-			defer out.Close()
-			defer os.Remove(filePath)
 
 			if _, err = io.Copy(out, file); err != nil {
+				out.Close()
 				return err
 			}
 			_ = out.Close()
 
 			ext := strings.ToLower(filepath.Ext(cleanFileName))
+			allowedExts := map[string]bool{
+				".pdf": true, ".png": true, ".jpg": true, ".jpeg": true,
+				".webp": true, ".txt": true, ".csv": true, ".xml": true,
+			}
+			if !allowedExts[ext] {
+				return fmt.Errorf("недопустимый тип файла %s: разрешены только PDF, изображения и текстовые накладные", ext)
+			}
 
 			if ext == ".pdf" {
-				txtPath := filePath + ".txt"
-				defer os.Remove(txtPath)
+				txtPath := filepath.Join(tmpDir, "extracted.txt")
 				cmdTxt := exec.CommandContext(ctxCmd, "pdftotext", "-layout", filePath, txtPath)
 				_ = cmdTxt.Run()
 				tb, _ := os.ReadFile(txtPath)
 				textBytes = append(textBytes, tb...)
 				textBytes = append(textBytes, []byte("\n\n")...)
 
-				imgPrefix := filePath + "_img"
-				cmdImg := exec.CommandContext(ctxCmd, "pdftoppm", "-jpeg", "-f", "1", "-l", "10", filePath, imgPrefix)
+				imgPrefix := filepath.Join(tmpDir, "img")
+				cmdImg := exec.CommandContext(ctxCmd, "pdftoppm", "-jpeg", "-scale-to", "1280", "-f", "1", "-l", "10", filePath, imgPrefix)
 				if err := cmdImg.Run(); err != nil {
 					log.Printf("pdftoppm error: %v", err)
 				}
@@ -237,7 +248,6 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 					if err == nil {
 						imagesBase64 = append(imagesBase64, base64.StdEncoding.EncodeToString(imgBytes))
 					}
-					os.Remove(m)
 				}
 			} else if ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp" {
 				imgBytes, err := os.ReadFile(filePath)
@@ -269,20 +279,55 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mappedSupplierUUID := ""
+	cleanVendorINN := strings.TrimSpace(aiData.VendorINN)
 	normVendor := normalizeVendorName(aiData.VendorName)
-	suppRows, err := db.Query("SELECT vendor_name, iiko_supplier_uuid FROM supplier_mappings WHERE company_id = $1", companyID)
+	suppRows, err := db.Query("SELECT vendor_name, iiko_supplier_uuid, COALESCE(inn, '') FROM supplier_mappings WHERE company_id = $1", companyID)
 	if err == nil {
 		defer suppRows.Close()
+		type supMap struct {
+			vName    string
+			suppUUID string
+			inn      string
+		}
+		var list []supMap
 		for suppRows.Next() {
-			var vName, suppUUID string
-			if err := suppRows.Scan(&vName, &suppUUID); err == nil {
-				if vName == aiData.VendorName {
-					mappedSupplierUUID = suppUUID
+			var sm supMap
+			if err := suppRows.Scan(&sm.vName, &sm.suppUUID, &sm.inn); err == nil {
+				list = append(list, sm)
+			}
+		}
+
+		var matchedSM *supMap
+		// 1. Приоритетное сопоставление по ИНН (если ИНН извлечен из накладной)
+		if cleanVendorINN != "" {
+			for _, sm := range list {
+				if sm.inn != "" && sm.inn == cleanVendorINN {
+					matchedSM = &sm
 					break
 				}
-				if normVendor != "" && normalizeVendorName(vName) == normVendor && mappedSupplierUUID == "" {
-					mappedSupplierUUID = suppUUID
+			}
+		}
+
+		// 2. Если по ИНН не найден — сопоставление по названию
+		if matchedSM == nil {
+			for _, sm := range list {
+				if sm.vName == aiData.VendorName {
+					matchedSM = &sm
+					break
 				}
+				if normVendor != "" && normalizeVendorName(sm.vName) == normVendor {
+					matchedSM = &sm
+					break
+				}
+			}
+		}
+
+		if matchedSM != nil {
+			mappedSupplierUUID = matchedSM.suppUUID
+			// Приводим имя поставщика к единому каноническому виду из базы данных
+			aiData.VendorName = matchedSM.vName
+			if matchedSM.inn != "" && aiData.VendorINN == "" {
+				aiData.VendorINN = matchedSM.inn
 			}
 		}
 	}
@@ -406,9 +451,11 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"vendor_name":          aiData.VendorName,
+		"vendor_inn":           aiData.VendorINN,
 		"doc_number":           aiData.DocNumber,
 		"doc_date":             aiData.DocDate,
 		"consignee":            aiData.Consignee,
+		"consignee_inn":        aiData.ConsigneeINN,
 		"shipper":              aiData.Shipper,
 		"mapped_supplier_uuid": mappedSupplierUUID,
 		"mapped_store_uuid":    mappedStoreUUID,
@@ -428,6 +475,7 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 		StoreUUID     string  `json:"store_uuid"`
 		SupplierUUID  string  `json:"supplier_uuid"`
 		VendorName    string  `json:"vendor_name"`
+		VendorINN     string  `json:"vendor_inn"`
 		Consignee     string  `json:"consignee"`
 		Shipper       string  `json:"shipper"`
 		InvoiceNumber string  `json:"invoice_number"`
@@ -599,6 +647,24 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
+	// Приводим имя поставщика к каноническому виду из supplier_mappings (по UUID iiko или ИНН)
+	var canonicalVendorName string
+	if req.SupplierUUID != "" {
+		_ = tx.QueryRow(`
+			SELECT vendor_name FROM supplier_mappings 
+			WHERE company_id = $1 AND iiko_supplier_uuid = $2 
+			ORDER BY id ASC LIMIT 1`, req.CompanyID, req.SupplierUUID).Scan(&canonicalVendorName)
+	}
+	if canonicalVendorName == "" && strings.TrimSpace(req.VendorINN) != "" {
+		_ = tx.QueryRow(`
+			SELECT vendor_name FROM supplier_mappings 
+			WHERE company_id = $1 AND inn = $2 
+			ORDER BY id ASC LIMIT 1`, req.CompanyID, strings.TrimSpace(req.VendorINN)).Scan(&canonicalVendorName)
+	}
+	if canonicalVendorName != "" {
+		req.VendorName = canonicalVendorName
+	}
+
 	for _, item := range req.Items {
 		if item.MappedUUID != "" {
 			_, err = tx.Exec(`
@@ -641,14 +707,17 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 				invNum := req.InvoiceNumber
 
 				go func(cID int, pName string, growthPct, mPrice, cPrice float64, vName, iNum, iDate, sName string) {
+					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					defer cancel()
+
 					var compName string
-					_ = db.QueryRow("SELECT name FROM companies WHERE id = $1", cID).Scan(&compName)
+					_ = db.QueryRowContext(ctx, "SELECT name FROM companies WHERE id = $1", cID).Scan(&compName)
 					if compName == "" {
 						compName = fmt.Sprintf("ID %d", cID)
 					}
 
 					var tgIDs []int64
-					rows, err := db.Query(`
+					rows, err := db.QueryContext(ctx, `
 						SELECT u.tg_id 
 						FROM memberships m 
 						JOIN users u ON m.user_id = u.id 
@@ -728,12 +797,14 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.SupplierUUID != "" && req.VendorName != "" {
+		cleanINN := strings.TrimSpace(req.VendorINN)
 		_, _ = tx.Exec(`
-			INSERT INTO supplier_mappings (company_id, vendor_name, iiko_supplier_uuid)
-			VALUES ($1, $2, $3)
+			INSERT INTO supplier_mappings (company_id, vendor_name, iiko_supplier_uuid, inn)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (company_id, vendor_name)
-			DO UPDATE SET iiko_supplier_uuid = EXCLUDED.iiko_supplier_uuid`,
-			req.CompanyID, req.VendorName, req.SupplierUUID)
+			DO UPDATE SET iiko_supplier_uuid = EXCLUDED.iiko_supplier_uuid,
+			              inn = CASE WHEN EXCLUDED.inn <> '' THEN EXCLUDED.inn ELSE supplier_mappings.inn END`,
+			req.CompanyID, req.VendorName, req.SupplierUUID, cleanINN)
 	}
 
 	if req.Consignee != "" && req.StoreUUID != "" {

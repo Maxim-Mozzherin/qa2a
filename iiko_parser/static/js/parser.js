@@ -19,8 +19,9 @@ async function executeParseWithFiles(fileObjs) {
     els.resSection.classList.add('hidden');
 
     try {
-        const res = await fetch('api/parse?token=' + getAuthToken(), {
+        const res = await fetch('api/parse', {
             method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + getAuthToken() },
             body: formData
         });
 
@@ -60,8 +61,9 @@ async function executeAppendParseWithFiles(fileObjs) {
     els.loaderAddPage.classList.remove('hidden');
 
     try {
-        const res = await fetch('api/parse?token=' + getAuthToken(), {
+        const res = await fetch('api/parse', {
             method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + getAuthToken() },
             body: formData
         });
 
@@ -486,10 +488,7 @@ function runDataValidation() {
     let missingNums = [];
     let duplicateNums = [];
     let prevNum = 0;
-    
-    // Arrays to track name duplication (hallucination defense)
-    let nameCounts = {};
-    let duplicateNames = new Set();
+
 
     currentDocData.items.forEach((item, idx) => {
         const q = parseFloat(item.quantity) || 0;
@@ -527,15 +526,25 @@ function runDataValidation() {
             prevNum = currentNum;
         }
 
-        // 3. Duplicate Name Validation (Hallucination defense)
-        let nameRaw = item.name ? item.name.toLowerCase().trim() : "";
-        if (nameRaw) {
-            if (nameCounts[nameRaw]) {
-                duplicateNames.add(item.name.trim());
+        // 3. Hallucination Anchor Validation (original_prefix)
+        if (item.original_prefix && item.name) {
+            let prefixRaw = item.original_prefix.toLowerCase().replace(/[^a-zа-я0-9]/g, '');
+            let nameRaw = item.name.toLowerCase().replace(/[^a-zа-я0-9]/g, '');
+            
+            if (prefixRaw.length > 2 && nameRaw && !nameRaw.includes(prefixRaw)) {
+                errors.push(`Строка ${idx + 1}: Название "${item.name}" не содержит якорь "${item.original_prefix}". Подозрение на выдумку ИИ.`);
                 const row = document.querySelector(`tr[data-item-idx="${idx}"]`);
-                if (row) row.classList.add('bg-amber-500/10');
-            } else {
-                nameCounts[nameRaw] = 1;
+                if (row) {
+                    row.classList.add('bg-orange-500/10');
+                    let nameInput = row.querySelector('input[data-field="name"]');
+                    if (nameInput && !nameInput.parentNode.querySelector('.hallucination-warn')) {
+                        const warnIcon = document.createElement('span');
+                        warnIcon.innerHTML = '⚠️';
+                        warnIcon.className = 'hallucination-warn cursor-help ml-2 text-xl transition-all hover:scale-110';
+                        warnIcon.title = 'AI сомневается. Исходное слово на скане: "' + item.original_prefix + '"';
+                        nameInput.parentNode.appendChild(warnIcon);
+                    }
+                }
             }
         }
     });
@@ -547,9 +556,7 @@ function runDataValidation() {
     if (duplicateNums.length > 0) {
         errors.push(`Сбой нумерации УПД: строка № [${duplicateNums.join(', ')}] распознана несколько раз.`);
     }
-    if (duplicateNames.size > 0) {
-        errors.push(`Подозрение на ошибку AI (дубликаты позиций): "${Array.from(duplicateNames).join('", "')}". Обычно в накладной позиции не повторяются. Проверьте, не перепутала ли нейросеть названия.`);
-    }
+
 
     // 3. Total Sum Validation (Tolerance 1.00 Ruble)
     const printedTotal = parseFloat(currentDocData.doc_printed_total_sum) || 0;

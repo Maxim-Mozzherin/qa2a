@@ -31,8 +31,9 @@
 
     <div style="padding: 0 20px; overflow-y: auto;">
         
-        <!-- STEP 1: Role Selection -->
-        <div id="onboarding-step-1">
+        <!-- STEP 1: Role Selection [FROZEN - HIDDEN] -->
+        <div id="onboarding-step-1" style="display: none;">
+            <!-- [FROZEN] Выбор роли временно скрыт
             <h3 style="margin-bottom: 15px; font-size: 15px; color: var(--text-muted); text-align: center;">Выберите вашу роль:</h3>
             
             <div class="card" onclick="selectRole('restaurant')" id="role-card-restaurant" style="cursor:pointer; margin-bottom: 15px; border: 2px solid transparent; transition: 0.2s; background: var(--surface);">
@@ -54,11 +55,12 @@
                     </div>
                 </div>
             </div>
+            -->
         </div>
 
-        <!-- STEP 2: Restaurant Actions -->
-        <div id="onboarding-step-2-restaurant" style="display: none;">
-            <h3 style="margin-bottom: 15px; font-size: 16px; font-weight: 700; text-align: center;">Общепит</h3>
+        <!-- STEP 2: Restaurant Actions (Показываем сразу рестораны) -->
+        <div id="onboarding-step-2-restaurant" style="display: block;">
+            <h3 style="margin-bottom: 15px; font-size: 16px; font-weight: 700; text-align: center;">Подключение заведения</h3>
             
             <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-bottom: 15px;">
                 <h4 style="margin: 0 0 10px 0; font-size: 15px;">Создать новый бизнес</h4>
@@ -72,12 +74,13 @@
                 <button type="button" class="btn-main" onclick="joinByCodeFromOnboarding()" style="background: var(--bg); color: var(--text); border: 1px solid var(--border);">Присоединиться</button>
             </div>
             
-            <div style="text-align: center; margin-top: 20px; padding-bottom: 40px;">
+            <!-- [FROZEN] Кнопка возврата скрыта -->
+            <!-- <div style="text-align: center; margin-top: 20px; padding-bottom: 40px;">
                 <a href="javascript:void(0)" onclick="resetRoleSelection()" style="color: var(--text-muted); font-size: 14px; font-weight: 600;">← Назад к выбору роли</a>
-            </div>
+            </div> -->
         </div>
 
-        <!-- STEP 2: Supplier Actions -->
+        <!-- STEP 2: Supplier Actions [FROZEN - HIDDEN] -->
         <div id="onboarding-step-2-supplier" style="display: none;">
             <h3 style="margin-bottom: 15px; font-size: 16px; font-weight: 700; text-align: center;">Поставщик</h3>
             
@@ -113,9 +116,12 @@
                 
 
                 <div class="section">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-top: 5px;">
-                        <div class="section-title" style="margin-bottom:0;">Новая заявка</div>
-                        <button type="button" id="btn_active_requests_shortcut" class="btn-tiny" onclick="openActiveRequests()" style="border-color: var(--accent); color: var(--accent); font-weight:800;">🕒 Активные заявки</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center; min-height: 28px; margin-bottom: 10px;">
+                        <div class="section-title" style="margin-bottom: 0;">Новая заявка</div>
+                        <button type="button" id="btn_active_requests_shortcut" onclick="openActiveRequests()" style="display:inline-flex; align-items:center; gap:6px; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.4); color: #3B82F6; height: 28px; padding: 0 12px; border-radius: 20px; font-size: 12px; font-weight: 700; cursor: pointer; transition: 0.2s; box-sizing: border-box;">
+                            <span>Активные</span>
+                            <span id="badge_active_requests" style="display:none; background:#3B82F6; color:#fff; font-size:10px; font-weight:800; border-radius:10px; padding:1px 6px; min-width:16px; text-align:center; line-height: 14px;">0</span>
+                        </button>
                     </div>
                     
                     <div style="background: var(--surface); padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid var(--border);">
@@ -150,7 +156,7 @@
                     
                     <div class="section-title">Список к закупке:</div>
 
-                <div class="section" id="special_offers_section" style="display:none; margin-bottom: 20px;">
+                <div class="section" id="special_offers_section" style="display:none !important; margin-bottom: 20px;">
                     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
                         <span style="font-size:18px;">💡</span>
                         <div class="section-title" style="margin-bottom:0; font-size:11px; color:var(--text-muted); letter-spacing:1px; text-transform:uppercase; font-weight:800;">Товары для вас</div>
@@ -170,7 +176,13 @@
             <!-- ВКЛАДКА 2: СПИСАНИЕ ТОВАРОВ -->
             <div id="tab-writeoff" class="tab-content" style="display:none;">
                 <div class="section">
-                    <div class="section-title">Списание товара</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; min-height: 28px; margin-bottom: 10px;">
+                        <div class="section-title" style="margin-bottom: 0;">Списание товара</div>
+                        <button type="button" id="btn_pending_writeoffs" onclick="openPendingWriteoffsDrawer()" style="display:none; align-items:center; gap:6px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); color: #EF4444; height: 28px; padding: 0 12px; border-radius: 20px; font-size: 12px; font-weight: 700; cursor: pointer; transition: 0.2s; box-sizing: border-box;">
+                            <span>Активные</span>
+                            <span id="badge_pending_writeoffs" style="display:none; background:#EF4444; color:#fff; font-size:10px; font-weight:800; border-radius:10px; padding:1px 6px; min-width:16px; text-align:center; line-height: 14px;">0</span>
+                        </button>
+                    </div>
                     
                     <div class="input-group">
                         <label for="w_search">Товар</label>
@@ -224,7 +236,9 @@
             <!-- ВКЛАДКА 3: ВНУТРЕННЕЕ ПЕРЕМЕЩЕНИЕ -->
             <div id="tab-transfer" class="tab-content" style="display:none;">
                 <div class="section">
-                    <div class="section-title">Внутреннее перемещение</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; min-height: 28px; margin-bottom: 10px;">
+                        <div class="section-title" style="margin-bottom: 0;">Внутреннее перемещение</div>
+                    </div>
                     
                     <div class="input-group">
                         <label for="tr_search">Товар / Полуфабрикат</label>
@@ -273,8 +287,10 @@
 
             <!-- ВКЛАДКА 4: НАСТРОЙКИ И УПРАВЛЕНИЕ -->
             <div id="tab-admin" class="tab-content" style="display:none">
-                <div class="section" style="padding-top: 20px;">
-                    <div class="section-title">Пригласить сотрудника</div>
+                <div class="section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; min-height: 28px; margin-bottom: 10px;">
+                        <div class="section-title" style="margin-bottom: 0;">Пригласить сотрудника</div>
+                    </div>
                     <div style="margin-bottom:15px; padding:15px; border:1px dashed var(--accent); border-radius:12px; text-align:center; background:var(--surface); cursor: pointer;" onclick="copyInviteCode()">
                         <small style="color:var(--text-muted)">Нажмите, чтобы скопировать код приглашения:</small>
                         <div id="displayInviteCode" style="font-size:24px; font-weight:900; letter-spacing:3px; color:var(--accent); margin-top:5px">---</div>
@@ -285,6 +301,13 @@
                     <div class="section-title">Панель управления</div>
                     <div style="display: flex; flex-direction: column; gap: 8px;">
                         
+                        <div id="block_accounting_ticket" style="display: none; margin-bottom: 15px;">
+                            <button type="button" class="btn-main" onclick="openAccountingTicketDrawer()" style="background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%); color: white; display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; box-shadow: 0 4px 12px rgba(15, 118, 110, 0.25); border: none;">
+                                <span style="display: flex; align-items: center; gap: 10px; font-weight: 800;"><span style="font-size: 18px;">💬</span> Заявка в бухгалтерию</span>
+                                <span style="font-size: 14px; opacity: 0.8;">Создать →</span>
+                            </button>
+                        </div>
+
                         <!-- Группа 1: Движения товара -->
                         <button type="button" class="btn-main" onclick="toggleSubMenu('sub-goods')" style="background:var(--surface); color:var(--text); border:1px solid var(--border); text-align:left; padding-left:20px; display: flex; justify-content: space-between; align-items: center;">
                             <span>Движения товара</span>
@@ -295,7 +318,8 @@
                             <button type="button" class="btn-main" onclick="openDrawer('archive')" style="background:var(--surface); color:var(--text); border:1px solid var(--border); text-align:left; padding-left:20px; font-size: 13px;">История заявок</button>
                         </div>
 
-                        <!-- Группа 2: Интеграция iiko RMS -->
+                        <div id="iiko_integration_block">
+        <!-- Группа 2: Интеграция iiko RMS -->
                         <button type="button" class="btn-main" onclick="toggleSubMenu('sub-iiko')" style="background:var(--surface); color:var(--text); border:1px solid var(--border); text-align:left; padding-left:20px; display: flex; justify-content: space-between; align-items: center;">
                             <span>Интеграция iiko</span>
                             <span id="arrow-sub-iiko" style="padding-right: 15px;">▾</span>
@@ -307,6 +331,7 @@
                             <button type="button" class="btn-main" onclick="openSupplierContacts()" style="background:var(--surface); color:var(--text); border:1px solid var(--border); text-align:left; padding-left:20px; font-size: 13px;">Контакты поставщиков</button>
                         </div>
 
+        </div>
                         <!-- Группа 3: Управление заведением -->
                         <button type="button" class="btn-main" onclick="toggleSubMenu('sub-biz')" style="background:var(--surface); color:var(--text); border:1px solid var(--border); text-align:left; padding-left:20px; display: flex; justify-content: space-between; align-items: center;">
                             <span>Управление заведением</span>
@@ -343,6 +368,46 @@
     <!-- ШТОРКИ (DRAWERS / BOTTOM SHEETS)                                       -->
     <!-- ====================================================================== -->
 
+    <!-- ШТОРКА: ЗАЯВКА В БУХГАЛТЕРИЮ -->
+    <div class="drawer" id="drawer_accounting_ticket">
+        <div class="drawer-header"><h3>Заявка в<br>бухгалтерию</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
+        <div class="drawer-content">
+        <!-- Форма создания -->
+        <div style="background: var(--surface); padding: 16px; border-radius: 16px; border: 1px solid var(--border); margin-bottom: 20px;">
+            
+            <div class="input-group">
+                <label for="ticket_description">Суть задачи / вопроса</label>
+                <textarea id="ticket_description" rows="4" placeholder="Опишите, что нужно сделать бухгалтеру (напр.: внести ТТК на авторский лимонад)..." style="margin-bottom: 15px;"></textarea>
+            </div>
+
+            <div class="input-group">
+                <label for="ticket_category">Категория вопроса</label>
+                <select id="ticket_category" style="margin-bottom: 15px; font-weight: 600;">
+                    <option value="ttk">Техкарты / Новое блюдо / Меню</option>
+                    <option value="writeoff">Списание / Корректировка склада</option>
+                    <option value="invoice">Накладная / Ошибка поставщика</option>
+                    <option value="inventory">Инвентаризация / Расхождения</option>
+                    <option value="other">Другой вопрос</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <label for="ticket_media">Прикрепить фото / видео (до 50 МБ)</label>
+                <input type="file" id="ticket_media" multiple accept="image/*,video/mp4,video/quicktime" style="font-size: 13px; padding: 10px; background: var(--bg); border: 1px dashed var(--accent);">
+                <div style="font-size:10px; color:var(--text-muted); margin-top: -8px; margin-bottom: 15px;">Можно выбрать несколько файлов. Хранятся 14 дней.</div>
+            </div>
+
+            <button type="button" class="btn-main" id="btn_submit_ticket" onclick="submitAccountingTicket()" style="background: #0d9488; color: white;">
+                Отправить бухгалтеру
+            </button>
+        </div>
+
+        <!-- История заявок -->
+        <div class="section-title">История обращений заведения</div>
+        <div id="accounting_tickets_history">Загрузка...</div>
+    </div>
+    </div>
+
     <!-- ШТОРКА 1: СПИСОК ИНВЕНТАРИЗАЦИЙ -->
     <div class="drawer" id="drawer_inventory_list">
         <div class="drawer-header"><h3>Сверка<br>остатков</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
@@ -395,6 +460,7 @@
     <div class="drawer" id="drawer_team">
         <div class="drawer-header"><h3>Команда</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
         <div class="drawer-content">
+            <div id="joinRequestsList" style="margin-bottom: 20px;"></div>
             <div id="memberList">Загрузка...</div>
         </div>
     </div>
@@ -469,9 +535,23 @@
         </div>
     </div>
 
+    <!-- ШТОРКА: АКТИВНЫЕ СПИСАНИЯ ДЛЯ СОГЛАСОВАНИЯ ШЕФОМ/УПРАВЛЯЮЩИМ -->
+    <div class="drawer" id="drawer_pending_writeoffs">
+        <div class="drawer-header">
+            <h3>Активные<br>списания</h3>
+            <div class="btn-close" onclick="closeDrawer()">✕</div>
+        </div>
+        <div class="drawer-content" id="pending_writeoffs_content" style="padding-bottom: 40px;">
+            <div id="pending_writeoffs_loading" style="text-align: center; padding: 25px; color: var(--text-muted); font-size: 13px;">
+                Загрузка списаний смены...
+            </div>
+            <div id="pending_writeoffs_list"></div>
+        </div>
+    </div>
+
     <!-- ШТОРКА 11: РЕДАКТИРОВАНИЕ СПИСАНИЯ -->
     <div class="drawer" id="drawer_edit_writeoff">
-        <div class="drawer-header"><h3>Редактировать<br>списание</h3><div class="btn-close" onclick="openDrawer('history')">←</div></div>
+        <div class="drawer-header"><h3>Редактировать<br>списание</h3><div class="btn-close" onclick="closeEditWriteoffDrawer()">←</div></div>
         <div class="drawer-content">
             <input type="hidden" id="edit_op_id">
             
@@ -629,676 +709,39 @@
     <!-- ====================================================================== -->
     
     <!-- ШТОРКА 1: СПИСОК ИНВЕНТАРИЗАЦИЙ -->
-    <div class="drawer" id="drawer_inventory_list">
-        <div class="drawer-header"><h3>Сверка<br>остатков</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div style="background: var(--surface); padding: 15px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 20px;">
-                <label for="inv_new_location">Выберите склад:</label>
-                <select id="inv_new_location" onchange="loadQA2ATemplates(this.value)"></select>
-                
-                <div id="qa2a_templates_wrapper" style="display:none; margin-top: 15px;">
-                    <label for="qa2a_templates_select">Доступные бланки от бухгалтера:</label>
-                    <select id="qa2a_templates_select" style="margin-bottom:0; font-weight: bold; color: var(--accent); border-color: var(--accent);"></select>
-                </div>
-
-                <div style="display:flex; gap:10px; margin-top: 15px;">
-                    <button type="button" class="btn-main" onclick="startInventory()" style="flex:1;">+ Весь склад</button>
-                    <button type="button" class="btn-main" id="btn_start_from_template" onclick="startInventoryFromTemplate()" style="flex:1; background: var(--surface); color: var(--text); border: 1px solid var(--border); display:none;">+ Из бланка</button>
-                </div>
-            </div>
-            <div class="section-title">История актов</div>
-            <div id="inventoryActList">Загрузка...</div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 2: ПРОЦЕСС ИНВЕНТАРИЗАЦИИ -->
-    <div class="drawer" id="drawer_inventory_process">
-        <div class="drawer-header"><h3 id="inv_process_title">Акт #</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <input type="text" id="inv_search" oninput="filterInventory()" placeholder="Поиск товара..." style="margin-bottom: 15px;" autocomplete="off">
-            <div id="inv_items_container"></div>
-            
-            <div id="inv_actions" style="display:flex; flex-direction:column; gap:10px; margin-top:20px; position: sticky; bottom: 0; background: var(--bg); padding: 10px 0;">
-                <div style="display:flex; gap:10px;">
-                    <button type="button" class="btn-main" id="btn_inv_draft" onclick="saveInventoryProgress(false)" style="flex:1; background: var(--surface); color: var(--text); border: 1px solid var(--border);">💾 Черновик</button>
-                    <button type="button" class="btn-main" id="btn_inv_final" onclick="saveInventoryProgress(true)" style="flex:1; background: #10B981;">✅ Завершить</button>
-                </div>
-                <button type="button" class="btn-main" id="btn_inv_delete" onclick="deleteInventoryAct()" style="background: #EF4444; color: white;">🗑️ Удалить черновик</button>
-            </div>
-        </div>
-    </div>
     
-    <!-- ШТОРКА 3: АРХИВ ЗАЯВОК НА ЗАКУПКУ -->
-    <div class="drawer" id="drawer_archive">
-        <div class="drawer-header"><h3>Архив заявок</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div id="adminApprovedRequests">Загрузка...</div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 4: КОМАНДА ЗАВЕДЕНИЯ -->
-    <div class="drawer" id="drawer_team">
-        <div class="drawer-header"><h3>Команда</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div id="memberList">Загрузка...</div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 5: ИСТОРИЯ СКЛАДСКИХ ОПЕРАЦИЙ -->
-    <div class="drawer" id="drawer_history">
-        <div class="drawer-header"><h3>История<br>операций</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div id="historyFeed">Загрузка...</div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 6: ДЕТАЛИ ОПЕРАЦИИ -->
-    <div class="drawer" id="drawer_op_details">
-        <div class="drawer-header"><h3>Детали<br>операции</h3><div class="btn-close" onclick="openDrawer('history')">←</div></div>
-        <div class="drawer-content" id="op_details_content"></div>
-    </div>
-
-    <!-- ШТОРКА 7: ПЕРЕКЛЮЧАТЕЛЬ ЗАВЕДЕНИЙ -->
-    <div class="drawer" id="drawer_switcher">
-        <div class="drawer-header"><h3>Ваши<br>заведения</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div id="companyList"></div>
-            <hr style="margin:25px 0; border:0; border-top:1px solid var(--border);">
-            <button type="button" class="btn-main" onclick="joinByCode()" style="margin-bottom: 15px;">+ Вступить по коду</button>
-            <button type="button" class="btn-main" onclick="openDrawer('create_biz')" style="background:var(--bg); color:var(--text); border:1px solid var(--border);">+ Создать новый бизнес</button>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 8: НАСТРОЙКА ИНТЕГРАЦИИ IIKO RMS -->
-    <div class="drawer" id="drawer_iiko">
-        <div class="drawer-header"><h3>Интеграция<br>iiko RMS</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <label for="iiko_host">Адрес сервера iiko RMS</label>
-            <input type="text" id="iiko_host" placeholder="https://address.iiko.it:443" autocomplete="off">
-            <label for="iiko_login">Логин API</label>
-            <input type="text" id="iiko_login" placeholder="Логин API" autocomplete="off">
-            <label for="iiko_pass">Пароль API</label>
-            <input type="password" id="iiko_pass" placeholder="Пароль API" autocomplete="off">
-            <div style="display:flex; gap:10px; margin-top:15px;">
-                <button type="button" class="btn-main" id="btn_save_sync" onclick="saveAndSyncIiko()" style="flex:1; background:#10B981;">Сохранить и синхронизировать</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 9: СОЗДАНИЕ НОВОГО БИЗНЕСА -->
-    <div class="drawer" id="drawer_create_biz">
-        <div class="drawer-header"><h3>Новый бизнес</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <label for="new_biz_name">Название заведения</label>
-            <input type="text" id="new_biz_name" placeholder="Введите название ресторана..." autocomplete="off">
-            <button type="button" class="btn-main" onclick="createNewBusiness()">Создать</button>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 10: НАСТРОЙКА РОЛИ СОТРУДНИКА -->
-    <div class="drawer" id="drawer_change_role">
-        <div class="drawer-header"><h3>Настройка роли</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <input type="hidden" id="target_user_id">
-            <label for="new_role_select">Роль в системе</label>
-            <select id="new_role_select">
-                <option value="owner">Владелец (Owner)</option>
-                <option value="manager">Менеджер (Manager)</option>
-                <option value="admin">Администратор (Admin)</option>
-                <option value="user">Сотрудник (User)</option>
-            </select>
-            <label for="new_title_input">Должность в заведении</label>
-            <input type="text" id="new_title_input" placeholder="Напр. Шеф-повар, Старший бармен" autocomplete="off">
-            <button type="button" class="btn-main" onclick="submitRoleChange()" style="margin-top: 10px;">Сохранить изменения</button>
-            <button type="button" class="btn-main" style="background:#EF4444; margin-top: 20px;" onclick="removeMember()">Удалить сотрудника из заведения</button>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 11: РЕДАКТИРОВАНИЕ СПИСАНИЯ -->
-    <div class="drawer" id="drawer_edit_writeoff">
-        <div class="drawer-header"><h3>Редактировать<br>списание</h3><div class="btn-close" onclick="openDrawer('history')">←</div></div>
-        <div class="drawer-content">
-            <input type="hidden" id="edit_op_id">
-            
-            <div class="input-group">
-                <label for="edit_w_search">Товар (только для чтения)</label>
-                <input type="text" id="edit_w_search" readonly style="background:var(--surface);">
-            </div>
-
-            <div style="display:flex; gap:10px; margin-bottom: 15px;">
-                <div style="flex:2;">
-                    <label for="edit_w_qty">Количество</label>
-                    <input type="number" id="edit_w_qty" step="0.001" placeholder="0.00" style="margin-bottom:0;">
-                </div>
-                <div style="flex:1;">
-                    <label for="edit_w_unit_display">Ед. изм.</label>
-                    <input type="text" id="edit_w_unit_display" readonly style="margin-bottom:0; text-align:center; font-weight:800; background:var(--surface);">
-                </div>
-            </div>
-
-            <div class="input-group">
-                <label>Дата и время списания</label>
-                <div class="date-input-wrapper">
-                    <div class="fake-input" id="edit_w_date_fake">Выберите дату...</div>
-                    <input type="datetime-local" id="edit_w_date" onchange="updateEditFakeDate(this.value)">
-                </div>
-            </div>
-
-            <div class="input-group">
-                <label for="edit_w_location">Склад списания</label>
-                <select id="edit_w_location" style="margin-bottom:0;"></select>
-            </div>
-
-            <div class="input-group">
-                <label for="edit_w_account_id">Счет (Статья расходов)</label>
-                <select id="edit_w_account_id" style="margin-bottom:0;"></select>
-            </div>
-
-            <div class="input-group">
-                <label for="edit_w_comment">Причина списания / Комментарий</label>
-                <input type="text" id="edit_w_comment" placeholder="Укажите причину изменения..." style="margin-bottom:0;">
-            </div>
-
-            <button type="button" class="btn-main" onclick="submitEditWriteoff()" style="margin-top:20px; background:#10B981;">Сохранить изменения</button>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 12: СФОРМИРОВАННЫЕ ЗАЯВКИ ДЛЯ TELEGRAM -->
-    <div class="drawer" id="drawer_procurement_results">
-        <div class="drawer-header"><h3>Сформированные<br>заявки</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content" id="procurement_results_content"></div>
-    </div>
-
-    <!-- ШТОРКА 13: АКТИВНЫЕ ЗАЯВКИ НА СОГЛАСОВАНИЕ -->
-    <div class="drawer" id="drawer_active_requests">
-        <div class="drawer-header"><h3>Заявки на<br>согласование</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div id="activePendingRequestsList">Загрузка...</div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 14: КОНТАКТЫ ПОСТАВЩИКОВ -->
-    <div class="drawer" id="drawer_supplier_contacts">
-        <div class="drawer-header"><h3>Контакты<br>поставщиков</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div style="margin-bottom:15px; font-size:12px; color:var(--text-muted)">
-                Привяжите к поставщикам из iiko их Telegram-аккаунты (без @), чтобы отправлять заказы в один клик.
-            </div>
-            <input type="text" id="supplier_contact_search" oninput="filterSupplierContactsList()" placeholder="Поиск поставщика по названию..." style="margin-bottom: 15px;" autocomplete="off">
-            <div id="supplierContactsList">Загрузка...</div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 15: СТАТЬИ СПИСАНИЙ -->
-    <div class="drawer" id="drawer_accounts">
-        <div class="drawer-header"><h3>Статьи<br>списаний</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div style="background: var(--surface); padding: 15px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 20px;">
-                <label for="acc_iiko_select">Выберите счет из iiko:</label>
-                <select id="acc_iiko_select">
-                    <option value="">⏳ Загрузка счетов из iiko...</option>
-                </select>
-                <button type="button" class="btn-main" onclick="addAccountFromIiko()" style="margin-top: 15px;">+ Добавить в доступные</button>
-            </div>
-            <div class="section-title">Доступные статьи</div>
-            <div id="accountsList">Загрузка...</div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 16: УМНЫЙ ГРАФИК РАБОТЫ -->
-    <div class="drawer" id="drawer_schedule">
-        <div class="drawer-header">
-            <h3>Составление графика</h3>
-            <div class="btn-close" onclick="closeDrawer()">✕</div>
-        </div>
-        <div class="drawer-content">
-            <!-- Вкладки шагов -->
-            <div style="display: flex; gap: 4px; margin-bottom: 15px; background: var(--border); padding: 3px; border-radius: 12px;">
-                <button type="button" class="btn-main" id="sched_tab_btn_1" onclick="switchSchedTab(1)" style="flex:1; padding: 8px; font-size: 11px; margin:0; background: var(--surface); color: var(--text);">1. Состав</button>
-                <button type="button" class="btn-main" id="sched_tab_btn_2" onclick="switchSchedTab(2)" style="flex:1; padding: 8px; font-size: 11px; margin:0; background: transparent; color: var(--text-muted); box-shadow: none;">2. Потребность</button>
-                <button type="button" class="btn-main" id="sched_tab_btn_3" onclick="switchSchedTab(3)" style="flex:1; padding: 8px; font-size: 11px; margin:0; background: transparent; color: var(--text-muted); box-shadow: none;">3. Пожелания</button>
-                <button type="button" class="btn-main" id="sched_tab_btn_4" onclick="switchSchedTab(4)" style="flex:1; padding: 8px; font-size: 11px; margin:0; background: transparent; color: var(--text-muted); box-shadow: none;">4. График</button>
-            </div>
-
-            <!-- ШАГ 1: Выбор участников -->
-            <div id="sched_tab_1">
-                <div class="section-title">Сотрудники в графике</div>
-                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Отметьте персонал для распределения смен:</div>
-                <div id="sched_staff_list">Загрузка команды...</div>
-                <button type="button" class="btn-main" onclick="switchSchedTab(2)" style="margin-top: 15px;">Далее: Потребность смен</button>
-            </div>
-
-            <!-- ШАГ 2: Настройка потребности по дням -->
-            <div id="sched_tab_2" style="display:none;">
-                <div class="section-title">Количество людей в смену</div>
-                <div id="sched_demand_grid" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px;"></div>
-                <button type="button" class="btn-main" onclick="switchSchedTab(3)" style="margin-top: 10px;">Далее: Пожелания команды</button>
-            </div>
-
-            <!-- ШАГ 3: Пожелания -->
-            <div id="sched_tab_3" style="display:none;">
-                <div class="section-title">Доступность сотрудника</div>
-                <div class="input-group">
-                    <select id="sched_user_select" onchange="renderUserSlots()"></select>
-                </div>
-                
-                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">Нажимайте на день для смены статуса (Любая / Утро / Вечер / Выходной):</div>
-                <div id="sched_slots_grid" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 15px;"></div>
-                <button type="button" class="btn-main" onclick="switchSchedTab(4)" style="margin-top: 10px; background: #10B981;">Сформировать график</button>
-            </div>
-
-            <!-- ШАГ 4: Результат расчета -->
-            <div id="sched_tab_4" style="display:none;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
-                    <div class="section-title" style="margin-bottom:0;">Итоговый график</div>
-                    <button type="button" class="btn-tiny" onclick="generateSchedule()">Пересчитать</button>
-                </div>
-                
-                <div id="sched_result_list" style="display: flex; flex-direction: column; gap: 10px;"></div>
-                
-                <div style="margin-top: 15px;">
-                    <button type="button" class="btn-main" onclick="copyScheduleText()" style="background: var(--surface); color: var(--text); border: 1px solid var(--border);">Скопировать текст для чата</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Затемнение заднего фона при открытых шторках -->
-    <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
-
-    <!-- Клиентский скрипт приложения -->
-    <script src="/static/js/app.js?v=2.0"></script>
-
     <!-- ====================================================================== -->
-    <!-- ПОРТАЛ ПОСТАВЩИКА                                                      -->
+    <!-- ПОРТАЛ ПОСТАВЩИКА (КАБИНЕТ И СПИСОК ТОВАРОВ)                           -->
     <!-- ====================================================================== -->
-    
-    <div id="supplier-portal" style="display:none;">
-        <div class="app-container">
-            <div class="hero-spacer"></div>
-            
-            <div id="supplier-tab-offers" class="supplier-tab-content tab-content" style="display:block;">
-                <div class="section">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px; padding-top: 5px;">
-                        <div class="section-title" style="margin-bottom:0;">Карточки товаров</div>
-                        <button type="button" class="btn-tiny" onclick="openSupplierOfferModal()" style="border-color: var(--primary); color: var(--primary); font-weight:800;">+ Добавить</button>
-                    </div>
-                    <div id="supplier_offers_list"></div>
-                </div>
-            </div>
+    <div id="supplier-portal" class="app-container" style="display:none;">
+        <div class="hero-spacer"></div>
 
-            <div id="supplier-tab-orders" class="supplier-tab-content tab-content" style="display:none;">
-                <div class="section">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px; padding-top: 5px;">
-                        <div class="section-title" style="margin-bottom:0;">Заказы от ресторанов</div>
-                    </div>
-                    <div class="empty-state">У вас пока нет заказов.</div>
-                </div>
-            </div>
-
-            <div id="supplier-tab-settings" class="supplier-tab-content tab-content" style="display:none;">
-                <div class="section">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px; padding-top: 5px;">
-                        <div class="section-title" style="margin-bottom:0;">Аналитика</div>
-                        <button type="button" onclick="closeSupplierPortal()" class="btn-tiny" style="border-color: var(--accent); color: var(--accent); font-weight:800;">Выйти</button>
-                    </div>
-                    <div id="supplier-tab-settings-inner">
-                        <!-- JS fills this -->
+        <!-- Вкладка 1: Мои офферы и спецпредложения -->
+        <div id="supplier-tab-offers" class="supplier-tab-content" style="display:block;">
+            <div class="section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-top: 5px;">
+                    <div class="section-title" style="margin-bottom:0;">Мои спецпредложения</div>
+                    <div style="display:flex; gap:8px;">
+                        <button type="button" class="btn-tiny" onclick="openSupplierOfferModal(0)" style="background:var(--accent); color:white; border:none;">+ Добавить</button>
+                        <button type="button" class="btn-tiny" onclick="closeSupplierPortal()" style="border-color:var(--border); color:var(--text-muted);">В общепит</button>
                     </div>
                 </div>
-            </div>
-            
-            <nav class="nav-bar" style="grid-template-columns: repeat(3, 1fr);">
-                <a href="javascript:void(0)" class="nav-item supplier-nav-item active" id="sup-nav-offers" onclick="switchSupplierTab('offers')"><span>📦</span>Товары</a>
-                <a href="javascript:void(0)" class="nav-item supplier-nav-item" id="sup-nav-orders" onclick="switchSupplierTab('orders')"><span>🛒</span>Заказы</a>
-                <a href="javascript:void(0)" class="nav-item supplier-nav-item" id="sup-nav-settings" onclick="switchSupplierTab('settings')"><span>📈</span>Аналитика</a>
-            </nav>
-        </div>
-    </div>
-    
-    <!-- ШТОРКА 1: СПИСОК ИНВЕНТАРИЗАЦИЙ -->
-    <div class="drawer" id="drawer_inventory_list">
-        <div class="drawer-header"><h3>Сверка<br>остатков</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div style="background: var(--surface); padding: 15px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 20px;">
-                <label for="inv_new_location">Выберите склад:</label>
-                <select id="inv_new_location" onchange="loadQA2ATemplates(this.value)"></select>
-                
-                <div id="qa2a_templates_wrapper" style="display:none; margin-top: 15px;">
-                    <label for="qa2a_templates_select">Доступные бланки от бухгалтера:</label>
-                    <select id="qa2a_templates_select" style="margin-bottom:0; font-weight: bold; color: var(--accent); border-color: var(--accent);"></select>
-                </div>
-
-                <div style="display:flex; gap:10px; margin-top: 15px;">
-                    <button type="button" class="btn-main" onclick="startInventory()" style="flex:1;">+ Весь склад</button>
-                    <button type="button" class="btn-main" id="btn_start_from_template" onclick="startInventoryFromTemplate()" style="flex:1; background: var(--surface); color: var(--text); border: 1px solid var(--border); display:none;">+ Из бланка</button>
-                </div>
-            </div>
-            <div class="section-title">История актов</div>
-            <div id="inventoryActList">Загрузка...</div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 2: ПРОЦЕСС ИНВЕНТАРИЗАЦИИ -->
-    <div class="drawer" id="drawer_inventory_process">
-        <div class="drawer-header"><h3 id="inv_process_title">Акт #</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <input type="text" id="inv_search" oninput="filterInventory()" placeholder="Поиск товара..." style="margin-bottom: 15px;" autocomplete="off">
-            <div id="inv_items_container"></div>
-            
-            <div id="inv_actions" style="display:flex; flex-direction:column; gap:10px; margin-top:20px; position: sticky; bottom: 0; background: var(--bg); padding: 10px 0;">
-                <div style="display:flex; gap:10px;">
-                    <button type="button" class="btn-main" id="btn_inv_draft" onclick="saveInventoryProgress(false)" style="flex:1; background: var(--surface); color: var(--text); border: 1px solid var(--border);">💾 Черновик</button>
-                    <button type="button" class="btn-main" id="btn_inv_final" onclick="saveInventoryProgress(true)" style="flex:1; background: #10B981;">✅ Завершить</button>
-                </div>
-                <button type="button" class="btn-main" id="btn_inv_delete" onclick="deleteInventoryAct()" style="background: #EF4444; color: white;">🗑️ Удалить черновик</button>
+                <div id="supplier_offers_list" style="margin-bottom: 20px;"></div>
             </div>
         </div>
-    </div>
-    
-    <!-- ШТОРКА 3: АРХИВ ЗАЯВОК НА ЗАКУПКУ -->
-    <div class="drawer" id="drawer_archive">
-        <div class="drawer-header"><h3>Архив заявок</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div id="adminApprovedRequests">Загрузка...</div>
-        </div>
-    </div>
 
-    <!-- ШТОРКА 4: КОМАНДА ЗАВЕДЕНИЯ -->
-    <div class="drawer" id="drawer_team">
-        <div class="drawer-header"><h3>Команда</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div id="memberList">Загрузка...</div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 5: ИСТОРИЯ СКЛАДСКИХ ОПЕРАЦИЙ -->
-    <div class="drawer" id="drawer_history">
-        <div class="drawer-header"><h3>История<br>операций</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div id="historyFeed">Загрузка...</div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 6: ДЕТАЛИ ОПЕРАЦИИ -->
-    <div class="drawer" id="drawer_op_details">
-        <div class="drawer-header"><h3>Детали<br>операции</h3><div class="btn-close" onclick="openDrawer('history')">←</div></div>
-        <div class="drawer-content" id="op_details_content"></div>
-    </div>
-
-    <!-- ШТОРКА 7: ПЕРЕКЛЮЧАТЕЛЬ ЗАВЕДЕНИЙ -->
-    <div class="drawer" id="drawer_switcher">
-        <div class="drawer-header"><h3>Ваши<br>заведения</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div id="companyList"></div>
-            <hr style="margin:25px 0; border:0; border-top:1px solid var(--border);">
-            <button type="button" class="btn-main" onclick="joinByCode()" style="margin-bottom: 15px;">+ Вступить по коду</button>
-            <button type="button" class="btn-main" onclick="openDrawer('create_biz')" style="background:var(--bg); color:var(--text); border:1px solid var(--border);">+ Создать новый бизнес</button>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 8: НАСТРОЙКА ИНТЕГРАЦИИ IIKO RMS -->
-    <div class="drawer" id="drawer_iiko">
-        <div class="drawer-header"><h3>Интеграция<br>iiko RMS</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <label for="iiko_host">Адрес сервера iiko RMS</label>
-            <input type="text" id="iiko_host" placeholder="https://address.iiko.it:443" autocomplete="off">
-            <label for="iiko_login">Логин API</label>
-            <input type="text" id="iiko_login" placeholder="Логин API" autocomplete="off">
-            <label for="iiko_pass">Пароль API</label>
-            <input type="password" id="iiko_pass" placeholder="Пароль API" autocomplete="off">
-            <div style="display:flex; gap:10px; margin-top:15px;">
-                <button type="button" class="btn-main" id="btn_save_sync" onclick="saveAndSyncIiko()" style="flex:1; background:#10B981;">Сохранить и синхронизировать</button>
+        <!-- Вкладка 2: Аналитика просмотров и кликов -->
+        <div id="supplier-tab-settings" class="supplier-tab-content" style="display:none;">
+            <div class="section" style="padding-top: 5px;">
+                <div class="section-title">Воронка и конверсия</div>
+                <div id="supplier-tab-settings-inner"></div>
             </div>
         </div>
-    </div>
 
-    <!-- ШТОРКА 9: СОЗДАНИЕ НОВОГО БИЗНЕСА -->
-    <div class="drawer" id="drawer_create_biz">
-        <div class="drawer-header"><h3>Новый бизнес</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <label for="new_biz_name">Название заведения</label>
-            <input type="text" id="new_biz_name" placeholder="Введите название ресторана..." autocomplete="off">
-            <button type="button" class="btn-main" onclick="createNewBusiness()">Создать</button>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 10: НАСТРОЙКА РОЛИ СОТРУДНИКА -->
-    <div class="drawer" id="drawer_change_role">
-        <div class="drawer-header"><h3>Настройка роли</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <input type="hidden" id="target_user_id">
-            <label for="new_role_select">Роль в системе</label>
-            <select id="new_role_select">
-                <option value="owner">Владелец (Owner)</option>
-                <option value="manager">Менеджер (Manager)</option>
-                <option value="admin">Администратор (Admin)</option>
-                <option value="user">Сотрудник (User)</option>
-            </select>
-            <label for="new_title_input">Должность в заведении</label>
-            <input type="text" id="new_title_input" placeholder="Напр. Шеф-повар, Старший бармен" autocomplete="off">
-            <button type="button" class="btn-main" onclick="submitRoleChange()" style="margin-top: 10px;">Сохранить изменения</button>
-            <button type="button" class="btn-main" style="background:#EF4444; margin-top: 20px;" onclick="removeMember()">Удалить сотрудника из заведения</button>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 11: РЕДАКТИРОВАНИЕ СПИСАНИЯ -->
-    <div class="drawer" id="drawer_edit_writeoff">
-        <div class="drawer-header"><h3>Редактировать<br>списание</h3><div class="btn-close" onclick="openDrawer('history')">←</div></div>
-        <div class="drawer-content">
-            <input type="hidden" id="edit_op_id">
-            
-            <div class="input-group">
-                <label for="edit_w_search">Товар (только для чтения)</label>
-                <input type="text" id="edit_w_search" readonly style="background:var(--surface);">
-            </div>
-
-            <div style="display:flex; gap:10px; margin-bottom: 15px;">
-                <div style="flex:2;">
-                    <label for="edit_w_qty">Количество</label>
-                    <input type="number" id="edit_w_qty" step="0.001" placeholder="0.00" style="margin-bottom:0;">
-                </div>
-                <div style="flex:1;">
-                    <label for="edit_w_unit_display">Ед. изм.</label>
-                    <input type="text" id="edit_w_unit_display" readonly style="margin-bottom:0; text-align:center; font-weight:800; background:var(--surface);">
-                </div>
-            </div>
-
-            <div class="input-group">
-                <label>Дата и время списания</label>
-                <div class="date-input-wrapper">
-                    <div class="fake-input" id="edit_w_date_fake">Выберите дату...</div>
-                    <input type="datetime-local" id="edit_w_date" onchange="updateEditFakeDate(this.value)">
-                </div>
-            </div>
-
-            <div class="input-group">
-                <label for="edit_w_location">Склад списания</label>
-                <select id="edit_w_location" style="margin-bottom:0;"></select>
-            </div>
-
-            <div class="input-group">
-                <label for="edit_w_account_id">Счет (Статья расходов)</label>
-                <select id="edit_w_account_id" style="margin-bottom:0;"></select>
-            </div>
-
-            <div class="input-group">
-                <label for="edit_w_comment">Причина списания / Комментарий</label>
-                <input type="text" id="edit_w_comment" placeholder="Укажите причину изменения..." style="margin-bottom:0;">
-            </div>
-
-            <button type="button" class="btn-main" onclick="submitEditWriteoff()" style="margin-top:20px; background:#10B981;">Сохранить изменения</button>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 12: СФОРМИРОВАННЫЕ ЗАЯВКИ ДЛЯ TELEGRAM -->
-    <div class="drawer" id="drawer_procurement_results">
-        <div class="drawer-header"><h3>Сформированные<br>заявки</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content" id="procurement_results_content"></div>
-    </div>
-
-    <!-- ШТОРКА 13: АКТИВНЫЕ ЗАЯВКИ НА СОГЛАСОВАНИЕ -->
-    <div class="drawer" id="drawer_active_requests">
-        <div class="drawer-header"><h3>Заявки на<br>согласование</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div id="activePendingRequestsList">Загрузка...</div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 14: КОНТАКТЫ ПОСТАВЩИКОВ -->
-    <div class="drawer" id="drawer_supplier_contacts">
-        <div class="drawer-header"><h3>Контакты<br>поставщиков</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div style="margin-bottom:15px; font-size:12px; color:var(--text-muted)">
-                Привяжите к поставщикам из iiko их Telegram-аккаунты (без @), чтобы отправлять заказы в один клик.
-            </div>
-            <input type="text" id="supplier_contact_search" oninput="filterSupplierContactsList()" placeholder="Поиск поставщика по названию..." style="margin-bottom: 15px;" autocomplete="off">
-            <div id="supplierContactsList">Загрузка...</div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 15: СТАТЬИ СПИСАНИЙ -->
-    <div class="drawer" id="drawer_accounts">
-        <div class="drawer-header"><h3>Статьи<br>списаний</h3><div class="btn-close" onclick="closeDrawer()">✕</div></div>
-        <div class="drawer-content">
-            <div style="background: var(--surface); padding: 15px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 20px;">
-                <label for="acc_iiko_select">Выберите счет из iiko:</label>
-                <select id="acc_iiko_select">
-                    <option value="">⏳ Загрузка счетов из iiko...</option>
-                </select>
-                <button type="button" class="btn-main" onclick="addAccountFromIiko()" style="margin-top: 15px;">+ Добавить в доступные</button>
-            </div>
-            <div class="section-title">Доступные статьи</div>
-            <div id="accountsList">Загрузка...</div>
-        </div>
-    </div>
-
-    <!-- ШТОРКА 16: УМНЫЙ ГРАФИК РАБОТЫ -->
-    <div class="drawer" id="drawer_schedule">
-        <div class="drawer-header">
-            <h3>Составление графика</h3>
-            <div class="btn-close" onclick="closeDrawer()">✕</div>
-        </div>
-        <div class="drawer-content">
-            <!-- Вкладки шагов -->
-            <div style="display: flex; gap: 4px; margin-bottom: 15px; background: var(--border); padding: 3px; border-radius: 12px;">
-                <button type="button" class="btn-main" id="sched_tab_btn_1" onclick="switchSchedTab(1)" style="flex:1; padding: 8px; font-size: 11px; margin:0; background: var(--surface); color: var(--text);">1. Состав</button>
-                <button type="button" class="btn-main" id="sched_tab_btn_2" onclick="switchSchedTab(2)" style="flex:1; padding: 8px; font-size: 11px; margin:0; background: transparent; color: var(--text-muted); box-shadow: none;">2. Потребность</button>
-                <button type="button" class="btn-main" id="sched_tab_btn_3" onclick="switchSchedTab(3)" style="flex:1; padding: 8px; font-size: 11px; margin:0; background: transparent; color: var(--text-muted); box-shadow: none;">3. Пожелания</button>
-                <button type="button" class="btn-main" id="sched_tab_btn_4" onclick="switchSchedTab(4)" style="flex:1; padding: 8px; font-size: 11px; margin:0; background: transparent; color: var(--text-muted); box-shadow: none;">4. График</button>
-            </div>
-
-            <!-- ШАГ 1: Выбор участников -->
-            <div id="sched_tab_1">
-                <div class="section-title">Сотрудники в графике</div>
-                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Отметьте персонал для распределения смен:</div>
-                <div id="sched_staff_list">Загрузка команды...</div>
-                <button type="button" class="btn-main" onclick="switchSchedTab(2)" style="margin-top: 15px;">Далее: Потребность смен</button>
-            </div>
-
-            <!-- ШАГ 2: Настройка потребности по дням -->
-            <div id="sched_tab_2" style="display:none;">
-                <div class="section-title">Количество людей в смену</div>
-                <div id="sched_demand_grid" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px;"></div>
-                <button type="button" class="btn-main" onclick="switchSchedTab(3)" style="margin-top: 10px;">Далее: Пожелания команды</button>
-            </div>
-
-            <!-- ШАГ 3: Пожелания -->
-            <div id="sched_tab_3" style="display:none;">
-                <div class="section-title">Доступность сотрудника</div>
-                <div class="input-group">
-                    <select id="sched_user_select" onchange="renderUserSlots()"></select>
-                </div>
-                
-                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">Нажимайте на день для смены статуса (Любая / Утро / Вечер / Выходной):</div>
-                <div id="sched_slots_grid" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 15px;"></div>
-                <button type="button" class="btn-main" onclick="switchSchedTab(4)" style="margin-top: 10px; background: #10B981;">Сформировать график</button>
-            </div>
-
-            <!-- ШАГ 4: Результат расчета -->
-            <div id="sched_tab_4" style="display:none;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
-                    <div class="section-title" style="margin-bottom:0;">Итоговый график</div>
-                    <button type="button" class="btn-tiny" onclick="generateSchedule()">Пересчитать</button>
-                </div>
-                
-                <div id="sched_result_list" style="display: flex; flex-direction: column; gap: 10px;"></div>
-                
-                <div style="margin-top: 15px;">
-                    <button type="button" class="btn-main" onclick="copyScheduleText()" style="background: var(--surface); color: var(--text); border: 1px solid var(--border);">Скопировать текст для чата</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Затемнение заднего фона при открытых шторках -->
-    <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
-
-    <!-- Клиентский скрипт приложения -->
-    <script src="/static/js/app.js?v=2.0"></script>
-
-    <!-- ====================================================================== -->
-    <!-- ПОРТАЛ ПОСТАВЩИКА                                                      -->
-    <!-- ====================================================================== -->
-    <div id="supplier-portal" style="display:none;">
-        <!-- Header -->
-        <header style="display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 12px; height: 90px; position: fixed; top: 0; width: 100%; z-index: 1000; background: var(--bg); border-bottom: 1px solid var(--border);">
-            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0 15px;">
-                <div style="width: 70px;"></div>
-                <h1 style="font-size: 15px; font-weight: 800; color: var(--primary); margin: 0; text-align: center; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Кабинет поставщика</h1>
-                <div style="width: 70px; text-align: right;">
-                    <button type="button" onclick="closeSupplierPortal()" style="background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-weight:600; font-size: 12px; cursor: pointer;">Выйти</button>
-                </div>
-            </div>
-        </header>
-
-        <!-- Content Area -->
-        <div style="padding-top: 80px; padding-bottom: 120px;">
-            
-            <!-- Вкладка 1: Товары -->
-            <div id="supplier-tab-offers" class="supplier-tab-content" style="display:block; padding: 0 15px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
-                    <h2 style="margin:0; font-size:18px;">Карточки товаров</h2>
-                    <button class="btn-tiny" onclick="openSupplierOfferModal()" style="background:var(--primary); color:white; border:none; padding: 6px 12px; border-radius:8px; font-weight:600;">+ Добавить</button>
-                </div>
-                
-                <div id="supplier_offers_list" style="display:flex; flex-direction:column; gap:12px;">
-                    <!-- Cards injected here -->
-                </div>
-            </div>
-
-            <!-- Вкладка 2: Входящие заявки -->
-            <div id="supplier-tab-orders" class="supplier-tab-content" style="display:none; padding: 0 15px;">
-                <h2 style="margin:0 0 20px 0; font-size:18px;">Заказы</h2>
-                <div class="empty-state">
-                    Раздел в разработке.<br><br>Здесь будут отображаться прямые заказы от ресторанов.
-                </div>
-            </div>
-
-            <!-- Вкладка 3: Аналитика / Настройки -->
-            <div id="supplier-tab-settings" class="supplier-tab-content" style="display:none; padding: 0 15px;">
-                <h2 style="margin:0 0 20px 0; font-size:18px;">Аналитика</h2>
-                <div id="supplier-tab-settings-inner">
-                    <!-- JS injects analytics here -->
-                </div>
-            </div>
-
-        </div>
-
-        <!-- Supplier Bottom Nav -->
-        <nav class="nav-bar" style="grid-template-columns: repeat(3, 1fr);">
-            <a href="javascript:void(0)" class="nav-item supplier-nav-item active" id="sup-nav-offers" onclick="switchSupplierTab('offers')">
-                <span>📦</span>
-                <span>Товары</span>
-            </a>
-            <a href="javascript:void(0)" class="nav-item supplier-nav-item" id="sup-nav-orders" onclick="switchSupplierTab('orders')">
-                <span>🛒</span>
-                <span>Заказы</span>
-            </a>
-            <a href="javascript:void(0)" class="nav-item supplier-nav-item" id="sup-nav-settings" onclick="switchSupplierTab('settings')">
-                <span>📈</span>
-                <span>Аналитика</span>
-            </a>
+        <!-- Нижний бар поставщика -->
+        <nav class="nav-bar" style="grid-template-columns: 1fr 1fr;">
+            <a href="javascript:void(0)" class="nav-item supplier-nav-item active" id="sup-nav-offers" onclick="switchSupplierTab('offers')"><span>📦</span>Товары</a>
+            <a href="javascript:void(0)" class="nav-item supplier-nav-item" id="sup-nav-settings" onclick="switchSupplierTab('settings')"><span>📊</span>Воронка</a>
         </nav>
     </div>
 

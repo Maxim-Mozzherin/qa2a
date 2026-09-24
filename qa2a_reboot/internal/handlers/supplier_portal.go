@@ -9,6 +9,10 @@ import (
 	"strings"
 )
 
+// ============================================================================
+// ПОРТАЛ ПОСТАВЩИКА (B2B MARKETPLACE SUPPLIER PORTAL)
+// ============================================================================
+
 func (h *Handler) GetSupplierOffersHandler(w http.ResponseWriter, req *http.Request) {
 	if req.Method == "OPTIONS" {
 		w.WriteHeader(http.StatusOK)
@@ -66,7 +70,7 @@ func (h *Handler) RegisterSupplierHandler(w http.ResponseWriter, req *http.Reque
 	tokenStr := req.Header.Get("X-Telegram-ID")
 	tgID := middleware.VerifySignedTokenExported(tokenStr, h.botToken)
 	if tgID == 0 {
-		http.Error(w, `{error: Unauthorized}`, http.StatusUnauthorized)
+		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
 
@@ -85,11 +89,11 @@ func (h *Handler) RegisterSupplierHandler(w http.ResponseWriter, req *http.Reque
 	_, err := h.marketplaceService.RegisterSupplier(tgID, reqBody.CompanyName)
 
 	if err != nil {
-		http.Error(w, `{error: Server error}`, http.StatusInternalServerError)
+		http.Error(w, `{"error": "Server error"}`, http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{status: ok}`))
+	w.Write([]byte(`{"status": "ok"}`))
 }
 
 func (h *Handler) JoinSupplierHandler(w http.ResponseWriter, req *http.Request) {
@@ -164,7 +168,10 @@ func (h *Handler) DeleteSupplierOfferHandler(w http.ResponseWriter, req *http.Re
 	}
 
 	var offerID int
-	fmt.Sscanf(idStr, "%d", &offerID)
+	if _, err := fmt.Sscanf(idStr, "%d", &offerID); err != nil || offerID <= 0 {
+		http.Error(w, `{"error": "Invalid ID"}`, http.StatusBadRequest)
+		return
+	}
 
 	err := h.marketplaceService.DeleteSupplierOffer(supplierID, offerID)
 	if err != nil {

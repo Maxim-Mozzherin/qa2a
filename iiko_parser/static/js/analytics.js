@@ -223,17 +223,252 @@ function processPriceData(records) {
     return items;
 }
 
-function renderPriceAnalyticsTable(data) {
+let currentAnalyticsSortCol = 'name';
+let currentAnalyticsSortDir = 'asc';
+
+function updateAnalyticsSuppliersDropdown(items) {
+    const supSelect = document.getElementById('analytics-supplier-filter');
+    if (!supSelect) return;
+    const currentVal = supSelect.value;
+    
+    // Собрать уникальных поставщиков
+    const suppliers = new Set();
+    items.forEach(it => {
+        if (it.latestSupplier && it.latestSupplier.trim() !== '') {
+            suppliers.add(it.latestSupplier.trim());
+        }
+    });
+
+    const sortedSuppliers = Array.from(suppliers).sort((a, b) => a.localeCompare(b));
+    let html = '<option value="">Все поставщики</option>';
+    sortedSuppliers.forEach(sup => {
+        html += `<option value="${escapeHtml(sup)}">${escapeHtml(sup)}</option>`;
+    });
+    supSelect.innerHTML = html;
+    if (sortedSuppliers.includes(currentVal)) {
+        supSelect.value = currentVal;
+    }
+}
+
+function updateAnalyticsStats(total, filtered, counts) {
+    const statsEl = document.getElementById('analytics-filter-stats');
+    if (statsEl) {
+        statsEl.textContent = `Показано: ${filtered} из ${total}`;
+    }
+    const cntAll = document.getElementById('count-dyn-all');
+    const cntInc = document.getElementById('count-dyn-growth');
+    const cntDec = document.getElementById('count-dyn-drop');
+    const cntStb = document.getElementById('count-dyn-stable');
+
+    if (cntAll) cntAll.textContent = counts.all;
+    if (cntInc) cntInc.textContent = counts.growth;
+    if (cntDec) cntDec.textContent = counts.drop;
+    if (cntStb) cntStb.textContent = counts.stable;
+}
+
+function updateQuickDynamicsChipUI(selected) {
+    const chips = {
+        all: document.getElementById('chip-dyn-all'),
+        growth: document.getElementById('chip-dyn-growth'),
+        drop: document.getElementById('chip-dyn-drop'),
+        stable: document.getElementById('chip-dyn-stable')
+    };
+
+    Object.keys(chips).forEach(key => {
+        const el = chips[key];
+        if (!el) return;
+        if (key === selected) {
+            el.className = 'px-3 py-1 rounded-lg text-xs font-semibold bg-brand-500/25 text-brand-300 border border-brand-500/50 shadow-sm transition-all flex items-center gap-1.5';
+        } else {
+            el.className = 'px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800/70 text-slate-300 border border-slate-700/60 hover:bg-slate-700/50 hover:text-white transition-all flex items-center gap-1.5';
+        }
+    });
+}
+
+function updateColumnSortHeaders() {
+    const cols = ['name', 'price', 'diff'];
+    cols.forEach(col => {
+        const thSpan = document.getElementById(`th-sort-${col}`);
+        if (!thSpan) return;
+        if (currentAnalyticsSortCol === col) {
+            thSpan.textContent = currentAnalyticsSortDir === 'asc' ? '▲' : '▼';
+            thSpan.className = 'text-[10px] text-brand-400 font-bold';
+        } else {
+            thSpan.textContent = '↕';
+            thSpan.className = 'text-[10px] text-slate-500';
+        }
+    });
+}
+
+window.toggleColumnSort = function(col) {
+    if (currentAnalyticsSortCol === col) {
+        currentAnalyticsSortDir = currentAnalyticsSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentAnalyticsSortCol = col;
+        currentAnalyticsSortDir = (col === 'diff' || col === 'price') ? 'desc' : 'asc';
+    }
+
+    const sortSelect = document.getElementById('analytics-sort');
+    if (sortSelect) {
+        if (col === 'name') sortSelect.value = currentAnalyticsSortDir === 'asc' ? 'name_asc' : 'name_desc';
+        else if (col === 'diff') sortSelect.value = currentAnalyticsSortDir === 'desc' ? 'diff_desc' : 'diff_asc';
+        else if (col === 'price') sortSelect.value = currentAnalyticsSortDir === 'desc' ? 'price_desc' : 'price_asc';
+    }
+
+    updateColumnSortHeaders();
+    applyAnalyticsFilters();
+};
+
+window.setQuickDynamicsFilter = function(val) {
+    const dynSelect = document.getElementById('analytics-dynamics-filter');
+    if (dynSelect) {
+        dynSelect.value = val;
+    }
+    updateQuickDynamicsChipUI(val);
+    applyAnalyticsFilters();
+};
+
+window.clearAnalyticsSearch = function() {
+    const searchEl = document.getElementById('analytics-search');
+    if (searchEl) {
+        searchEl.value = '';
+    }
+    const clearBtn = document.getElementById('analytics-search-clear');
+    if (clearBtn) clearBtn.classList.add('hidden');
+    applyAnalyticsFilters();
+};
+
+window.resetAllAnalyticsFilters = function() {
+    const searchEl = document.getElementById('analytics-search');
+    if (searchEl) searchEl.value = '';
+    const clearBtn = document.getElementById('analytics-search-clear');
+    if (clearBtn) clearBtn.classList.add('hidden');
+
+    const supSelect = document.getElementById('analytics-supplier-filter');
+    if (supSelect) supSelect.value = '';
+
+    const dynSelect = document.getElementById('analytics-dynamics-filter');
+    if (dynSelect) dynSelect.value = 'all';
+
+    const sortSelect = document.getElementById('analytics-sort');
+    if (sortSelect) sortSelect.value = 'name_asc';
+
+    currentAnalyticsSortCol = 'name';
+    currentAnalyticsSortDir = 'asc';
+    updateColumnSortHeaders();
+    updateQuickDynamicsChipUI('all');
+    applyAnalyticsFilters();
+};
+
+function applyAnalyticsFilters() {
+    const searchEl = document.getElementById('analytics-search');
+    const clearBtn = document.getElementById('analytics-search-clear');
+    const supSelect = document.getElementById('analytics-supplier-filter');
+    const dynSelect = document.getElementById('analytics-dynamics-filter');
+    const sortSelect = document.getElementById('analytics-sort');
+
+    const query = searchEl ? searchEl.value.toLowerCase().trim() : '';
+    if (clearBtn) {
+        if (query) clearBtn.classList.remove('hidden');
+        else clearBtn.classList.add('hidden');
+    }
+
+    const selectedSup = supSelect ? supSelect.value : '';
+    const selectedDyn = dynSelect ? dynSelect.value : 'all';
+    const sortMode = sortSelect ? sortSelect.value : 'name_asc';
+
+    // Подсчет категорий на базе общего кэша (analyticsCache)
+    let counts = { all: analyticsCache.length, growth: 0, drop: 0, stable: 0 };
+    analyticsCache.forEach(item => {
+        const diff = item.price_diff || 0;
+        if (diff > 0.5) counts.growth++;
+        else if (diff < -0.5) counts.drop++;
+        else counts.stable++;
+    });
+
+    const searchWords = query ? query.split(/\s+/) : [];
+
+    let filtered = analyticsCache.filter(item => {
+        // 1. Поиск по тексту
+        if (searchWords.length > 0) {
+            const nameLower = (item.name || '').toLowerCase();
+            const invLower = (item.invoiceName || '').toLowerCase();
+            const latestSup = (item.latestSupplier || '').toLowerCase();
+            const matchesSearch = searchWords.every(word =>
+                nameLower.includes(word) || invLower.includes(word) || latestSup.includes(word)
+            );
+            if (!matchesSearch) return false;
+        }
+
+        // 2. Поставщик
+        if (selectedSup && item.latestSupplier !== selectedSup) {
+            return false;
+        }
+
+        // 3. Динамика
+        const diff = item.price_diff || 0;
+        if (selectedDyn === 'growth' && diff <= 0.5) return false;
+        if (selectedDyn === 'sharp_growth' && diff <= 10.0) return false;
+        if (selectedDyn === 'drop' && diff >= -0.5) return false;
+        if (selectedDyn === 'stable' && (diff > 0.5 || diff < -0.5)) return false;
+
+        return true;
+    });
+
+    // Сортировка
+    filtered.sort((a, b) => {
+        const lastPriceA = a.last_price !== undefined ? a.last_price : (a.latestPrice || 0);
+        const lastPriceB = b.last_price !== undefined ? b.last_price : (b.latestPrice || 0);
+        const diffA = a.price_diff || 0;
+        const diffB = b.price_diff || 0;
+
+        switch (sortMode) {
+            case 'name_desc':
+                return (b.name || '').localeCompare(a.name || '');
+            case 'diff_desc':
+                return diffB - diffA;
+            case 'diff_asc':
+                return diffA - diffB;
+            case 'price_desc':
+                return lastPriceB - lastPriceA;
+            case 'price_asc':
+                return lastPriceA - lastPriceB;
+            case 'date_desc':
+                return (b.latestDate || '').localeCompare(a.latestDate || '');
+            case 'name_asc':
+            default:
+                return (a.name || '').localeCompare(b.name || '');
+        }
+    });
+
+    updateAnalyticsStats(analyticsCache.length, filtered.length, counts);
+    renderPriceAnalyticsTable(filtered, false);
+}
+
+function renderPriceAnalyticsTable(data, updateCache = true) {
     const priceTbody = document.getElementById('analytics-tbody') || (els && els.tbodyAnalytics);
     if (!priceTbody) return;
 
-    const items = processPriceData(data);
-    if (data && data.length > 0 && (data[0].price_per_base_unit !== undefined || data[0].invoice_date !== undefined)) {
-        analyticsCache = items;
+    let items = data;
+    if (updateCache) {
+        items = processPriceData(data);
+        if (data && data.length > 0 && (data[0].price_per_base_unit !== undefined || data[0].invoice_date !== undefined)) {
+            analyticsCache = items;
+            updateAnalyticsSuppliersDropdown(analyticsCache);
+        }
+        // Первичный расчет статистики при загрузке новых данных
+        let counts = { all: items.length, growth: 0, drop: 0, stable: 0 };
+        items.forEach(it => {
+            const diff = it.price_diff || 0;
+            if (diff > 0.5) counts.growth++;
+            else if (diff < -0.5) counts.drop++;
+            else counts.stable++;
+        });
+        updateAnalyticsStats(items.length, items.length, counts);
     }
 
     if (!items || items.length === 0) {
-        priceTbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center text-slate-500 italic">По вашему запросу ничего не найдено</td></tr>';
+        priceTbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-slate-500 italic">По вашему запросу товаров не найдено</td></tr>';
         return;
     }
 
@@ -245,23 +480,25 @@ function renderPriceAnalyticsTable(data) {
 
         let diff = item.price_diff || 0;
         let badgeHtml = '';
-        if (diff > 0.5) {
-            badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-rose-950/50 text-rose-400 border border-rose-800/40">+${diff.toFixed(1)}% ↗</span>`;
+        if (diff > 10.0) {
+            badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-rose-950 text-rose-300 border border-rose-600 shadow-sm animate-pulse">+${diff.toFixed(1)}% 🔥</span>`;
+        } else if (diff > 0.5) {
+            badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-rose-950/60 text-rose-400 border border-rose-800/50">+${diff.toFixed(1)}% ↗</span>`;
         } else if (diff < -0.5) {
-            badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-emerald-950/50 text-emerald-400 border border-emerald-800/40">${diff.toFixed(1)}% ↘</span>`;
+            badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">${diff.toFixed(1)}% ↘</span>`;
         } else {
             badgeHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold text-slate-400 bg-slate-800/40">0.0%</span>`;
         }
 
         let latestColorClass = "text-slate-300";
         if (diff > 0.5) {
-            latestColorClass = "text-rose-400";
+            latestColorClass = "text-rose-400 font-extrabold";
         } else if (diff < -0.5) {
-            latestColorClass = "text-emerald-400";
+            latestColorClass = "text-emerald-400 font-extrabold";
         }
 
         return `
-            <tr class="hover:bg-[#111827]/40 transition-colors border-b border-slate-800/40 align-middle">
+            <tr class="hover:bg-[#111827]/60 transition-colors border-b border-slate-800/40 align-middle">
                 <td class="p-4 align-middle">
                     <div class="font-bold text-slate-200 text-xs">${escapeHtml(item.name || '')}</div>
                     ${item.invoiceName && item.invoiceName !== item.name ? `<div class="text-[10px] text-slate-400 mt-0.5 truncate max-w-xs" title="${escapeHtml(item.invoiceName)}">В накладной: ${escapeHtml(item.invoiceName)}</div>` : ''}
@@ -269,8 +506,8 @@ function renderPriceAnalyticsTable(data) {
                 </td>
                 <td class="p-4 text-center border-r border-slate-800/40 align-middle">
                     <div class="font-bold ${latestColorClass} text-xs">${item.last_price.toFixed(2)} ₽ / ${escapeHtml(item.unit || 'ед.')}</div>
-                    ${item.latestDate && item.latestDate !== '1970-01-01' ? `<div class="text-[9px] text-slate-500 mt-1">${item.latestDate}</div>` : ''}
-                    ${item.latestSupplier ? `<div class="text-[9px] text-slate-400 mt-0.5">📦 ${escapeHtml(item.latestSupplier)}</div>` : ''}
+                    ${item.latestDate && item.latestDate !== '1970-01-01' ? `<div class="text-[9px] text-slate-500 mt-1">📅 ${item.latestDate}</div>` : ''}
+                    ${item.latestSupplier ? `<div class="text-[9px] text-slate-400 mt-0.5 truncate max-w-[180px] mx-auto" title="${escapeHtml(item.latestSupplier)}">📦 ${escapeHtml(item.latestSupplier)}</div>` : ''}
                 </td>
                 <td class="p-4 text-center font-bold text-slate-300 text-xs border-r border-slate-800/40 align-middle">
                     ${item.median_price.toFixed(2)} ₽ / ${escapeHtml(item.unit || 'ед.')}
@@ -281,29 +518,11 @@ function renderPriceAnalyticsTable(data) {
     }).join('');
 }
 
-function filterAnalytics() {
-    const searchEl = document.getElementById('analytics-search') || (els && els.analyticsSearch);
-    const query = searchEl ? searchEl.value.toLowerCase().trim() : '';
-    if (!query) {
-        renderPriceAnalyticsTable(analyticsCache);
-        return;
-    }
-    const searchWords = query.split(/\s+/);
-    const filtered = analyticsCache.filter(item => {
-        const nameLower = (item.name || '').toLowerCase();
-        const invLower = (item.invoiceName || '').toLowerCase();
-        const latestSup = (item.latestSupplier || '').toLowerCase();
-        return searchWords.every(word => 
-            nameLower.includes(word) || invLower.includes(word) || latestSup.includes(word)
-        );
-    });
-    renderPriceAnalyticsTable(filtered);
-}
-
 window.renderAnalytics = renderPriceAnalyticsTable;
 window.renderPriceAnalyticsTable = renderPriceAnalyticsTable;
 window.renderToxicWriteoffsTable = renderToxicWriteoffsTable;
-window.filterAnalytics = filterAnalytics;
+window.filterAnalytics = applyAnalyticsFilters;
+window.applyAnalyticsFilters = applyAnalyticsFilters;
 async function loadUnlistedOperations() {
     const companyId = els.company.value;
     if (!companyId) return;
@@ -386,10 +605,11 @@ async function resolveUnlistedOperation(opID, inputId) {
     }
 
     try {
-        const res = await fetch('api/unlisted-operations/resolve?token=' + getAuthToken(), {
+        const res = await fetch('api/unlisted-operations/resolve', {
             method: 'POST',
             headers: { 
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + getAuthToken()
             },
             body: JSON.stringify({
                 company_id: parseInt(companyId),
@@ -411,7 +631,12 @@ async function rejectUnlistedOperation(opID) {
     if(!confirm("Отклонить списание? Оно будет удалено из этого списка.")) return;
     const cId = els.company.value;
     try {
-        const res = await fetch(`api/unlisted-operations/reject?company_id=${cId}&operation_id=${opID}&token=${getAuthToken()}`, {method: 'DELETE'});
+        const res = await fetch(`api/unlisted-operations/reject?company_id=${cId}&operation_id=${opID}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': 'Bearer ' + getAuthToken()
+            }
+        });
         if(res.ok) {
             loadUnlistedOperations();
         } else {

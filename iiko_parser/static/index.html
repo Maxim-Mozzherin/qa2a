@@ -412,17 +412,99 @@
                         </div>
                     </div>
 
-                    <!-- Поисковик по аналитике -->
-                    <input type="text" id="analytics-search" oninput="filterAnalytics()" placeholder="Поиск по названию товара..." class="w-full bg-[#090d16] border border-slate-800 text-white placeholder-slate-500 rounded-xl p-3 text-xs outline-none focus:border-brand-500 transition-all-300">
+                    <!-- Панель комплексной фильтрации и сортировки цен -->
+                    <div class="space-y-4 bg-[#090d16]/70 p-4 rounded-xl border border-slate-800">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+                            <!-- Текстовый поиск с кнопкой сброса -->
+                            <div class="relative lg:col-span-4">
+                                <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500 pointer-events-none">🔍</span>
+                                <input type="text" id="analytics-search" oninput="applyAnalyticsFilters()" placeholder="Поиск по названию / номенклатуре..." class="w-full bg-[#111827] border border-slate-700/80 text-white placeholder-slate-500 rounded-xl pl-9 pr-8 py-2.5 text-xs outline-none focus:border-brand-500 transition-all-300">
+                                <button type="button" id="analytics-search-clear" onclick="clearAnalyticsSearch()" class="hidden absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-white text-xs">✕</button>
+                            </div>
+
+                            <!-- Фильтр по поставщику -->
+                            <div class="lg:col-span-3">
+                                <select id="analytics-supplier-filter" onchange="applyAnalyticsFilters()" class="w-full bg-[#111827] border border-slate-700/80 text-slate-200 text-xs rounded-xl px-3 py-2.5 outline-none focus:border-brand-500 cursor-pointer transition-all">
+                                    <option value="">Все поставщики</option>
+                                </select>
+                            </div>
+
+                            <!-- Фильтр динамики цен -->
+                            <div class="lg:col-span-2">
+                                <select id="analytics-dynamics-filter" onchange="applyAnalyticsFilters()" class="w-full bg-[#111827] border border-slate-700/80 text-slate-200 text-xs rounded-xl px-3 py-2.5 outline-none focus:border-brand-500 cursor-pointer transition-all">
+                                    <option value="all">Вся динамика</option>
+                                    <option value="growth">📈 Подорожали (&gt; 0%)</option>
+                                    <option value="sharp_growth">🔥 Резкий рост (&gt; 10%)</option>
+                                    <option value="drop">📉 Подешевели (&lt; 0%)</option>
+                                    <option value="stable">⚪ Без изменений (0%)</option>
+                                </select>
+                            </div>
+
+                            <!-- Сортировка -->
+                            <div class="lg:col-span-3">
+                                <select id="analytics-sort" onchange="applyAnalyticsFilters()" class="w-full bg-[#111827] border border-slate-700/80 text-slate-200 text-xs rounded-xl px-3 py-2.5 outline-none focus:border-brand-500 cursor-pointer transition-all">
+                                    <option value="name_asc">Сортировка: Название (А-Я)</option>
+                                    <option value="name_desc">Сортировка: Название (Я-А)</option>
+                                    <option value="diff_desc">Сортировка: Рост цены (сначала макс.)</option>
+                                    <option value="diff_asc">Сортировка: Снижение цены (сначала мин.)</option>
+                                    <option value="price_desc">Сортировка: Цена (сначала дорогие)</option>
+                                    <option value="price_asc">Сортировка: Цена (сначала дешевые)</option>
+                                    <option value="date_desc">Сортировка: Дата закупки (сначала свежие)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Быстрые чипы-фильтры и счетчики -->
+                        <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <button type="button" id="chip-dyn-all" onclick="setQuickDynamicsFilter('all')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-brand-500/20 text-brand-400 border border-brand-500/40 hover:bg-brand-500/30 transition-all flex items-center gap-1.5">
+                                    <span>Все позиции</span>
+                                    <span id="count-dyn-all" class="text-[10px] px-1.5 py-0.2 bg-black/40 rounded-full font-mono">0</span>
+                                </button>
+                                <button type="button" id="chip-dyn-growth" onclick="setQuickDynamicsFilter('growth')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800/70 text-slate-300 border border-slate-700/60 hover:bg-rose-950/40 hover:text-rose-300 hover:border-rose-800/50 transition-all flex items-center gap-1.5">
+                                    <span>📈 Подорожали</span>
+                                    <span id="count-dyn-growth" class="text-[10px] px-1.5 py-0.2 bg-rose-950/80 text-rose-300 rounded-full font-mono">0</span>
+                                </button>
+                                <button type="button" id="chip-dyn-drop" onclick="setQuickDynamicsFilter('drop')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800/70 text-slate-300 border border-slate-700/60 hover:bg-emerald-950/40 hover:text-emerald-300 hover:border-emerald-800/50 transition-all flex items-center gap-1.5">
+                                    <span>📉 Подешевели</span>
+                                    <span id="count-dyn-drop" class="text-[10px] px-1.5 py-0.2 bg-emerald-950/80 text-emerald-300 rounded-full font-mono">0</span>
+                                </button>
+                                <button type="button" id="chip-dyn-stable" onclick="setQuickDynamicsFilter('stable')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800/70 text-slate-300 border border-slate-700/60 hover:bg-slate-700/50 hover:text-slate-200 transition-all flex items-center gap-1.5">
+                                    <span>⚪ Без изменений</span>
+                                    <span id="count-dyn-stable" class="text-[10px] px-1.5 py-0.2 bg-black/40 text-slate-400 rounded-full font-mono">0</span>
+                                </button>
+                            </div>
+
+                            <div class="text-[11px] text-slate-400 font-medium flex items-center gap-2">
+                                <span id="analytics-filter-stats">Показано: 0 из 0</span>
+                                <button type="button" id="btn-reset-filters" onclick="resetAllAnalyticsFilters()" class="text-xs text-brand-400 hover:text-brand-300 underline ml-1 cursor-pointer">Сбросить</button>
+                            </div>
+                        </div>
+                    </div>
 
                     <div class="overflow-x-auto max-h-[65vh] overflow-y-auto rounded-xl border border-slate-800">
                         <table class="w-full text-left border-collapse">
                             <thead class="sticky top-0 z-20 shadow-md">
                                 <tr class="bg-[#090d16] text-slate-400 text-[9px] font-bold uppercase tracking-wider border-b border-slate-800">
-                                    <th class="p-4 w-1/3 bg-[#090d16]">Номенклатура iiko</th>
-                                    <th class="p-4 w-40 text-center border-r border-slate-800 bg-[#090d16]">Последняя закупка</th>
+                                    <th class="p-4 w-1/3 bg-[#090d16] cursor-pointer hover:text-white select-none transition-colors" onclick="toggleColumnSort('name')">
+                                        <div class="flex items-center gap-1.5">
+                                            <span>Номенклатура iiko</span>
+                                            <span id="th-sort-name" class="text-[10px] text-slate-500">↕</span>
+                                        </div>
+                                    </th>
+                                    <th class="p-4 w-44 text-center border-r border-slate-800 bg-[#090d16] cursor-pointer hover:text-white select-none transition-colors" onclick="toggleColumnSort('price')">
+                                        <div class="flex items-center justify-center gap-1.5">
+                                            <span>Последняя закупка</span>
+                                            <span id="th-sort-price" class="text-[10px] text-slate-500">↕</span>
+                                        </div>
+                                    </th>
                                     <th class="p-4 w-40 text-center border-r border-slate-800 bg-[#090d16]">Медиана (за период)</th>
-                                    <th class="p-4 w-1/5 text-center bg-[#090d16]">ДИНАМИКА ЦЕНЫ</th>
+                                    <th class="p-4 w-1/5 text-center bg-[#090d16] cursor-pointer hover:text-white select-none transition-colors" onclick="toggleColumnSort('diff')">
+                                        <div class="flex items-center justify-center gap-1.5">
+                                            <span>ДИНАМИКА ЦЕНЫ</span>
+                                            <span id="th-sort-diff" class="text-[10px] text-slate-500">↕</span>
+                                        </div>
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody id="analytics-tbody" class="text-xs divide-y divide-slate-800/60 bg-[#111827]/40">
@@ -742,7 +824,7 @@
     <script src="js/state.js?v=11.1"></script>
     <script src="js/auth.js?v=11.0"></script>
     <script src="js/ui.js?v=11.0"></script>
-    <script src="js/parser.js?v=11.5"></script>
+    <script src="js/parser.js?v=11.7"></script>
     <script src="js/analytics.js?v=12.5"></script>
     <script src="js/templates.js?v=11.0"></script>
     <script src="js/presets.js?v=11.0"></script>

@@ -10,8 +10,11 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"iiko_parser/pkg/ratelimit"
 )
 
 func getEnv(key, defaultVal string) string {
@@ -53,6 +56,9 @@ func getAuthUserByToken(token string) (*AuthUser, error) {
 	if token == "" {
 		return nil, fmt.Errorf("empty token")
 	}
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
 	var u AuthUser
 	query := `SELECT id, accounting_firm_id, login, role FROM accounting_users WHERE access_token = $1 AND is_active = true`
 	err := db.QueryRow(query, token).Scan(&u.ID, &u.AccountingFirmID, &u.Login, &u.Role)
@@ -65,10 +71,6 @@ func getAuthUserByToken(token string) (*AuthUser, error) {
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
-		if token == "" {
-			token = r.URL.Query().Get("token")
-		}
-
 		user, err := getAuthUserByToken(token)
 		if err != nil || user == nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -79,6 +81,8 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		next(w, r.WithContext(ctx))
 	}
 }
+
+var loginLimiter = ratelimit.NewLimiter(5, 5*time.Minute, 15*time.Minute, 10000)
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -95,12 +99,22 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Login = strings.TrimSpace(req.Login)
+	clientIP := ratelimit.GetClientIP(r)
+	rateKey := fmt.Sprintf("%s_%s", clientIP, req.Login)
+
+	if allowed, remaining := loginLimiter.Allow(rateKey); !allowed {
+		http.Error(w, fmt.Sprintf("Слишком много неудачных попыток входа. Попробуйте через %d минут.", int(remaining.Minutes())+1), http.StatusTooManyRequests)
+		return
+	}
+
 	var userID int
 	var hash string
 	var dbRole string
 	err := db.QueryRow("SELECT id, password_hash, role FROM accounting_users WHERE login = $1 AND is_active = true", req.Login).Scan(&userID, &hash, &dbRole)
 	if err == nil {
 		if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)); err == nil {
+			loginLimiter.RecordSuccess(rateKey)
 			tokenBytes := make([]byte, 32)
 			if _, err := rand.Read(tokenBytes); err != nil {
 				http.Error(w, "Ошибка генерации токена", http.StatusInternalServerError)
