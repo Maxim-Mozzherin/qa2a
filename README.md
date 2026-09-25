@@ -10,7 +10,7 @@
 
 ---
 
-## 📑 Единый источник истины (Source of Truth Documentation)
+## Source of Truth Documentation
 
 Полная техническая документация Enterprise-уровня доступна в каталоге [`docs/`](./docs/):
 
