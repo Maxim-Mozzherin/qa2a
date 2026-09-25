@@ -41,7 +41,7 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 
 	fallbackModels := strings.Split(aiModel, ",")
 	var respBody []byte
-	maxRetries := 3
+	maxRetries := 5
 	var lastErr error
 	var chosenModel string
 
@@ -326,8 +326,13 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 	pageResponses := make([]*AiResponse, numPages)
 	pageErrors := make([]error, numPages)
 
-	// Ограничитель конкурентности (максимум 4 одновременных запроса к API, чтобы не ловить 429)
-	maxConcurrent := 4
+	// Ограничитель конкурентности (по умолчанию 1 для надежности локального прокси без chat_admission_busy)
+	maxConcurrent := 1
+	if mcStr := os.Getenv("AI_MAX_CONCURRENT"); mcStr != "" {
+		if mc, err := strconv.Atoi(mcStr); err == nil && mc > 0 {
+			maxConcurrent = mc
+		}
+	}
 	if numPages < maxConcurrent {
 		maxConcurrent = numPages
 	}
