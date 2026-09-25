@@ -224,7 +224,7 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 				textBytes = append(textBytes, []byte("\n\n")...)
 
 				imgPrefix := filepath.Join(tmpDir, "img")
-				cmdImg := exec.CommandContext(ctxCmd, "pdftoppm", "-jpeg", "-scale-to", "1280", "-f", "1", "-l", "10", filePath, imgPrefix)
+				cmdImg := exec.CommandContext(ctxCmd, "pdftoppm", "-jpeg", "-scale-to-x", "2048", "-scale-to-y", "-1", "-f", "1", "-l", "30", filePath, imgPrefix)
 				if err := cmdImg.Run(); err != nil {
 					log.Printf("pdftoppm error: %v", err)
 				}
