@@ -69,10 +69,20 @@ func callLLM(contentParts []map[string]interface{}, modelsToTry ...string) (stri
 		req.Header.Set("Authorization", "Bearer "+aiApiKey)
 		req.Header.Set("Content-Type", "application/json")
 
+		// Ограничиваем время ожидания конкретной попытки:
+		// Для Gemini до 35s, для Claude до 65s, чтобы не зависать в очередях OmniRoute
+		timeoutSec := 35
+		if strings.Contains(strings.ToLower(modelToUse), "claude") {
+			timeoutSec = 65
+		}
+		ctxReq, cancelReq := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+		req = req.WithContext(ctxReq)
+
 		resp, err := llmHTTPClient.Do(req)
+		cancelReq()
 		if err != nil {
-			lastErr = fmt.Errorf("сетевой сбой при обращении к AI (%s): %w", aiBaseUrl, err)
-			time.Sleep(time.Duration(attempt*2) * time.Second)
+			lastErr = fmt.Errorf("таймаут/сбой при обращении к модели %s (%s): %w", modelToUse, aiBaseUrl, err)
+			log.Printf("⚠️ Модель %s не ответила за %ds или сбой (%v). Переход к следующей fallback-модели...", modelToUse, timeoutSec, err)
 			continue
 		}
 
@@ -81,7 +91,6 @@ func callLLM(contentParts []map[string]interface{}, modelsToTry ...string) (stri
 
 		if err != nil {
 			lastErr = fmt.Errorf("ошибка чтения ответа AI: %w", err)
-			time.Sleep(time.Duration(attempt*2) * time.Second)
 			continue
 		}
 
@@ -102,12 +111,15 @@ func callLLM(contentParts []map[string]interface{}, modelsToTry ...string) (stri
 			continue
 		}
 
-		// Если модель исчерпала квоту (HTTP 429) или превышен лимит ожидания локальной очереди (503 queue budget)
+		// Если модель исчерпала квоту (HTTP 429) или превышен лимит очереди (502 wedged / 503 budget / 504 timeout)
 		// немедленно переключаемся на следующую fallback-модель без задержки
 		if resp.StatusCode == http.StatusTooManyRequests ||
-			(resp.StatusCode == http.StatusServiceUnavailable && strings.Contains(string(respBody), "queue budget")) {
-			lastErr = fmt.Errorf("AI API лимит квоты (HTTP %d): %s", resp.StatusCode, string(respBody))
-			log.Printf("⚠️ Модель %s исчерпала квоту (HTTP %d). Мгновенный переход к следующей fallback-модели...", modelToUse, resp.StatusCode)
+			resp.StatusCode == http.StatusBadGateway ||
+			resp.StatusCode == http.StatusGatewayTimeout ||
+			(resp.StatusCode == http.StatusServiceUnavailable && (strings.Contains(string(respBody), "queue") || strings.Contains(string(respBody), "budget") || strings.Contains(string(respBody), "wedged"))) ||
+			strings.Contains(string(respBody), "rate-limit-watchdog-wedge-reset") {
+			lastErr = fmt.Errorf("AI API ошибка/лимит модели %s (HTTP %d): %s", modelToUse, resp.StatusCode, string(respBody))
+			log.Printf("⚠️ Модель %s недоступна или превысила квоту (HTTP %d). Мгновенный переход к следующей fallback-модели...", modelToUse, resp.StatusCode)
 			continue
 		}
 
