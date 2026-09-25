@@ -16,6 +16,104 @@ import (
 	"time"
 )
 
+// ModelHealthManager отслеживает доступность моделей через пинги и Circuit Breaker
+type ModelHealthManager struct {
+	sync.RWMutex
+	cooldowns map[string]time.Time
+}
+
+var globalModelHealth = &ModelHealthManager{
+	cooldowns: make(map[string]time.Time),
+}
+
+func (m *ModelHealthManager) isCoolingDown(model string) bool {
+	m.RLock()
+	defer m.RUnlock()
+	until, exists := m.cooldowns[model]
+	if !exists {
+		return false
+	}
+	return time.Now().Before(until)
+}
+
+func (m *ModelHealthManager) markFailed(model string, duration time.Duration) {
+	m.Lock()
+	defer m.Unlock()
+	m.cooldowns[model] = time.Now().Add(duration)
+	log.Printf("⏳ [HealthCheck] Модель %s в кулдауне на %v (парсинг пойдет без ожидания тайм-аута)", model, duration)
+}
+
+func (m *ModelHealthManager) markHealthy(model string) {
+	m.Lock()
+	defer m.Unlock()
+	if _, exists := m.cooldowns[model]; exists {
+		delete(m.cooldowns, model)
+		log.Printf("🎉 [HealthCheck] Модель %s ожила и возвращена на первое место в цепочке!", model)
+	}
+}
+
+// pingModel отправляет сверхбыстрый легковесный запрос (1 токен, таймаут 4.5с) для проверки готовности модели
+func pingModel(model string) bool {
+	probePayload := map[string]interface{}{
+		"model":      model,
+		"max_tokens": 1,
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": "1"},
+		},
+	}
+	jsonData, err := json.Marshal(probePayload)
+	if err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4500*time.Millisecond)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+aiApiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := llmHTTPClient.Do(req)
+	if err != nil {
+		return false
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// startModelHealthChecker фоново проверяет доступность моделей каждые 60 секунд.
+func startModelHealthChecker() {
+	go func() {
+		// Первичный пинг через 1 сек после старта сервиса
+		time.Sleep(1 * time.Second)
+		runProbes()
+
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			runProbes()
+		}
+	}()
+}
+
+func runProbes() {
+	rawModels := strings.Split(aiModel, ",")
+	for _, raw := range rawModels {
+		m := strings.TrimSpace(raw)
+		if m == "" {
+			continue
+		}
+		if pingModel(m) {
+			globalModelHealth.markHealthy(m)
+		} else {
+			globalModelHealth.markFailed(m, 60*time.Second)
+		}
+	}
+}
+
 // callLLM выполняет низкоуровневый HTTP-запрос к API нейросети с поддержкой fallback-моделей Gemini и быстрого failover.
 func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 	payload := map[string]interface{}{
@@ -41,19 +139,38 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 	}
 
 	rawModels := strings.Split(aiModel, ",")
-	var fallbackModels []string
+	var orderedModels []string
 	for _, m := range rawModels {
 		trimmed := strings.TrimSpace(m)
 		if trimmed != "" {
-			fallbackModels = append(fallbackModels, trimmed)
+			orderedModels = append(orderedModels, trimmed)
 		}
 	}
-	if len(fallbackModels) == 0 {
-		fallbackModels = []string{
+	if len(orderedModels) == 0 {
+		orderedModels = []string{
 			"gemini/gemini-3.5-flash",
 			"gemini/gemini-3-flash-preview",
 			"gemini/gemini-3.1-flash-lite-preview",
 		}
+	}
+
+	// Разделяем модели на активные (не в кулдауне) и временно недоступные (в кулдауне)
+	var activeModels []string
+	var coolDownModels []string
+	for _, m := range orderedModels {
+		if globalModelHealth.isCoolingDown(m) {
+			coolDownModels = append(coolDownModels, m)
+		} else {
+			activeModels = append(activeModels, m)
+		}
+	}
+
+	// Сначала вызываем живые модели. Если все в кулдауне — пробуем все по порядку.
+	var fallbackModels []string
+	if len(activeModels) > 0 {
+		fallbackModels = append(activeModels, coolDownModels...)
+	} else {
+		fallbackModels = orderedModels
 	}
 
 	var respBody []byte
@@ -71,8 +188,8 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 			return "", "", fmt.Errorf("ошибка сериализации JSON для AI: %w", err)
 		}
 
-		// Fail-fast таймаут: 12 секунд на каждую модель Gemini, чтобы не висеть при сбоях провайдера
-		attemptTimeout := 12 * time.Second
+		// Fail-fast таймаут: 10 секунд на каждую модель Gemini, чтобы не висеть при сбоях провайдера
+		attemptTimeout := 10 * time.Second
 		ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
 
 		req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
@@ -86,6 +203,7 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 		resp, err := llmHTTPClient.Do(req)
 		if err != nil {
 			cancel()
+			globalModelHealth.markFailed(modelToUse, 90*time.Second)
 			lastErr = fmt.Errorf("модель %s не ответила за %v или сбой сети: %w", modelToUse, attemptTimeout, err)
 			log.Printf("⚠️ Модель %s не ответила за %v (%v). Переход к следующей модели Gemini...", modelToUse, attemptTimeout, err)
 			continue
@@ -96,6 +214,7 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 		cancel()
 
 		if err != nil {
+			globalModelHealth.markFailed(modelToUse, 90*time.Second)
 			lastErr = fmt.Errorf("ошибка чтения ответа AI (%s): %w", modelToUse, err)
 			log.Printf("⚠️ Ошибка чтения ответа модели %s: %v. Переход к следующей модели Gemini...", modelToUse, err)
 			continue
@@ -112,17 +231,20 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError || resp.StatusCode == http.StatusNotFound {
+			globalModelHealth.markFailed(modelToUse, 90*time.Second)
 			lastErr = fmt.Errorf("модель %s вернула HTTP %d: %s", modelToUse, resp.StatusCode, string(respBody))
 			log.Printf("⚠️ Модель %s вернула HTTP %d — немедленный переход к следующей модели Gemini...", modelToUse, resp.StatusCode)
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
+			globalModelHealth.markFailed(modelToUse, 90*time.Second)
 			lastErr = fmt.Errorf("модель %s вернула ошибку (HTTP %d): %s", modelToUse, resp.StatusCode, string(respBody))
-			log.Printf("⚠️ Модель %s вернула ошибку (HTTP %d): %s. Переход к следующей модели Gemini...", modelToUse, resp.StatusCode, string(respBody))
+			log.Printf("⚠️ Модель %s вернула ошибку (HTTP %d): %s. Переход к следующей модели Gemini...", modelToUse, resp.StatusCode)
 			continue
 		}
 
+		globalModelHealth.markHealthy(modelToUse)
 		lastErr = nil
 		log.Printf("✅ AI ответ получен: модель=%s, попытка=%d/%d", modelToUse, attempt, maxRetries)
 		break

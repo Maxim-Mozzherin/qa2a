@@ -267,6 +267,8 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
+	startModelHealthChecker()
+
 	go func() {
 		fmt.Printf("🚀 Сервер Bugh-Team запущен на http://127.0.0.1:%s\n", serverPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
