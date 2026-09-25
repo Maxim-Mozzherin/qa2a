@@ -70,10 +70,11 @@ func callLLM(contentParts []map[string]interface{}, modelsToTry ...string) (stri
 		req.Header.Set("Content-Type", "application/json")
 
 		// Ограничиваем время ожидания конкретной попытки:
-		// Для Gemini до 35s, для Claude до 65s, чтобы не зависать в очередях OmniRoute
-		timeoutSec := 35
-		if strings.Contains(strings.ToLower(modelToUse), "claude") {
-			timeoutSec = 65
+		// Для Gemini жесткий тайм-аут 8s (чтобы не застревать в очередях OmniRoute при 429),
+		// для Claude до 120s для полной и точной обработки объемных накладных.
+		timeoutSec := 120
+		if strings.Contains(strings.ToLower(modelToUse), "gemini") {
+			timeoutSec = 8
 		}
 		ctxReq, cancelReq := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 		req = req.WithContext(ctxReq)
@@ -476,8 +477,8 @@ func dispatchLLMCall(prompt string, imagesBase64 []string, requestedModel string
 			return content, usedModel, nil
 		}
 
-		log.Printf("⚠️ Прямой запрос к Google API не удался (%v). Выполняем прозрачный авто-fallback на OmniRoute...", err)
-		omniModels := []string{"gemini/gemini-3.8-flash", "kr/claude-sonnet-4.5", "gemini/gemini-3-flash-preview"}
+		log.Printf("⚠️ Прямой запрос к Google API не удался (%v). Выполняем авто-fallback на Claude Sonnet 4.5...", err)
+		omniModels := []string{"kr/claude-sonnet-4.5", "no-think/kr/claude-sonnet-4.5", "kr/claude-haiku-4.5"}
 		return callOmniRouteWithParts(prompt, imagesBase64, omniModels...)
 	}
 
@@ -485,16 +486,16 @@ func dispatchLLMCall(prompt string, imagesBase64 []string, requestedModel string
 	var omniModels []string
 	switch req {
 	case "gemini-3.5-flash", "gemini/gemini-3.5-flash":
-		omniModels = []string{"gemini/gemini-3.5-flash", "kr/claude-sonnet-4.5", "gemini/gemini-3-flash-preview"}
+		omniModels = []string{"gemini/gemini-3.5-flash", "kr/claude-sonnet-4.5", "no-think/kr/claude-sonnet-4.5", "kr/claude-haiku-4.5"}
 	case "gemini-3-flash", "gemini/gemini-3-flash-preview":
-		omniModels = []string{"gemini/gemini-3-flash-preview", "kr/claude-sonnet-4.5", "gemini/gemini-3.8-flash"}
+		omniModels = []string{"gemini/gemini-3-flash-preview", "kr/claude-sonnet-4.5", "no-think/kr/claude-sonnet-4.5", "kr/claude-haiku-4.5"}
 	case "claude-sonnet-4.5", "kr/claude-sonnet-4.5":
-		omniModels = []string{"kr/claude-sonnet-4.5", "gemini/gemini-3-flash-preview", "gemini/gemini-3.8-flash"}
+		omniModels = []string{"kr/claude-sonnet-4.5", "no-think/kr/claude-sonnet-4.5", "kr/claude-haiku-4.5"}
 	default:
 		if req != "" {
-			omniModels = append([]string{req, "kr/claude-sonnet-4.5"}, strings.Split(aiModel, ",")...)
+			omniModels = []string{req, "kr/claude-sonnet-4.5", "no-think/kr/claude-sonnet-4.5", "kr/claude-haiku-4.5"}
 		} else {
-			omniModels = strings.Split(aiModel, ",")
+			omniModels = []string{"kr/claude-sonnet-4.5", "no-think/kr/claude-sonnet-4.5", "kr/claude-haiku-4.5"}
 		}
 	}
 
@@ -555,11 +556,10 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 				time.Sleep(time.Duration(pageIdx*300) * time.Millisecond)
 			}
 
-			promptToUse := chunkPage1Prompt
-			if strings.TrimSpace(customPrompt) != "" {
-				promptToUse = customPrompt
-			}
-			if pageIdx > 0 {
+			var promptToUse string
+			if pageIdx == 0 {
+				promptToUse = chunkPage1Prompt
+			} else {
 				promptToUse = continuationPageParserPrompt
 			}
 			fullPrompt := fmt.Sprintf("%s\n\nВНИМАНИЕ: Обработай СТРОГО страницу %d из %d и верни только JSON-объект.", promptToUse, pageIdx+1, numPages)

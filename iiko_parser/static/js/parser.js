@@ -16,7 +16,7 @@ async function executeParseWithFiles(fileObjs) {
     if (currentCustomPrompt) {
         formData.append('prompt', currentCustomPrompt);
     }
-    const selectedModel = (els.modelSelect && els.modelSelect.value) || localStorage.getItem('iiko_selected_ai_model') || 'gemini-3-flash';
+    const selectedModel = (els.modelSelect && els.modelSelect.value) || localStorage.getItem('iiko_selected_ai_model') || 'claude-sonnet-4.5';
     formData.append('model', selectedModel);
 
     els.btnParse.disabled = true;
