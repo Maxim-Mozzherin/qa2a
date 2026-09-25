@@ -90,7 +90,7 @@ func ValidateHost(rawURL string) error {
 		return ErrEmptyHost
 	}
 
-	if !strings.HasPrefix(trimmed, "http://") && !strings.HasPrefix(trimmed, "https://") {
+	if !strings.Contains(trimmed, "://") {
 		trimmed = "https://" + trimmed
 	}
 

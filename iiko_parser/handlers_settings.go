@@ -49,6 +49,7 @@ func handleCatalog(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CompanyID int `json:"company_id"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
 		return

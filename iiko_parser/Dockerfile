@@ -22,7 +22,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/iiko_parser .
 # -----------------------------------------------------------------------------
 FROM alpine:3.20 AS runner
 
-RUN apk add --no-cache ca-certificates tzdata poppler-utils curl
+RUN apk add --no-cache ca-certificates tzdata poppler-utils curl && \
+    adduser -D -u 1000 appuser
 
 WORKDIR /app
 
@@ -32,8 +33,10 @@ COPY --from=builder /app/iiko_parser /app/iiko_parser
 # Copy web static UI
 COPY --from=builder /app/static /app/static
 
-# Ensure temp directory exists for PDF OCR
-RUN mkdir -p /app/temp
+# Ensure temp directory exists for PDF OCR and set permissions
+RUN mkdir -p /app/temp && chown -R appuser:appuser /app
+
+USER appuser
 
 ENV PORT=8099
 
@@ -43,3 +46,4 @@ HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
   CMD curl -f http://localhost:8099/health || exit 1
 
 ENTRYPOINT ["/app/iiko_parser"]
+

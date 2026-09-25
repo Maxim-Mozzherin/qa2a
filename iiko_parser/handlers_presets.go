@@ -53,6 +53,7 @@ func handlePromptPresets(w http.ResponseWriter, r *http.Request) {
 			Description string `json:"description"`
 			Prompt      string `json:"prompt"`
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Некорректный JSON", http.StatusBadRequest)
 			return

@@ -37,6 +37,7 @@ func (h *Handler) JoinCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Code string `json:"code"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Неверный формат JSON")
 		return
@@ -149,6 +150,7 @@ func (h *Handler) CreateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Неверный формат JSON")
 		return
@@ -208,6 +210,7 @@ func (h *Handler) UpdateMemberRoleHandler(w http.ResponseWriter, r *http.Request
 		Role        string `json:"role"`
 		CustomTitle string `json:"custom_title"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Неверный формат JSON")
 		return

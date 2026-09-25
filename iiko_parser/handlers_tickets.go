@@ -131,6 +131,7 @@ func handleUpdateAccountingTicket(w http.ResponseWriter, r *http.Request) {
 		Status   string `json:"status"`
 		Comment  string `json:"comment"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Bad request", 400)
 		return
@@ -237,9 +238,23 @@ func handleServeTicketMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	baseDir := "/opt/qa2a-reboot/uploads/tickets"
-	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+	uploadsDir := getEnv("UPLOADS_DIR", "")
+	baseDir := filepath.Join(uploadsDir, "tickets")
+	if uploadsDir == "" || !dirExists(baseDir) {
+		candidates := []string{
+			"/app/uploads/tickets",
+			"/opt/qa2a-reboot/uploads/tickets",
+			"uploads/tickets",
+			"../qa2a_reboot/uploads/tickets",
+			"../qa2a-reboot/uploads/tickets",
+		}
 		baseDir = "uploads/tickets"
+		for _, c := range candidates {
+			if dirExists(c) {
+				baseDir = c
+				break
+			}
+		}
 	}
 	fullPath := filepath.Join(baseDir, filename)
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
@@ -249,5 +264,10 @@ func handleServeTicketMedia(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, fullPath)
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 

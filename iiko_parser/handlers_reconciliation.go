@@ -41,6 +41,7 @@ func handleParseReconciliation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
 	if err := r.ParseMultipartForm(100 << 20); err != nil {
 		http.Error(w, "Слишком большой файл (макс 100 MB)", http.StatusBadRequest)
 		return
@@ -409,6 +410,15 @@ func handleGetReconciliationRegistry(w http.ResponseWriter, r *http.Request) {
 
 	if dateFrom == "" || dateTo == "" {
 		http.Error(w, "Укажите период (date_from, date_to)", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := time.Parse("2006-01-02", dateFrom); err != nil {
+		http.Error(w, "Некорректный формат date_from (ожидается YYYY-MM-DD)", http.StatusBadRequest)
+		return
+	}
+	if _, err := time.Parse("2006-01-02", dateTo); err != nil {
+		http.Error(w, "Некорректный формат date_to (ожидается YYYY-MM-DD)", http.StatusBadRequest)
 		return
 	}
 

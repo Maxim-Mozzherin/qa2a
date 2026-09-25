@@ -171,7 +171,7 @@ func main() {
 	mux.HandleFunc("/health", handleHealthCheck)
 	mux.HandleFunc("/api/health", handleHealthCheck)
 
-	mux.Handle("/", http.FileServer(http.Dir("./static")))
+	mux.Handle("/", http.FileServer(neuteredFileSystem{fs: http.Dir("./static")}))
 	mux.HandleFunc("/api/uploads/tickets/", authMiddleware(handleServeTicketMedia))
 
 	mux.HandleFunc("/api/login", handleLogin)

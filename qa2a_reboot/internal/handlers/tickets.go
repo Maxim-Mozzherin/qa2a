@@ -35,6 +35,7 @@ func (h *Handler) CreateAccountingTicketHandler(w http.ResponseWriter, r *http.R
 	}
 
 	// Лимит 50 МБ на запрос
+	r.Body = http.MaxBytesReader(w, r.Body, 50<<20)
 	if err := r.ParseMultipartForm(50 << 20); err != nil {
 		respondError(w, http.StatusBadRequest, "Превышен лимит размера файлов (макс 50 МБ)")
 		return
@@ -51,7 +52,8 @@ func (h *Handler) CreateAccountingTicketHandler(w http.ResponseWriter, r *http.R
 	var savedPaths []string
 	files := r.MultipartForm.File["media"] // Массив файлов
 	
-	_ = os.MkdirAll(filepath.Join("uploads", "tickets"), 0750)
+	ticketsDir := getUploadsTicketsDir()
+	_ = os.MkdirAll(ticketsDir, 0750)
 
 	allowedExts := map[string]bool{
 		".jpg": true, ".jpeg": true, ".png": true, ".webp": true,
@@ -107,7 +109,7 @@ func (h *Handler) CreateAccountingTicketHandler(w http.ResponseWriter, r *http.R
 		}
 
 		filename := fmt.Sprintf("%d_%d_%d%s", companyID, time.Now().UnixNano(), i, ext)
-		outPath := filepath.Join("uploads", "tickets", filename)
+		outPath := filepath.Join(ticketsDir, filename)
 		
 		out, errCreate := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
 		if errCreate == nil {
@@ -223,7 +225,7 @@ func (h *Handler) ServeTicketMediaHandler(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	fullPath := filepath.Join("uploads", "tickets", filename)
+	fullPath := filepath.Join(getUploadsTicketsDir(), filename)
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
 		respondError(w, http.StatusNotFound, "Файл не найден")
 		return
@@ -231,5 +233,19 @@ func (h *Handler) ServeTicketMediaHandler(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, fullPath)
+}
+
+func getUploadsTicketsDir() string {
+	uploadsDir := os.Getenv("UPLOADS_DIR")
+	if uploadsDir == "" {
+		if _, err := os.Stat("/app/uploads"); err == nil {
+			uploadsDir = "/app/uploads"
+		} else if _, err := os.Stat("/opt/qa2a-reboot/uploads"); err == nil {
+			uploadsDir = "/opt/qa2a-reboot/uploads"
+		} else {
+			uploadsDir = "uploads"
+		}
+	}
+	return filepath.Join(uploadsDir, "tickets")
 }
 

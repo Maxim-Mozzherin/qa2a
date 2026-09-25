@@ -27,6 +27,7 @@ func handleGenerateInvite(w http.ResponseWriter, r *http.Request) {
 		Name             string `json:"name"`
 		AccountingFirmID *int   `json:"accounting_firm_id"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	if strings.TrimSpace(req.Name) == "" {
 		req.Name = "Новое заведение"

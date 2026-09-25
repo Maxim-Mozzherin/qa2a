@@ -36,6 +36,7 @@ func (h *Handler) CreateOperationHandler(w http.ResponseWriter, r *http.Request)
 		AccountID  string  `json:"account_id"`
 		Date       string  `json:"date"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Неверный формат данных операции")
 		return
@@ -86,6 +87,7 @@ func (h *Handler) UpdateOperationHandler(w http.ResponseWriter, r *http.Request)
 		AccountID string  `json:"account_id"`
 		Date      string  `json:"date"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Неверный формат JSON")
 		return
@@ -245,6 +247,7 @@ func (h *Handler) SaveShiftNoteHandler(w http.ResponseWriter, r *http.Request) {
 		BusinessDate string `json:"business_date"`
 		Note         string `json:"note"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Неверный формат запроса")
 		return

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -148,7 +149,17 @@ func main() {
 	staticDir := http.Dir("web/static")
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(staticDir)))
 
-	_ = os.MkdirAll("uploads/tickets", 0750)
+	uploadsInitDir := os.Getenv("UPLOADS_DIR")
+	if uploadsInitDir == "" {
+		if _, err := os.Stat("/app/uploads"); err == nil {
+			uploadsInitDir = "/app/uploads"
+		} else if _, err := os.Stat("/opt/qa2a-reboot/uploads"); err == nil {
+			uploadsInitDir = "/opt/qa2a-reboot/uploads"
+		} else {
+			uploadsInitDir = "uploads"
+		}
+	}
+	_ = os.MkdirAll(filepath.Join(uploadsInitDir, "tickets"), 0750)
 
 	api := r.PathPrefix("/api").Subrouter()
 

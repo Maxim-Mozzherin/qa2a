@@ -45,7 +45,8 @@ func handleGenerateAccountantInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inviteLink := "https://moztech.ru/bugh-team/?invite=" + inviteCode
+	baseURL := strings.TrimRight(getEnv("APP_BASE_URL", "https://moztech.ru/bugh-team/"), "/")
+	inviteLink := baseURL + "/?invite=" + inviteCode
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
@@ -71,6 +72,7 @@ func handleRegisterAccountant(w http.ResponseWriter, r *http.Request) {
 		Email      string `json:"email"`
 		Password   string `json:"password"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
 		return

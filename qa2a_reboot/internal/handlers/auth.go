@@ -51,6 +51,7 @@ func (h *Handler) AuthHandler(w http.ResponseWriter, r *http.Request) {
 		InitData string `json:"initData"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Неверный формат полезной нагрузки запроса")
 		return

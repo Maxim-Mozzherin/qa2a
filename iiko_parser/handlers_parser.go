@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"html"
 	"iiko_parser/crypto"
+	"iiko_parser/pkg/netutil"
 	"io"
 	"log"
 	"net/http"
@@ -131,8 +132,9 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
 	if err := r.ParseMultipartForm(100 << 20); err != nil {
-		http.Error(w, "Too large (max 100 MB per batch)", http.StatusBadRequest)
+		http.Error(w, "Файл слишком большой (максимум 100 MB)", http.StatusBadRequest)
 		return
 	}
 
@@ -518,6 +520,11 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 	cleanHost := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(host), "/"), "/resto")
 	if cleanHost == "" || strings.TrimSpace(login) == "" {
 		http.Error(w, "В заведении не настроена интеграция с iiko RMS. Настройте подключение в Telegram-боте.", http.StatusBadRequest)
+		return
+	}
+
+	if err := netutil.ValidateHost(cleanHost); err != nil {
+		http.Error(w, "Недопустимый адрес сервера iiko RMS (заблокировано политикой безопасности SSRF): "+err.Error(), http.StatusBadRequest)
 		return
 	}
 

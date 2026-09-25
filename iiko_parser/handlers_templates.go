@@ -22,6 +22,7 @@ func handleSaveTemplateProxy(w http.ResponseWriter, r *http.Request) {
 		Items     []string `json:"items"`
 		CompanyID int      `json:"company_id"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
 		return
@@ -61,7 +62,7 @@ func handleSaveTemplateProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer res.Body.Close()
 
-	respBody, _ := io.ReadAll(res.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(res.Body, 10<<20))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(res.StatusCode)
 	_, _ = w.Write(respBody)

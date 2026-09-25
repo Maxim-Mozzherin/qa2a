@@ -73,6 +73,7 @@ func handleResolveUnlistedOperation(w http.ResponseWriter, r *http.Request) {
 		IikoProductName string `json:"iiko_product_name"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
 		return
@@ -660,6 +661,7 @@ func handleGetInvoiceItems(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleUpdateInvoiceItems(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 5<<20) // 5 MB limit for bulk item updates
 	var req UpdateHistoryItemsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Некорректный JSON запрос: "+err.Error(), http.StatusBadRequest)

@@ -139,13 +139,25 @@ func (s *Scheduler) RunDailyExport() {
 		if err := s.repo.GetDb().Select(&oldTickets, query); err == nil && len(oldTickets) > 0 {
 			deletedCount := 0
 			failedCount := 0
+			uploadsDir := os.Getenv("UPLOADS_DIR")
+			if uploadsDir == "" {
+				if _, err := os.Stat("/app/uploads"); err == nil {
+					uploadsDir = "/app/uploads"
+				} else if _, err := os.Stat("/opt/qa2a-reboot/uploads"); err == nil {
+					uploadsDir = "/opt/qa2a-reboot/uploads"
+				} else {
+					uploadsDir = "uploads"
+				}
+			}
+			ticketsBase := filepath.Join(uploadsDir, "tickets")
+
 			for _, t := range oldTickets {
 				var paths []string
 				if err := json.Unmarshal([]byte(t.MediaPaths), &paths); err == nil {
 					for _, p := range paths {
 						cleanName := filepath.Base(p)
 						if cleanName != "" && cleanName != "." && cleanName != ".." {
-							if err := os.Remove(filepath.Join("uploads", "tickets", cleanName)); err == nil {
+							if err := os.Remove(filepath.Join(ticketsBase, cleanName)); err == nil {
 								deletedCount++
 							} else {
 								failedCount++

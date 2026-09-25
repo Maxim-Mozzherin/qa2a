@@ -34,11 +34,23 @@ func (h *Handler) GetSupplierOffersHandler(w http.ResponseWriter, req *http.Requ
 	json.NewEncoder(w).Encode(offers)
 }
 
+func extractToken(req *http.Request) string {
+	token := strings.TrimSpace(req.Header.Get("X-Telegram-ID"))
+	if token == "" {
+		authHeader := strings.TrimSpace(req.Header.Get("Authorization"))
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			token = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+	}
+	return token
+}
+
 func (h *Handler) SaveSupplierOfferHandler(w http.ResponseWriter, req *http.Request) {
 	if req.Method == "OPTIONS" {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	req.Body = http.MaxBytesReader(w, req.Body, 1<<20)
 	var offer service.CreateOfferReq
 	if err := json.NewDecoder(req.Body).Decode(&offer); err != nil {
 		http.Error(w, `{"error": "Bad request"}`, http.StatusBadRequest)
@@ -66,14 +78,15 @@ func (h *Handler) RegisterSupplierHandler(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	// Read auth token manually since we are outside the standard auth
-	tokenStr := req.Header.Get("X-Telegram-ID")
+	// Read auth token manually supporting both X-Telegram-ID and Authorization Bearer
+	tokenStr := extractToken(req)
 	tgID := middleware.VerifySignedTokenExported(tokenStr, h.botToken)
 	if tgID == 0 {
 		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
 
+	req.Body = http.MaxBytesReader(w, req.Body, 1<<20)
 	var reqBody struct {
 		CompanyName string `json:"company_name"`
 	}
@@ -102,13 +115,14 @@ func (h *Handler) JoinSupplierHandler(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	tokenStr := req.Header.Get("X-Telegram-ID")
+	tokenStr := extractToken(req)
 	tgID := middleware.VerifySignedTokenExported(tokenStr, h.botToken)
 	if tgID == 0 {
 		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
 
+	req.Body = http.MaxBytesReader(w, req.Body, 1<<20)
 	var reqBody struct {
 		Code string `json:"code"`
 	}
@@ -127,7 +141,7 @@ func (h *Handler) JoinSupplierHandler(w http.ResponseWriter, req *http.Request) 
 }
 
 func (h *Handler) GetSupplierMeHandler(w http.ResponseWriter, req *http.Request) {
-	tokenStr := req.Header.Get("X-Telegram-ID")
+	tokenStr := extractToken(req)
 	tgID := middleware.VerifySignedTokenExported(tokenStr, h.botToken)
 	if tgID == 0 {
 		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)

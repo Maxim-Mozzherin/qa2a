@@ -190,4 +190,13 @@ func TestHandleGetReconciliationRegistry_Validation(t *testing.T) {
 	if rec3.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", rec3.Code)
 	}
+
+	// 4. Invalid date format -> 400
+	req4 := httptest.NewRequest("GET", "/api/reconciliation/registry?company_id=1&date_from=2026/01/01&date_to=2026-01-31", nil)
+	req4WithCtx := req4.WithContext(ContextWithAuthUser(req4.Context(), super))
+	rec4 := httptest.NewRecorder()
+	handleGetReconciliationRegistry(rec4, req4WithCtx)
+	if rec4.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid date format, got %d", rec4.Code)
+	}
 }

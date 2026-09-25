@@ -90,6 +90,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 	var req struct {
 		Login    string `json:"login"`
 		Password string `json:"password"`
