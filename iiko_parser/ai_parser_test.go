@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"testing"
@@ -132,5 +132,36 @@ func TestMergePageResponses(t *testing.T) {
 		merged.Items[3].Name != "Сыр Моцарелла 1кг" ||
 		merged.Items[4].Name != "Зелень Руккола 125г" {
 		t.Errorf("Unexpected items sequence after merge: %+v", merged.Items)
+	}
+}
+
+func TestCalculateTotalSum(t *testing.T) {
+	items := []AiItem{
+		{Name: "Товар 1", Sum: 150.25},
+		{Name: "Товар 2", Sum: 349.75},
+		{Name: "Товар 3", Sum: 100.00},
+	}
+	total := calculateTotalSum(items)
+	expected := 600.00
+	if total != expected {
+		t.Errorf("Expected calculateTotalSum = %.2f, got %.2f", expected, total)
+	}
+}
+
+func TestApplyAutoReflection_NoReflectionWhenSumsMatch(t *testing.T) {
+	resp := &AiResponse{
+		DocPrintedTotalSum: 600.00,
+		Items: []AiItem{
+			{Name: "Товар 1", Sum: 250.00},
+			{Name: "Товар 2", Sum: 350.00},
+		},
+	}
+	// Difference is 0.0, reflection should not trigger any call and return unchanged
+	res := applyAutoReflection(resp, nil, "")
+	if len(res.Items) != 2 {
+		t.Errorf("Expected 2 items, got %d", len(res.Items))
+	}
+	if res.DocPrintedTotalSum != 600.00 {
+		t.Errorf("Expected total 600.00, got %.2f", res.DocPrintedTotalSum)
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +24,19 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 		"messages": []map[string]interface{}{
 			{"role": "user", "content": contentParts},
 		},
+	}
+
+	// Поддержка Chain-of-Thought (CoT) Thinking / Reasoning при необходимости
+	thinkingBudgetStr := os.Getenv("AI_THINKING_BUDGET")
+	if thinkingBudgetStr != "" {
+		if budget, err := strconv.Atoi(thinkingBudgetStr); err == nil && budget > 0 {
+			payload["thinking"] = map[string]interface{}{
+				"type":          "enabled",
+				"budget_tokens": budget,
+			}
+		}
+	} else if effort := os.Getenv("AI_REASONING_EFFORT"); effort != "" {
+		payload["reasoning_effort"] = effort
 	}
 
 	fallbackModels := strings.Split(aiModel, ",")
@@ -60,6 +75,16 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 		if err != nil {
 			lastErr = fmt.Errorf("ошибка чтения ответа AI: %w", err)
 			time.Sleep(time.Duration(attempt*2) * time.Second)
+			continue
+		}
+
+		// Если провайдер/модель возвращает 400 Bad Request из-за неподдерживаемых параметров thinking,
+		// автоматически удаляем thinking-параметры и повторяем запрос без падения
+		if resp.StatusCode == http.StatusBadRequest && (payload["thinking"] != nil || payload["reasoning_effort"] != nil) {
+			log.Printf("⚠️ Модель %s не поддерживает параметры thinking/reasoning_effort (HTTP 400). Повторяем без CoT...", modelToUse)
+			delete(payload, "thinking")
+			delete(payload, "reasoning_effort")
+			attempt-- // Не сжигаем счетчик попыток
 			continue
 		}
 
@@ -286,7 +311,12 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 		if err != nil {
 			return nil, err
 		}
-		return parseLLMContentToAiResponse(rawContent, usedModel)
+		singleResp, err := parseLLMContentToAiResponse(rawContent, usedModel)
+		if err != nil {
+			return nil, err
+		}
+		singleResp = mergePageResponses([]*AiResponse{singleResp})
+		return applyAutoReflection(singleResp, imagesBase64, text), nil
 	}
 
 	// Многостраничный режим: обработка страниц параллельными горутинами
@@ -364,7 +394,132 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 
 	merged := mergePageResponses(pageResponses)
 	log.Printf("🎉 Чанкинг завершен: суммарно объединено %d позиций со всех %d страниц", len(merged.Items), numPages)
+	merged = applyAutoReflection(merged, imagesBase64, text)
 	return merged, nil
+}
+
+// calculateTotalSum вычисляет арифметическую сумму всех распознанных позиций с округлением до копеек.
+func calculateTotalSum(items []AiItem) float64 {
+	var total float64
+	for _, it := range items {
+		total += it.Sum
+	}
+	return math.Round(total*100) / 100
+}
+
+// applyAutoReflection выполняет проверку сходимости сумм:
+// Сравнивает арифметическую сумму строк (calculatedTotal) с печатным итогом документа (doc_printed_total_sum).
+// Если расхождение превышает 1.0 рубль, делает автоматический прицельный дозапрос к AI (Reflection),
+// передавая точную дельту и прося перепроверить строки на предмет пропусков или искажений сумм.
+func applyAutoReflection(parsed *AiResponse, imagesBase64 []string, text string) *AiResponse {
+	if parsed == nil || len(parsed.Items) == 0 {
+		return parsed
+	}
+	if parsed.DocPrintedTotalSum <= 0.01 {
+		return parsed
+	}
+
+	calcTotal := calculateTotalSum(parsed.Items)
+	delta := math.Abs(calcTotal - parsed.DocPrintedTotalSum)
+	if delta <= 1.0 {
+		log.Printf("⚖️ Auto-Reflection: суммы сходятся (расчетная=%.2f, печатная=%.2f, дельта=%.2f <= 1.00)", calcTotal, parsed.DocPrintedTotalSum, delta)
+		return parsed
+	}
+
+	log.Printf("⚠️ Auto-Reflection: обнаружено расхождение сумм (расчетная=%.2f, печатная=%.2f, дельта=%.2f > 1.00). Запуск самоисправления нейросетью...", calcTotal, parsed.DocPrintedTotalSum, delta)
+
+	reflectionPrompt := fmt.Sprintf(`ВНИМАНИЕ! В РАСПОЗНАННОЙ НАКЛАДНОЙ ОБНАРУЖЕНО РАСХОЖДЕНИЕ СУММ:
+Печатная итоговая сумма документа (Всего к оплате): %.2f
+Сумма распознанных позиций: %.2f
+Расхождение (дельта): %.2f
+
+Твоя задача — внимательно перепроверить изображение(я) документа и выполнить самоисправление (Self-Correction):
+1. Найди пропущенные строки товаров, которые не были извлечены (особенно если сумма меньше печатного итога).
+2. Проверь каждую строку на предмет неверно распознанного количества, цены или ставки НДС.
+3. Убедись, что промежуточные итоги («Итого по странице», «Всего перенесено») не попали в список товаров.
+4. Верни ПОЛНЫЙ исправленный список товаров накладной, сумма которых должна строго сходиться с печатным итогом %.2f.
+
+Верни строго только JSON-объект:
+{
+  "doc_printed_total_sum": %.2f,
+  "items": [
+    {
+      "original_prefix": "Слово",
+      "num": 1,
+      "name": "Название товара",
+      "clean_category": "Бакалея",
+      "brand": "",
+      "quantity": 10.0,
+      "unit": "упак",
+      "base_unit": "кг",
+      "price": 120.0,
+      "sum": 1200.0,
+      "sum_without_nds": 1000.0,
+      "nds_percent": 20.0,
+      "ai_multiplier": 0.5,
+      "ai_tip": "1 шт = 500г"
+    }
+  ]
+}`, parsed.DocPrintedTotalSum, calcTotal, delta, parsed.DocPrintedTotalSum, parsed.DocPrintedTotalSum)
+
+	var parts []map[string]interface{}
+	parts = append(parts, map[string]interface{}{
+		"type": "text",
+		"text": reflectionPrompt,
+	})
+
+	// Ограничиваем количество картинок для рефлексии (до 5 ключевых страниц), чтобы не раздувать payload
+	reflectImages := imagesBase64
+	if len(reflectImages) > 5 {
+		reflectImages = reflectImages[:5]
+	}
+	for _, b64 := range reflectImages {
+		parts = append(parts, map[string]interface{}{
+			"type": "image_url",
+			"image_url": map[string]string{
+				"url": "data:image/jpeg;base64," + b64,
+			},
+		})
+	}
+
+	raw, model, err := callLLM(parts)
+	if err != nil {
+		log.Printf("⚠️ Auto-Reflection: сетевая ошибка при самоисправлении: %v (сохраняем исходный результат)", err)
+		return parsed
+	}
+
+	reflected, err := parseLLMContentToAiResponse(raw, model)
+	if err != nil || reflected == nil || len(reflected.Items) == 0 {
+		log.Printf("⚠️ Auto-Reflection: не удалось разобрать исправленный JSON: %v (сохраняем исходный результат)", err)
+		return parsed
+	}
+
+	// Фильтруем возможные служебные строки из ответа рефлексии
+	var cleanItems []AiItem
+	for _, it := range reflected.Items {
+		if !isSubtotalRow(it.Name) {
+			cleanItems = append(cleanItems, it)
+		}
+	}
+	for i := range cleanItems {
+		cleanItems[i].Num = i + 1
+	}
+
+	newCalcTotal := calculateTotalSum(cleanItems)
+	newDelta := math.Abs(newCalcTotal - parsed.DocPrintedTotalSum)
+
+	log.Printf("⚖️ Auto-Reflection: исходная дельта=%.2f, новая дельта=%.2f", delta, newDelta)
+	if newDelta < delta {
+		log.Printf("✅ Auto-Reflection успешно улучшила результат (дельта снижена с %.2f до %.2f)! Применен исправленный список из %d позиций", delta, newDelta, len(cleanItems))
+		parsed.Items = cleanItems
+		if reflected.DocPrintedTotalSum > 0 {
+			parsed.DocPrintedTotalSum = reflected.DocPrintedTotalSum
+		}
+	} else {
+		log.Printf("ℹ️ Auto-Reflection не улучшила расхождение (%.2f >= %.2f). Сохраняем исходный результат.", newDelta, delta)
+	}
+
+	return parsed
 }
 
 // parseWithClaude — единая точка входа для парсинга документов.
