@@ -95,6 +95,13 @@ func callLLM(contentParts []map[string]interface{}, modelsToTry ...string) (stri
 			continue
 		}
 
+		// Если OmniRoute временно сообщает chat_admission_busy, ожидаем освобождения очереди
+		if resp.StatusCode == http.StatusServiceUnavailable && strings.Contains(string(respBody), "chat_admission_busy") {
+			log.Printf("⚠️ OmniRoute admission queue busy (chat_admission_busy). Ожидание 2.5s перед повтором (попытка %d/%d)...", attempt, maxRetries)
+			time.Sleep(2500 * time.Millisecond)
+			continue
+		}
+
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError {
 			lastErr = fmt.Errorf("AI API вернул ошибку (HTTP %d): %s", resp.StatusCode, string(respBody))
 			log.Printf("⚠️ AI попытка %d/%d не удалась: модель=%s, HTTP %d — повтор через %ds", attempt, maxRetries, modelToUse, resp.StatusCode, attempt*2)

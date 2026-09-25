@@ -140,7 +140,7 @@ func handleParseReconciliation(w http.ResponseWriter, r *http.Request) {
 				textBytes = append(textBytes, []byte("\n\n")...)
 
 				imgPrefix := filepath.Join(tmpDir, "img")
-				cmdImg := exec.CommandContext(ctxCmd, "pdftoppm", "-jpeg", "-f", "1", "-l", "10", filePath, imgPrefix)
+				cmdImg := exec.CommandContext(ctxCmd, "pdftoppm", "-jpeg", "-jpegopt", "quality=80", "-scale-to-x", "1600", "-scale-to-y", "-1", "-f", "1", "-l", "10", filePath, imgPrefix)
 				if err := cmdImg.Run(); err != nil {
 					log.Printf("pdftoppm error: %v", err)
 				}
