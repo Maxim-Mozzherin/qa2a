@@ -24,9 +24,10 @@ var (
 	externalApiKey string
 
 	// Параметры нейросетевого парсера
-	aiApiKey  string
-	aiBaseUrl string
-	aiModel   string
+	aiApiKey     string
+	aiBaseUrl    string
+	aiModel      string
+	googleApiKey string
 
 	// URL основного сервиса QA2A
 	qa2aBaseURL string
@@ -96,6 +97,7 @@ func main() {
 	}
 	aiBaseUrl = getEnv("AI_BASE_URL", "http://127.0.0.1:20128/v1/chat/completions")
 	aiModel = getEnv("AI_MODEL", "gemini/gemini-3-flash-preview,kr/claude-sonnet-4.5,gemini/gemini-3.1-flash-lite-preview")
+	googleApiKey = os.Getenv("GOOGLE_API_KEY")
 
 	qa2aBaseURL = getEnv("QA2A_URL", "http://127.0.0.1:8082")
 

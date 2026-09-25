@@ -13,6 +13,11 @@ async function executeParseWithFiles(fileObjs) {
     const formData = new FormData();
     for(let i=0; i<fileObjs.length; i++) { formData.append('pdf', fileObjs[i], fileObjs[i].name); }
     formData.append('company_id', companyId);
+    if (currentCustomPrompt) {
+        formData.append('prompt', currentCustomPrompt);
+    }
+    const selectedModel = (els.modelSelect && els.modelSelect.value) || localStorage.getItem('iiko_selected_ai_model') || 'gemini-3-flash';
+    formData.append('model', selectedModel);
 
     els.btnParse.disabled = true;
     els.loaderParse.classList.remove('hidden');
@@ -30,6 +35,10 @@ async function executeParseWithFiles(fileObjs) {
         currentDocData = await res.json();
         if (currentDocData && currentDocData.used_model) {
             window.lastUsedModel = currentDocData.used_model;
+            if (els.usedModelBadge) {
+                els.usedModelBadge.textContent = '🤖 Модель: ' + currentDocData.used_model;
+                els.usedModelBadge.classList.remove('hidden');
+            }
         }
         renderTable(currentDocData);
         els.resSection.classList.remove('hidden');
@@ -56,6 +65,8 @@ async function executeAppendParseWithFiles(fileObjs) {
     if (currentCustomPrompt) {
         formData.append('prompt', currentCustomPrompt);
     }
+    const selectedModel = (els.modelSelect && els.modelSelect.value) || localStorage.getItem('iiko_selected_ai_model') || 'gemini-3-flash';
+    formData.append('model', selectedModel);
 
     els.btnAddPage.disabled = true;
     els.loaderAddPage.classList.remove('hidden');

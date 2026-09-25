@@ -274,7 +274,8 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 	}
 
 	customPrompt := strings.TrimSpace(r.FormValue("prompt"))
-	aiData, err := parseWithClaude(string(textBytes), imagesBase64, customPrompt)
+	requestedModel := strings.TrimSpace(r.FormValue("model"))
+	aiData, err := parseWithClaude(string(textBytes), imagesBase64, customPrompt, requestedModel)
 	if err != nil {
 		http.Error(w, "Сбой распознавания AI: "+err.Error(), http.StatusInternalServerError)
 		return

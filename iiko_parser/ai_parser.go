@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,7 +17,7 @@ import (
 )
 
 // callLLM выполняет низкоуровневый HTTP-запрос к API нейросети с поддержкой fallback-моделей и повторных попыток.
-func callLLM(contentParts []map[string]interface{}) (string, string, error) {
+func callLLM(contentParts []map[string]interface{}, modelsToTry ...string) (string, string, error) {
 	payload := map[string]interface{}{
 		"stream":      false,
 		"max_tokens":  65536,
@@ -40,8 +41,14 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 	}
 
 	fallbackModels := strings.Split(aiModel, ",")
+	if len(modelsToTry) > 0 && modelsToTry[0] != "" {
+		fallbackModels = modelsToTry
+	}
 	var respBody []byte
 	maxRetries := 5
+	if len(fallbackModels) > maxRetries {
+		maxRetries = len(fallbackModels)
+	}
 	var lastErr error
 	var chosenModel string
 
@@ -284,8 +291,190 @@ func mergePageResponses(pages []*AiResponse) *AiResponse {
 	return combined
 }
 
+// callDirectGoogleGemini выполняет прямой HTTP-запрос к официальному Google Gemini API (v1beta).
+func callDirectGoogleGemini(prompt string, imagesBase64 []string, modelName string) (string, string, error) {
+	if googleApiKey == "" {
+		return "", "", fmt.Errorf("GOOGLE_API_KEY не задан")
+	}
+
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, googleApiKey)
+
+	type inlineData struct {
+		MimeType string `json:"mime_type"`
+		Data     string `json:"data"`
+	}
+	type part struct {
+		Text       string      `json:"text,omitempty"`
+		InlineData *inlineData `json:"inline_data,omitempty"`
+	}
+	type contentObj struct {
+		Role  string `json:"role,omitempty"`
+		Parts []part `json:"parts"`
+	}
+	type genConfig struct {
+		Temperature      float64 `json:"temperature"`
+		MaxOutputTokens  int     `json:"maxOutputTokens"`
+		ResponseMimeType string  `json:"responseMimeType,omitempty"`
+	}
+	type reqPayload struct {
+		Contents         []contentObj `json:"contents"`
+		GenerationConfig genConfig    `json:"generationConfig"`
+	}
+
+	var parts []part
+	if prompt != "" {
+		parts = append(parts, part{Text: prompt})
+	}
+	for _, b64 := range imagesBase64 {
+		parts = append(parts, part{
+			InlineData: &inlineData{
+				MimeType: "image/jpeg",
+				Data:     b64,
+			},
+		})
+	}
+
+	bodyObj := reqPayload{
+		Contents: []contentObj{
+			{Role: "user", Parts: parts},
+		},
+		GenerationConfig: genConfig{
+			Temperature:      0.1,
+			MaxOutputTokens:  65536,
+			ResponseMimeType: "application/json",
+		},
+	}
+
+	jsonData, err := json.Marshal(bodyObj)
+	if err != nil {
+		return "", "", fmt.Errorf("ошибка сериализации JSON для Google Gemini API: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", "", fmt.Errorf("ошибка формирования HTTP-запроса: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := llmHTTPClient.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("сетевой сбой обращения к Google Gemini API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
+	if err != nil {
+		return "", "", fmt.Errorf("ошибка чтения ответа Google Gemini API: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("Google Gemini API HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	type geminiResponse struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+			FinishReason string `json:"finishReason"`
+		} `json:"candidates"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Status  string `json:"status"`
+		} `json:"error"`
+	}
+
+	var parsedResp geminiResponse
+	if err := json.Unmarshal(respBody, &parsedResp); err != nil {
+		return "", "", fmt.Errorf("ошибка декодирования ответа Google Gemini: %w", err)
+	}
+
+	if parsedResp.Error != nil {
+		return "", "", fmt.Errorf("ошибка Google Gemini API: [%d] %s", parsedResp.Error.Code, parsedResp.Error.Message)
+	}
+
+	if len(parsedResp.Candidates) == 0 || len(parsedResp.Candidates[0].Content.Parts) == 0 {
+		return "", "", fmt.Errorf("Google Gemini API вернул пустой список кандидатов")
+	}
+
+	var sb strings.Builder
+	for _, p := range parsedResp.Candidates[0].Content.Parts {
+		sb.WriteString(p.Text)
+	}
+
+	return strings.TrimSpace(sb.String()), fmt.Sprintf("%s (Google API)", modelName), nil
+}
+
+// callOmniRouteWithParts упаковывает текстовый промпт и изображения в формат OpenAI API для OmniRoute.
+func callOmniRouteWithParts(prompt string, imagesBase64 []string, models ...string) (string, string, error) {
+	var contentParts []map[string]interface{}
+	if prompt != "" {
+		contentParts = append(contentParts, map[string]interface{}{
+			"type": "text",
+			"text": prompt,
+		})
+	}
+	for _, b64 := range imagesBase64 {
+		contentParts = append(contentParts, map[string]interface{}{
+			"type": "image_url",
+			"image_url": map[string]string{
+				"url": "data:image/jpeg;base64," + b64,
+			},
+		})
+	}
+	return callLLM(contentParts, models...)
+}
+
+// dispatchLLMCall маршрутизирует запрос к выбранной пользователем модели.
+// При выборе Google API (gemini-3.8-flash) сначала совершается прямой запрос с ключом Google.
+// В случае сетевого сбоя или отказа доступа (например 403 / блокировка IP) автоматически и прозрачно
+// выполняется переключение на OmniRoute без потери данных и без падения задачи бухгалтера.
+func dispatchLLMCall(prompt string, imagesBase64 []string, requestedModel string) (string, string, error) {
+	req := strings.TrimSpace(requestedModel)
+
+	// 1. Прямой запрос к Google API для Gemini 3.8 Flash
+	if req == "gemini-3.8-flash" || req == "gemini-3.8-flash-direct" {
+		log.Printf("🌐 Запрос к прямому Google Gemini API (модель: gemini-3.8-flash)...")
+		content, usedModel, err := callDirectGoogleGemini(prompt, imagesBase64, "gemini-3.8-flash")
+		if err == nil {
+			log.Printf("✅ Google Gemini API (direct) успешно распознал данные")
+			return content, usedModel, nil
+		}
+
+		log.Printf("⚠️ Прямой запрос к Google API не удался (%v). Выполняем прозрачный авто-fallback на OmniRoute...", err)
+		omniModels := []string{"gemini/gemini-3.8-flash", "gemini/gemini-3-flash-preview", "kr/claude-sonnet-4.5"}
+		return callOmniRouteWithParts(prompt, imagesBase64, omniModels...)
+	}
+
+	// 2. Обработка других моделей через OmniRoute
+	var omniModels []string
+	switch req {
+	case "gemini-3.5-flash", "gemini/gemini-3.5-flash":
+		omniModels = []string{"gemini/gemini-3.5-flash", "gemini/gemini-3-flash-preview", "gemini/gemini-3.8-flash", "kr/claude-sonnet-4.5"}
+	case "gemini-3-flash", "gemini/gemini-3-flash-preview":
+		omniModels = []string{"gemini/gemini-3-flash-preview", "gemini/gemini-3.8-flash", "kr/claude-sonnet-4.5"}
+	case "claude-sonnet-4.5", "kr/claude-sonnet-4.5":
+		omniModels = []string{"kr/claude-sonnet-4.5", "gemini/gemini-3-flash-preview", "gemini/gemini-3.8-flash"}
+	default:
+		if req != "" {
+			omniModels = append([]string{req}, strings.Split(aiModel, ",")...)
+		} else {
+			omniModels = strings.Split(aiModel, ",")
+		}
+	}
+
+	return callOmniRouteWithParts(prompt, imagesBase64, omniModels...)
+}
+
 // parseMultiPageChunked выполняет постраничный параллельный парсинг многостраничных документов.
-func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt string) (*AiResponse, error) {
+func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt string, requestedModel string) (*AiResponse, error) {
 	mainPrompt := customPrompt
 	if strings.TrimSpace(mainPrompt) == "" {
 		mainPrompt = defaultParserPrompt
@@ -293,21 +482,8 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 
 	// Если страниц нет или только 1 страница — стандартный вызов
 	if len(imagesBase64) <= 1 {
-		var contentParts []map[string]interface{}
-		contentParts = append(contentParts, map[string]interface{}{
-			"type": "text",
-			"text": mainPrompt + "\n\nТекст накладной (может быть пустым, если это скан):\n" + text,
-		})
-		for _, b64 := range imagesBase64 {
-			contentParts = append(contentParts, map[string]interface{}{
-				"type": "image_url",
-				"image_url": map[string]string{
-					"url": "data:image/jpeg;base64," + b64,
-				},
-			})
-		}
-
-		rawContent, usedModel, err := callLLM(contentParts)
+		fullPrompt := mainPrompt + "\n\nТекст накладной (может быть пустым, если это скан):\n" + text
+		rawContent, usedModel, err := dispatchLLMCall(fullPrompt, imagesBase64, requestedModel)
 		if err != nil {
 			return nil, err
 		}
@@ -316,12 +492,12 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 			return nil, err
 		}
 		singleResp = mergePageResponses([]*AiResponse{singleResp})
-		return applyAutoReflection(singleResp, imagesBase64, text), nil
+		return applyAutoReflection(singleResp, imagesBase64, text, requestedModel), nil
 	}
 
 	// Многостраничный режим: обработка страниц параллельными горутинами
 	numPages := len(imagesBase64)
-	log.Printf("📄 Запуск многостраничного чанкинга: %d страниц(ы) документа", numPages)
+	log.Printf("📄 Запуск многостраничного чанкинга: %d страниц(ы) документа (модель: %s)", numPages, requestedModel)
 
 	pageResponses := make([]*AiResponse, numPages)
 	pageErrors := make([]error, numPages)
@@ -351,20 +527,9 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 			if pageIdx > 0 {
 				promptToUse = continuationPageParserPrompt
 			}
+			fullPrompt := fmt.Sprintf("%s\n\n[Страница %d из %d]", promptToUse, pageIdx+1, numPages)
 
-			var parts []map[string]interface{}
-			parts = append(parts, map[string]interface{}{
-				"type": "text",
-				"text": fmt.Sprintf("%s\n\n[Страница %d из %d]", promptToUse, pageIdx+1, numPages),
-			})
-			parts = append(parts, map[string]interface{}{
-				"type": "image_url",
-				"image_url": map[string]string{
-					"url": "data:image/jpeg;base64," + imagesBase64[pageIdx],
-				},
-			})
-
-			raw, model, err := callLLM(parts)
+			raw, model, err := dispatchLLMCall(fullPrompt, []string{imagesBase64[pageIdx]}, requestedModel)
 			if err != nil {
 				log.Printf("❌ Ошибка парсинга страницы %d: %v", pageIdx+1, err)
 				pageErrors[pageIdx] = fmt.Errorf("страница %d: %w", pageIdx+1, err)
@@ -378,7 +543,7 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 				return
 			}
 
-			log.Printf("✅ Страница %d/%d успешно распознана: %d позиций", pageIdx+1, numPages, len(parsed.Items))
+			log.Printf("✅ Страница %d/%d успешно распознана: %d позиций (модель: %s)", pageIdx+1, numPages, len(parsed.Items), model)
 			pageResponses[pageIdx] = parsed
 		}(i)
 	}
@@ -399,7 +564,7 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 
 	merged := mergePageResponses(pageResponses)
 	log.Printf("🎉 Чанкинг завершен: суммарно объединено %d позиций со всех %d страниц", len(merged.Items), numPages)
-	merged = applyAutoReflection(merged, imagesBase64, text)
+	merged = applyAutoReflection(merged, imagesBase64, text, requestedModel)
 	return merged, nil
 }
 
@@ -416,7 +581,7 @@ func calculateTotalSum(items []AiItem) float64 {
 // Сравнивает арифметическую сумму строк (calculatedTotal) с печатным итогом документа (doc_printed_total_sum).
 // Если расхождение превышает 1.0 рубль, делает автоматический прицельный дозапрос к AI (Reflection),
 // передавая точную дельту и прося перепроверить строки на предмет пропусков или искажений сумм.
-func applyAutoReflection(parsed *AiResponse, imagesBase64 []string, text string) *AiResponse {
+func applyAutoReflection(parsed *AiResponse, imagesBase64 []string, text string, requestedModel string) *AiResponse {
 	if parsed == nil || len(parsed.Items) == 0 {
 		return parsed
 	}
@@ -467,27 +632,13 @@ func applyAutoReflection(parsed *AiResponse, imagesBase64 []string, text string)
   ]
 }`, parsed.DocPrintedTotalSum, calcTotal, delta, parsed.DocPrintedTotalSum, parsed.DocPrintedTotalSum)
 
-	var parts []map[string]interface{}
-	parts = append(parts, map[string]interface{}{
-		"type": "text",
-		"text": reflectionPrompt,
-	})
-
 	// Ограничиваем количество картинок для рефлексии (до 5 ключевых страниц), чтобы не раздувать payload
 	reflectImages := imagesBase64
 	if len(reflectImages) > 5 {
 		reflectImages = reflectImages[:5]
 	}
-	for _, b64 := range reflectImages {
-		parts = append(parts, map[string]interface{}{
-			"type": "image_url",
-			"image_url": map[string]string{
-				"url": "data:image/jpeg;base64," + b64,
-			},
-		})
-	}
 
-	raw, model, err := callLLM(parts)
+	raw, model, err := dispatchLLMCall(reflectionPrompt, reflectImages, requestedModel)
 	if err != nil {
 		log.Printf("⚠️ Auto-Reflection: сетевая ошибка при самоисправлении: %v (сохраняем исходный результат)", err)
 		return parsed
@@ -528,6 +679,10 @@ func applyAutoReflection(parsed *AiResponse, imagesBase64 []string, text string)
 }
 
 // parseWithClaude — единая точка входа для парсинга документов.
-func parseWithClaude(text string, imagesBase64 []string, customPrompt string) (*AiResponse, error) {
-	return parseMultiPageChunked(text, imagesBase64, customPrompt)
+func parseWithClaude(text string, imagesBase64 []string, customPrompt string, optionalModel ...string) (*AiResponse, error) {
+	reqModel := ""
+	if len(optionalModel) > 0 {
+		reqModel = optionalModel[0]
+	}
+	return parseMultiPageChunked(text, imagesBase64, customPrompt, reqModel)
 }
