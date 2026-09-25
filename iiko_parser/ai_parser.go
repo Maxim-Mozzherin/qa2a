@@ -80,8 +80,8 @@ func callLLM(contentParts []map[string]interface{}, modelsToTry ...string) (stri
 		req = req.WithContext(ctxReq)
 
 		resp, err := llmHTTPClient.Do(req)
-		cancelReq()
 		if err != nil {
+			cancelReq()
 			lastErr = fmt.Errorf("таймаут/сбой при обращении к модели %s (%s): %w", modelToUse, aiBaseUrl, err)
 			log.Printf("⚠️ Модель %s не ответила за %ds или сбой (%v). Переход к следующей fallback-модели...", modelToUse, timeoutSec, err)
 			continue
@@ -89,6 +89,7 @@ func callLLM(contentParts []map[string]interface{}, modelsToTry ...string) (stri
 
 		respBody, err = io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 		resp.Body.Close()
+		cancelReq()
 
 		if err != nil {
 			lastErr = fmt.Errorf("ошибка чтения ответа AI: %w", err)
