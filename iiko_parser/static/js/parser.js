@@ -23,6 +23,25 @@ async function executeParseWithFiles(fileObjs) {
     els.loaderParse.classList.remove('hidden');
     els.resSection.classList.add('hidden');
 
+    let loaderTimer = null;
+    const loaderTextEl = els.loaderParse ? els.loaderParse.querySelector('span:last-child') || els.loaderParse : null;
+    const defaultLoaderMsg = "Нейросеть анализирует структуру УПД и коэффициенты фасовки... Пожалуйста, подождите.";
+    if (loaderTextEl) {
+        let sec = 0;
+        loaderTimer = setInterval(() => {
+            sec++;
+            if (sec < 6) {
+                loaderTextEl.textContent = `Распознавание структуры документа (${sec}с)...`;
+            } else if (sec < 15) {
+                loaderTextEl.textContent = `Параллельный парсинг страниц и номенклатуры (${sec}с)...`;
+            } else if (sec < 25) {
+                loaderTextEl.textContent = `Сверка сумм и фасовок (Auto-Reflection, ${sec}с)...`;
+            } else {
+                loaderTextEl.textContent = `Финализация данных накладной (${sec}с)...`;
+            }
+        }, 1000);
+    }
+
     try {
         const res = await fetch('api/parse', {
             method: 'POST',
@@ -30,7 +49,16 @@ async function executeParseWithFiles(fileObjs) {
             body: formData
         });
 
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) {
+            let errorText = await res.text();
+            if (errorText.includes("504 Gateway Time-out")) {
+                errorText = "Сервер Nginx сообщил о таймауте (504). Документ обрабатывается дольше обычного или сеть перегружена.";
+            } else if (errorText.includes("<title>")) {
+                const titleMatch = errorText.match(/<title>(.*?)<\/title>/i);
+                if (titleMatch) errorText = titleMatch[1];
+            }
+            throw new Error(errorText);
+        }
 
         currentDocData = await res.json();
         if (currentDocData && currentDocData.used_model) {
@@ -45,6 +73,8 @@ async function executeParseWithFiles(fileObjs) {
     } catch (err) {
         alert("❌ Ошибка парсинга AI: " + err.message);
     } finally {
+        if (loaderTimer) clearInterval(loaderTimer);
+        if (loaderTextEl) loaderTextEl.textContent = defaultLoaderMsg;
         els.btnParse.disabled = false;
         els.loaderParse.classList.add('hidden');
     }

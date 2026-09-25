@@ -97,12 +97,21 @@ func callLLM(contentParts []map[string]interface{}, modelsToTry ...string) (stri
 
 		// Если OmniRoute временно сообщает chat_admission_busy, ожидаем освобождения очереди
 		if resp.StatusCode == http.StatusServiceUnavailable && strings.Contains(string(respBody), "chat_admission_busy") {
-			log.Printf("⚠️ OmniRoute admission queue busy (chat_admission_busy). Ожидание 2.5s перед повтором (попытка %d/%d)...", attempt, maxRetries)
-			time.Sleep(2500 * time.Millisecond)
+			log.Printf("⚠️ OmniRoute admission queue busy (chat_admission_busy). Ожидание 1.5s перед повтором (попытка %d/%d)...", attempt, maxRetries)
+			time.Sleep(1500 * time.Millisecond)
 			continue
 		}
 
-		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError {
+		// Если модель исчерпала квоту (HTTP 429) или превышен лимит ожидания локальной очереди (503 queue budget)
+		// немедленно переключаемся на следующую fallback-модель без задержки
+		if resp.StatusCode == http.StatusTooManyRequests ||
+			(resp.StatusCode == http.StatusServiceUnavailable && strings.Contains(string(respBody), "queue budget")) {
+			lastErr = fmt.Errorf("AI API лимит квоты (HTTP %d): %s", resp.StatusCode, string(respBody))
+			log.Printf("⚠️ Модель %s исчерпала квоту (HTTP %d). Мгновенный переход к следующей fallback-модели...", modelToUse, resp.StatusCode)
+			continue
+		}
+
+		if resp.StatusCode >= http.StatusInternalServerError {
 			lastErr = fmt.Errorf("AI API вернул ошибку (HTTP %d): %s", resp.StatusCode, string(respBody))
 			log.Printf("⚠️ AI попытка %d/%d не удалась: модель=%s, HTTP %d — повтор через %ds", attempt, maxRetries, modelToUse, resp.StatusCode, attempt*2)
 			time.Sleep(time.Duration(attempt*2) * time.Second)
@@ -363,7 +372,7 @@ func callDirectGoogleGemini(prompt string, imagesBase64 []string, modelName stri
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
 
@@ -456,7 +465,7 @@ func dispatchLLMCall(prompt string, imagesBase64 []string, requestedModel string
 		}
 
 		log.Printf("⚠️ Прямой запрос к Google API не удался (%v). Выполняем прозрачный авто-fallback на OmniRoute...", err)
-		omniModels := []string{"gemini/gemini-3.8-flash", "gemini/gemini-3-flash-preview", "kr/claude-sonnet-4.5"}
+		omniModels := []string{"gemini/gemini-3.8-flash", "kr/claude-sonnet-4.5", "gemini/gemini-3-flash-preview"}
 		return callOmniRouteWithParts(prompt, imagesBase64, omniModels...)
 	}
 
@@ -464,14 +473,14 @@ func dispatchLLMCall(prompt string, imagesBase64 []string, requestedModel string
 	var omniModels []string
 	switch req {
 	case "gemini-3.5-flash", "gemini/gemini-3.5-flash":
-		omniModels = []string{"gemini/gemini-3.5-flash", "gemini/gemini-3-flash-preview", "gemini/gemini-3.8-flash", "kr/claude-sonnet-4.5"}
+		omniModels = []string{"gemini/gemini-3.5-flash", "kr/claude-sonnet-4.5", "gemini/gemini-3-flash-preview"}
 	case "gemini-3-flash", "gemini/gemini-3-flash-preview":
-		omniModels = []string{"gemini/gemini-3-flash-preview", "gemini/gemini-3.8-flash", "kr/claude-sonnet-4.5"}
+		omniModels = []string{"gemini/gemini-3-flash-preview", "kr/claude-sonnet-4.5", "gemini/gemini-3.8-flash"}
 	case "claude-sonnet-4.5", "kr/claude-sonnet-4.5":
 		omniModels = []string{"kr/claude-sonnet-4.5", "gemini/gemini-3-flash-preview", "gemini/gemini-3.8-flash"}
 	default:
 		if req != "" {
-			omniModels = append([]string{req}, strings.Split(aiModel, ",")...)
+			omniModels = append([]string{req, "kr/claude-sonnet-4.5"}, strings.Split(aiModel, ",")...)
 		} else {
 			omniModels = strings.Split(aiModel, ",")
 		}
@@ -509,8 +518,8 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 	pageResponses := make([]*AiResponse, numPages)
 	pageErrors := make([]error, numPages)
 
-	// Ограничитель конкурентности (по умолчанию 1 для надежности локального прокси без chat_admission_busy)
-	maxConcurrent := 1
+	// Ограничитель конкурентности (по умолчанию 2 для ускоренной параллельной обработки страниц)
+	maxConcurrent := 2
 	if mcStr := os.Getenv("AI_MAX_CONCURRENT"); mcStr != "" {
 		if mc, err := strconv.Atoi(mcStr); err == nil && mc > 0 {
 			maxConcurrent = mc
@@ -529,12 +538,19 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			promptToUse := mainPrompt
-			// Для страниц 2..N используем специализированный лаконичный промпт
+			// Небольшой сдвиг запуска между страницами во избежание резких скачков
+			if pageIdx > 0 {
+				time.Sleep(time.Duration(pageIdx*300) * time.Millisecond)
+			}
+
+			promptToUse := chunkPage1Prompt
+			if strings.TrimSpace(customPrompt) != "" {
+				promptToUse = customPrompt
+			}
 			if pageIdx > 0 {
 				promptToUse = continuationPageParserPrompt
 			}
-			fullPrompt := fmt.Sprintf("%s\n\n[Страница %d из %d]", promptToUse, pageIdx+1, numPages)
+			fullPrompt := fmt.Sprintf("%s\n\nВНИМАНИЕ: Обработай СТРОГО страницу %d из %d и верни только JSON-объект.", promptToUse, pageIdx+1, numPages)
 
 			raw, model, err := dispatchLLMCall(fullPrompt, []string{imagesBase64[pageIdx]}, requestedModel)
 			if err != nil {
@@ -545,7 +561,20 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 
 			parsed, err := parseLLMContentToAiResponse(raw, model)
 			if err != nil {
-				log.Printf("❌ Ошибка разбора JSON страницы %d: %v", pageIdx+1, err)
+				log.Printf("⚠️ Ошибка разбора JSON страницы %d (%v). Повторная строгая попытка через Claude...", pageIdx+1, err)
+				retryPrompt := fmt.Sprintf("%s\n\nОШИБКА: Твой ответ обязан содержать СТРОГО валидный JSON-объект {...} с товарами страницы %d! Без вступительного текста, без markdown, не жди другие страницы!", promptToUse, pageIdx+1)
+				retryRaw, retryModel, retryErr := dispatchLLMCall(retryPrompt, []string{imagesBase64[pageIdx]}, "kr/claude-sonnet-4.5")
+				if retryErr == nil {
+					if retryParsed, retryJsonErr := parseLLMContentToAiResponse(retryRaw, retryModel); retryJsonErr == nil {
+						parsed = retryParsed
+						model = retryModel
+						err = nil
+					}
+				}
+			}
+
+			if err != nil {
+				log.Printf("❌ Ошибка парсинга страницы %d: %v", pageIdx+1, err)
 				pageErrors[pageIdx] = fmt.Errorf("страница %d: %w", pageIdx+1, err)
 				return
 			}
