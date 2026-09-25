@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,7 +16,7 @@ import (
 	"time"
 )
 
-// callLLM выполняет низкоуровневый HTTP-запрос к API нейросети с поддержкой fallback-моделей и повторных попыток.
+// callLLM выполняет низкоуровневый HTTP-запрос к API нейросети с поддержкой fallback-моделей Gemini и быстрого failover.
 func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 	payload := map[string]interface{}{
 		"stream":      false,
@@ -39,14 +40,29 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 		payload["reasoning_effort"] = effort
 	}
 
-	fallbackModels := strings.Split(aiModel, ",")
+	rawModels := strings.Split(aiModel, ",")
+	var fallbackModels []string
+	for _, m := range rawModels {
+		trimmed := strings.TrimSpace(m)
+		if trimmed != "" {
+			fallbackModels = append(fallbackModels, trimmed)
+		}
+	}
+	if len(fallbackModels) == 0 {
+		fallbackModels = []string{
+			"gemini/gemini-3.5-flash",
+			"gemini/gemini-3-flash-preview",
+			"gemini/gemini-3.1-flash-lite-preview",
+		}
+	}
+
 	var respBody []byte
-	maxRetries := 5
+	maxRetries := len(fallbackModels)
 	var lastErr error
 	var chosenModel string
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		modelToUse := strings.TrimSpace(fallbackModels[(attempt-1)%len(fallbackModels)])
+		modelToUse := fallbackModels[attempt-1]
 		payload["model"] = modelToUse
 		chosenModel = modelToUse
 
@@ -55,8 +71,13 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 			return "", "", fmt.Errorf("ошибка сериализации JSON для AI: %w", err)
 		}
 
-		req, err := http.NewRequest("POST", aiBaseUrl, bytes.NewBuffer(jsonData))
+		// Fail-fast таймаут: 12 секунд на каждую модель Gemini, чтобы не висеть при сбоях провайдера
+		attemptTimeout := 12 * time.Second
+		ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
+
+		req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
 		if err != nil {
+			cancel()
 			return "", "", fmt.Errorf("ошибка формирования HTTP запроса к AI: %w", err)
 		}
 		req.Header.Set("Authorization", "Bearer "+aiApiKey)
@@ -64,17 +85,19 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 
 		resp, err := llmHTTPClient.Do(req)
 		if err != nil {
-			lastErr = fmt.Errorf("сетевой сбой при обращении к AI (%s): %w", aiBaseUrl, err)
-			time.Sleep(time.Duration(attempt*2) * time.Second)
+			cancel()
+			lastErr = fmt.Errorf("модель %s не ответила за %v или сбой сети: %w", modelToUse, attemptTimeout, err)
+			log.Printf("⚠️ Модель %s не ответила за %v (%v). Переход к следующей модели Gemini...", modelToUse, attemptTimeout, err)
 			continue
 		}
 
 		respBody, err = io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 		resp.Body.Close()
+		cancel()
 
 		if err != nil {
-			lastErr = fmt.Errorf("ошибка чтения ответа AI: %w", err)
-			time.Sleep(time.Duration(attempt*2) * time.Second)
+			lastErr = fmt.Errorf("ошибка чтения ответа AI (%s): %w", modelToUse, err)
+			log.Printf("⚠️ Ошибка чтения ответа модели %s: %v. Переход к следующей модели Gemini...", modelToUse, err)
 			continue
 		}
 
@@ -88,15 +111,16 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 			continue
 		}
 
-		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError {
-			lastErr = fmt.Errorf("AI API вернул ошибку (HTTP %d): %s", resp.StatusCode, string(respBody))
-			log.Printf("⚠️ AI попытка %d/%d не удалась: модель=%s, HTTP %d — повтор через %ds", attempt, maxRetries, modelToUse, resp.StatusCode, attempt*2)
-			time.Sleep(time.Duration(attempt*2) * time.Second)
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError || resp.StatusCode == http.StatusNotFound {
+			lastErr = fmt.Errorf("модель %s вернула HTTP %d: %s", modelToUse, resp.StatusCode, string(respBody))
+			log.Printf("⚠️ Модель %s вернула HTTP %d — немедленный переход к следующей модели Gemini...", modelToUse, resp.StatusCode)
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			return "", "", fmt.Errorf("AI API вернул ошибку (HTTP %d): %s", resp.StatusCode, string(respBody))
+			lastErr = fmt.Errorf("модель %s вернула ошибку (HTTP %d): %s", modelToUse, resp.StatusCode, string(respBody))
+			log.Printf("⚠️ Модель %s вернула ошибку (HTTP %d): %s. Переход к следующей модели Gemini...", modelToUse, resp.StatusCode, string(respBody))
+			continue
 		}
 
 		lastErr = nil
@@ -105,7 +129,7 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 	}
 
 	if lastErr != nil {
-		return "", "", fmt.Errorf("не удалось получить ответ от нейросети после %d попыток. Последняя ошибка: %v", maxRetries, lastErr)
+		return "", "", fmt.Errorf("не удалось получить ответ от моделей Gemini (%s) после %d попыток. Последняя ошибка: %v", strings.Join(fallbackModels, " -> "), maxRetries, lastErr)
 	}
 
 	var apiResp struct {
@@ -326,8 +350,8 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 	pageResponses := make([]*AiResponse, numPages)
 	pageErrors := make([]error, numPages)
 
-	// Ограничитель конкурентности (по умолчанию 1 для надежности локального прокси без chat_admission_busy)
-	maxConcurrent := 1
+	// Ограничитель конкурентности (по умолчанию 2 для быстрой параллельной обработки страниц)
+	maxConcurrent := 2
 	if mcStr := os.Getenv("AI_MAX_CONCURRENT"); mcStr != "" {
 		if mc, err := strconv.Atoi(mcStr); err == nil && mc > 0 {
 			maxConcurrent = mc
@@ -345,6 +369,11 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+
+			// Сдвиг между страницами, чтобы запросы не создавали резких пиков
+			if pageIdx > 0 {
+				time.Sleep(time.Duration(pageIdx*300) * time.Millisecond)
+			}
 
 			promptToUse := mainPrompt
 			// Для страниц 2..N используем специализированный лаконичный промпт
