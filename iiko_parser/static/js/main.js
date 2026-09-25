@@ -86,6 +86,7 @@ async function initDashboard() {
             handleCompanyChange();
         }
         if (typeof startGlobalBadgePolling === 'function') startGlobalBadgePolling();
+        if (typeof loadModelHealthBadge === 'function') loadModelHealthBadge();
     } catch (err) {
         console.error("Ошибка загрузки заведений:", err);
     }

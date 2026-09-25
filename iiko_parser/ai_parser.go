@@ -52,20 +52,21 @@ func (m *ModelHealthManager) markHealthy(model string) {
 	}
 }
 
-// pingModel отправляет сверхбыстрый легковесный запрос (1 токен, таймаут 4.5с) для проверки готовности модели
+// pingModel отправляет сверхбыстрый легковесный запрос (таймаут 3.5с) для проверки готовности модели
 func pingModel(model string) bool {
 	probePayload := map[string]interface{}{
 		"model":      model,
-		"max_tokens": 1,
+		"max_tokens": 5,
+		"stream":     false,
 		"messages": []map[string]interface{}{
-			{"role": "user", "content": "1"},
+			{"role": "user", "content": "ping"},
 		},
 	}
 	jsonData, err := json.Marshal(probePayload)
 	if err != nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
@@ -87,8 +88,8 @@ func pingModel(model string) bool {
 // startModelHealthChecker фоново проверяет доступность моделей каждые 60 секунд.
 func startModelHealthChecker() {
 	go func() {
-		// Первичный пинг через 1 сек после старта сервиса
-		time.Sleep(1 * time.Second)
+		// Первичный параллельный пинг через 200мс после старта сервиса
+		time.Sleep(200 * time.Millisecond)
 		runProbes()
 
 		ticker := time.NewTicker(60 * time.Second)
@@ -101,21 +102,39 @@ func startModelHealthChecker() {
 
 func runProbes() {
 	rawModels := strings.Split(aiModel, ",")
+	var wg sync.WaitGroup
 	for _, raw := range rawModels {
 		m := strings.TrimSpace(raw)
 		if m == "" {
 			continue
 		}
-		if pingModel(m) {
-			globalModelHealth.markHealthy(m)
-		} else {
-			globalModelHealth.markFailed(m, 60*time.Second)
-		}
+		wg.Add(1)
+		go func(modelName string) {
+			defer wg.Done()
+			if pingModel(modelName) {
+				globalModelHealth.markHealthy(modelName)
+			} else {
+				globalModelHealth.markFailed(modelName, 60*time.Second)
+			}
+		}(m)
 	}
+	wg.Wait()
 }
 
-// callLLM выполняет низкоуровневый HTTP-запрос к API нейросети с поддержкой fallback-моделей Gemini и быстрого failover.
-func callLLM(contentParts []map[string]interface{}) (string, string, error) {
+// formatCleanModelName возвращает читаемое имя модели для UI логов
+func formatCleanModelName(m string) string {
+	s := strings.TrimPrefix(m, "gemini/")
+	s = strings.TrimSuffix(s, "-preview")
+	return s
+}
+
+// callLLM выполняет HTTP-запрос к API нейросети со строгой очередью Gemini, пингом и HealthCheck Circuit Breaker.
+func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter) (string, string, error) {
+	var report ProgressReporter
+	if len(progress) > 0 && progress[0] != nil {
+		report = progress[0]
+	}
+
 	payload := map[string]interface{}{
 		"stream":      false,
 		"max_tokens":  65536,
@@ -154,42 +173,37 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 		}
 	}
 
-	// Разделяем модели на активные (не в кулдауне) и временно недоступные (в кулдауне)
-	var activeModels []string
-	var coolDownModels []string
-	for _, m := range orderedModels {
-		if globalModelHealth.isCoolingDown(m) {
-			coolDownModels = append(coolDownModels, m)
-		} else {
-			activeModels = append(activeModels, m)
-		}
-	}
-
-	// Сначала вызываем живые модели. Если все в кулдауне — пробуем все по порядку.
-	var fallbackModels []string
-	if len(activeModels) > 0 {
-		fallbackModels = append(activeModels, coolDownModels...)
-	} else {
-		fallbackModels = orderedModels
-	}
-
 	var respBody []byte
-	maxRetries := len(fallbackModels)
 	var lastErr error
 	var chosenModel string
 
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		modelToUse := fallbackModels[attempt-1]
+	for idx, modelToUse := range orderedModels {
+		cleanName := formatCleanModelName(modelToUse)
+
+		// 1. Проверяем статус в Circuit Breaker (кулдаун)
+		if globalModelHealth.isCoolingDown(modelToUse) {
+			log.Printf("⏳ [HealthCheck] Модель %s в кулдауне (пропускается)", cleanName)
+			if report != nil {
+				report("⏳", fmt.Sprintf("[HealthCheck] Модель %s в кулдауне (пропускается)", cleanName), 30)
+			}
+			continue
+		}
+
+		// 2. Модель активна: отправляем запрос с надежным таймаутом (50 сек на распознавание картинки)
+		if report != nil {
+			report("⚡", fmt.Sprintf("Отправка запроса в %s...", cleanName), 40)
+		}
+
 		payload["model"] = modelToUse
 		chosenModel = modelToUse
+		startTime := time.Now()
 
 		jsonData, err := json.Marshal(payload)
 		if err != nil {
 			return "", "", fmt.Errorf("ошибка сериализации JSON для AI: %w", err)
 		}
 
-		// Fail-fast таймаут: 10 секунд на каждую модель Gemini, чтобы не висеть при сбоях провайдера
-		attemptTimeout := 10 * time.Second
+		attemptTimeout := 50 * time.Second
 		ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
 
 		req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
@@ -203,7 +217,7 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 		resp, err := llmHTTPClient.Do(req)
 		if err != nil {
 			cancel()
-			globalModelHealth.markFailed(modelToUse, 90*time.Second)
+			globalModelHealth.markFailed(modelToUse, 60*time.Second)
 			lastErr = fmt.Errorf("модель %s не ответила за %v или сбой сети: %w", modelToUse, attemptTimeout, err)
 			log.Printf("⚠️ Модель %s не ответила за %v (%v). Переход к следующей модели Gemini...", modelToUse, attemptTimeout, err)
 			continue
@@ -214,7 +228,7 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 		cancel()
 
 		if err != nil {
-			globalModelHealth.markFailed(modelToUse, 90*time.Second)
+			globalModelHealth.markFailed(modelToUse, 60*time.Second)
 			lastErr = fmt.Errorf("ошибка чтения ответа AI (%s): %w", modelToUse, err)
 			log.Printf("⚠️ Ошибка чтения ответа модели %s: %v. Переход к следующей модели Gemini...", modelToUse, err)
 			continue
@@ -226,32 +240,85 @@ func callLLM(contentParts []map[string]interface{}) (string, string, error) {
 			log.Printf("⚠️ Модель %s не поддерживает параметры thinking/reasoning_effort (HTTP 400). Повторяем без CoT...", modelToUse)
 			delete(payload, "thinking")
 			delete(payload, "reasoning_effort")
-			attempt-- // Не сжигаем счетчик попыток
-			continue
+			jsonDataRetry, _ := json.Marshal(payload)
+			ctxRetry, cancelRetry := context.WithTimeout(context.Background(), attemptTimeout)
+			reqRetry, _ := http.NewRequestWithContext(ctxRetry, "POST", aiBaseUrl, bytes.NewBuffer(jsonDataRetry))
+			reqRetry.Header.Set("Authorization", "Bearer "+aiApiKey)
+			reqRetry.Header.Set("Content-Type", "application/json")
+			respRetry, errRetry := llmHTTPClient.Do(reqRetry)
+			if errRetry == nil {
+				respBody, err = io.ReadAll(io.LimitReader(respRetry.Body, 10<<20))
+				respRetry.Body.Close()
+				resp.StatusCode = respRetry.StatusCode
+			}
+			cancelRetry()
 		}
 
-		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError || resp.StatusCode == http.StatusNotFound {
-			globalModelHealth.markFailed(modelToUse, 90*time.Second)
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError || resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadGateway {
+			globalModelHealth.markFailed(modelToUse, 60*time.Second)
 			lastErr = fmt.Errorf("модель %s вернула HTTP %d: %s", modelToUse, resp.StatusCode, string(respBody))
 			log.Printf("⚠️ Модель %s вернула HTTP %d — немедленный переход к следующей модели Gemini...", modelToUse, resp.StatusCode)
+			if report != nil {
+				report("⏳", fmt.Sprintf("Модель %s вернула HTTP %d, переключение на следующую...", cleanName, resp.StatusCode), 35)
+			}
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			globalModelHealth.markFailed(modelToUse, 90*time.Second)
+			globalModelHealth.markFailed(modelToUse, 60*time.Second)
 			lastErr = fmt.Errorf("модель %s вернула ошибку (HTTP %d): %s", modelToUse, resp.StatusCode, string(respBody))
 			log.Printf("⚠️ Модель %s вернула ошибку (HTTP %d): %s. Переход к следующей модели Gemini...", modelToUse, resp.StatusCode)
 			continue
 		}
 
+		durationSec := int(time.Since(startTime).Seconds())
 		globalModelHealth.markHealthy(modelToUse)
 		lastErr = nil
-		log.Printf("✅ AI ответ получен: модель=%s, попытка=%d/%d", modelToUse, attempt, maxRetries)
+		log.Printf("✅ AI ответ: %s (попытка %d/%d, время: %dс)", cleanName, idx+1, len(orderedModels), durationSec)
+		if report != nil {
+			report("✅", fmt.Sprintf("AI ответ: %s (попытка %d/%d, время: %dс)", cleanName, idx+1, len(orderedModels), durationSec), 70)
+		}
 		break
 	}
 
+	// 4. Если все модели были в кулдауне или сбоили — аварийный вызов последней легкой модели напрямую
+	if respBody == nil || lastErr != nil {
+		fallbackLite := orderedModels[len(orderedModels)-1]
+		cleanLite := formatCleanModelName(fallbackLite)
+		log.Printf("🚨 Все модели в кулдауне. Аварийный запуск %s напрямую...", fallbackLite)
+		if report != nil {
+			report("🚨", fmt.Sprintf("Все модели в кулдауне. Аварийный запуск %s напрямую...", cleanLite), 35)
+		}
+		payload["model"] = fallbackLite
+		chosenModel = fallbackLite
+		startTime := time.Now()
+		jsonData, _ := json.Marshal(payload)
+		ctxEmergency, cancelEmergency := context.WithTimeout(context.Background(), 50*time.Second)
+		reqEmergency, _ := http.NewRequestWithContext(ctxEmergency, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
+		reqEmergency.Header.Set("Authorization", "Bearer "+aiApiKey)
+		reqEmergency.Header.Set("Content-Type", "application/json")
+		respEmergency, errEmerg := llmHTTPClient.Do(reqEmergency)
+		if errEmerg == nil {
+			respBody, _ = io.ReadAll(io.LimitReader(respEmergency.Body, 10<<20))
+			respEmergency.Body.Close()
+			if respEmergency.StatusCode == http.StatusOK {
+				lastErr = nil
+				durationSec := int(time.Since(startTime).Seconds())
+				globalModelHealth.markHealthy(fallbackLite)
+				if report != nil {
+					report("✅", fmt.Sprintf("AI ответ: %s (аварийный режим, время: %dс)", cleanLite, durationSec), 70)
+				}
+			} else {
+				lastErr = fmt.Errorf("аварийный вызов %s вернул HTTP %d: %s", fallbackLite, respEmergency.StatusCode, string(respBody))
+			}
+		} else {
+			lastErr = fmt.Errorf("аварийный вызов %s не удался: %w", fallbackLite, errEmerg)
+		}
+		cancelEmergency()
+	}
+
 	if lastErr != nil {
-		return "", "", fmt.Errorf("не удалось получить ответ от моделей Gemini (%s) после %d попыток. Последняя ошибка: %v", strings.Join(fallbackModels, " -> "), maxRetries, lastErr)
+		return "", "", fmt.Errorf("не удалось получить ответ от моделей Gemini (%s). Последняя ошибка: %v", strings.Join(orderedModels, " -> "), lastErr)
 	}
 
 	var apiResp struct {
@@ -430,8 +497,53 @@ func mergePageResponses(pages []*AiResponse) *AiResponse {
 	return combined
 }
 
+// ProgressReporter — функция для отправки событий прогресса распознавания в UI
+type ProgressReporter func(icon string, msg string, percent int)
+
+// ModelStatusInfo хранит статус модели для вывода в UI-статусбаре
+type ModelStatusInfo struct {
+	Name      string `json:"name"`
+	Status    string `json:"status"` // "active", "cooldown"
+	IsPrimary bool   `json:"is_primary"`
+}
+
+// GetModelsHealthStatus возвращает актуальный срез статусов моделей
+func GetModelsHealthStatus() []ModelStatusInfo {
+	rawModels := strings.Split(aiModel, ",")
+	var result []ModelStatusInfo
+	firstActive := false
+	for _, raw := range rawModels {
+		m := strings.TrimSpace(raw)
+		if m == "" {
+			continue
+		}
+		cooling := globalModelHealth.isCoolingDown(m)
+		st := "active"
+		if cooling {
+			st = "cooldown"
+		}
+		isPrim := false
+		if !cooling && !firstActive {
+			isPrim = true
+			firstActive = true
+		}
+		result = append(result, ModelStatusInfo{
+			Name:      m,
+			Status:    st,
+			IsPrimary: isPrim,
+		})
+	}
+	return result
+}
+
 // parseMultiPageChunked выполняет постраничный параллельный парсинг многостраничных документов.
-func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt string) (*AiResponse, error) {
+func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt string, progress ...ProgressReporter) (*AiResponse, error) {
+	report := func(icon, msg string, percent int) {
+		if len(progress) > 0 && progress[0] != nil {
+			progress[0](icon, msg, percent)
+		}
+	}
+
 	mainPrompt := customPrompt
 	if strings.TrimSpace(mainPrompt) == "" {
 		mainPrompt = defaultParserPrompt
@@ -439,6 +551,7 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 
 	// Если страниц нет или только 1 страница — стандартный вызов
 	if len(imagesBase64) <= 1 {
+		report("🧠", "Запрос к AI модели для распознавания документа...", 40)
 		var contentParts []map[string]interface{}
 		contentParts = append(contentParts, map[string]interface{}{
 			"type": "text",
@@ -453,21 +566,23 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 			})
 		}
 
-		rawContent, usedModel, err := callLLM(contentParts)
+		rawContent, usedModel, err := callLLM(contentParts, report)
 		if err != nil {
 			return nil, err
 		}
+		report("✅", fmt.Sprintf("Ответ получен от модели %s, разбор JSON...", usedModel), 65)
 		singleResp, err := parseLLMContentToAiResponse(rawContent, usedModel)
 		if err != nil {
 			return nil, err
 		}
 		singleResp = mergePageResponses([]*AiResponse{singleResp})
-		return applyAutoReflection(singleResp, imagesBase64, text), nil
+		return applyAutoReflection(singleResp, imagesBase64, text, report), nil
 	}
 
 	// Многостраничный режим: обработка страниц параллельными горутинами
 	numPages := len(imagesBase64)
 	log.Printf("📄 Запуск многостраничного чанкинга: %d страниц(ы) документа", numPages)
+	report("📄", fmt.Sprintf("Запуск чанкинга: %d страниц параллельно", numPages), 35)
 
 	pageResponses := make([]*AiResponse, numPages)
 	pageErrors := make([]error, numPages)
@@ -515,7 +630,9 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 				},
 			})
 
-			raw, model, err := callLLM(parts)
+			raw, model, err := callLLM(parts, func(icon, msg string, pct int) {
+				report(icon, fmt.Sprintf("[Стр %d/%d] %s", pageIdx+1, numPages, msg), pct)
+			})
 			if err != nil {
 				log.Printf("❌ Ошибка парсинга страницы %d: %v", pageIdx+1, err)
 				pageErrors[pageIdx] = fmt.Errorf("страница %d: %w", pageIdx+1, err)
@@ -530,6 +647,7 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 			}
 
 			log.Printf("✅ Страница %d/%d успешно распознана: %d позиций", pageIdx+1, numPages, len(parsed.Items))
+			report("✅", fmt.Sprintf("Страница %d/%d: распознано %d поз. (%s)", pageIdx+1, numPages, len(parsed.Items), model), 40+(pageIdx+1)*35/numPages)
 			pageResponses[pageIdx] = parsed
 		}(i)
 	}
@@ -550,7 +668,8 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 
 	merged := mergePageResponses(pageResponses)
 	log.Printf("🎉 Чанкинг завершен: суммарно объединено %d позиций со всех %d страниц", len(merged.Items), numPages)
-	merged = applyAutoReflection(merged, imagesBase64, text)
+	report("🎉", fmt.Sprintf("Чанкинг завершен: объединено %d позиций", len(merged.Items)), 82)
+	merged = applyAutoReflection(merged, imagesBase64, text, report)
 	return merged, nil
 }
 
@@ -567,7 +686,7 @@ func calculateTotalSum(items []AiItem) float64 {
 // Сравнивает арифметическую сумму строк (calculatedTotal) с печатным итогом документа (doc_printed_total_sum).
 // Если расхождение превышает 1.0 рубль, делает автоматический прицельный дозапрос к AI (Reflection),
 // передавая точную дельту и прося перепроверить строки на предмет пропусков или искажений сумм.
-func applyAutoReflection(parsed *AiResponse, imagesBase64 []string, text string) *AiResponse {
+func applyAutoReflection(parsed *AiResponse, imagesBase64 []string, text string, report func(string, string, int)) *AiResponse {
 	if parsed == nil || len(parsed.Items) == 0 {
 		return parsed
 	}
@@ -579,10 +698,16 @@ func applyAutoReflection(parsed *AiResponse, imagesBase64 []string, text string)
 	delta := math.Abs(calcTotal - parsed.DocPrintedTotalSum)
 	if delta <= 1.0 {
 		log.Printf("⚖️ Auto-Reflection: суммы сходятся (расчетная=%.2f, печатная=%.2f, дельта=%.2f <= 1.00)", calcTotal, parsed.DocPrintedTotalSum, delta)
+		if report != nil {
+			report("⚖️", fmt.Sprintf("Auto-Reflection: суммы сходятся (дельта %.2f ₽)", delta), 90)
+		}
 		return parsed
 	}
 
 	log.Printf("⚠️ Auto-Reflection: обнаружено расхождение сумм (расчетная=%.2f, печатная=%.2f, дельта=%.2f > 1.00). Запуск самоисправления нейросетью...", calcTotal, parsed.DocPrintedTotalSum, delta)
+	if report != nil {
+		report("⚠️", fmt.Sprintf("Auto-Reflection: расхождение %.2f ₽, самоисправление...", delta), 85)
+	}
 
 	reflectionPrompt := fmt.Sprintf(`ВНИМАНИЕ! В РАСПОЗНАННОЙ НАКЛАДНОЙ ОБНАРУЖЕНО РАСХОЖДЕНИЕ СУММ:
 Печатная итоговая сумма документа (Всего к оплате): %.2f
@@ -638,7 +763,7 @@ func applyAutoReflection(parsed *AiResponse, imagesBase64 []string, text string)
 		})
 	}
 
-	raw, model, err := callLLM(parts)
+	raw, model, err := callLLM(parts, report)
 	if err != nil {
 		log.Printf("⚠️ Auto-Reflection: сетевая ошибка при самоисправлении: %v (сохраняем исходный результат)", err)
 		return parsed
@@ -667,6 +792,9 @@ func applyAutoReflection(parsed *AiResponse, imagesBase64 []string, text string)
 	log.Printf("⚖️ Auto-Reflection: исходная дельта=%.2f, новая дельта=%.2f", delta, newDelta)
 	if newDelta < delta {
 		log.Printf("✅ Auto-Reflection успешно улучшила результат (дельта снижена с %.2f до %.2f)! Применен исправленный список из %d позиций", delta, newDelta, len(cleanItems))
+		if report != nil {
+			report("✅", fmt.Sprintf("Auto-Reflection: дельта снижена до %.2f ₽ (позиций: %d)", newDelta, len(cleanItems)), 92)
+		}
 		parsed.Items = cleanItems
 		if reflected.DocPrintedTotalSum > 0 {
 			parsed.DocPrintedTotalSum = reflected.DocPrintedTotalSum
@@ -679,6 +807,6 @@ func applyAutoReflection(parsed *AiResponse, imagesBase64 []string, text string)
 }
 
 // parseWithClaude — единая точка входа для парсинга документов.
-func parseWithClaude(text string, imagesBase64 []string, customPrompt string) (*AiResponse, error) {
-	return parseMultiPageChunked(text, imagesBase64, customPrompt)
+func parseWithClaude(text string, imagesBase64 []string, customPrompt string, progress ...ProgressReporter) (*AiResponse, error) {
+	return parseMultiPageChunked(text, imagesBase64, customPrompt, progress...)
 }

@@ -181,6 +181,7 @@ func main() {
 	mux.HandleFunc("/api/companies", authMiddleware(handleCompanies))
 	mux.HandleFunc("/api/catalog", authMiddleware(handleCatalog))
 	mux.HandleFunc("/api/parse", authMiddleware(handleParse))
+	mux.HandleFunc("/api/parser/health", authMiddleware(handleParserHealth))
 	mux.HandleFunc("/api/reconciliation/parse", authMiddleware(handleParseReconciliation))
 	mux.HandleFunc("/api/reconciliation/registry", authMiddleware(handleGetReconciliationRegistry))
 	mux.HandleFunc("/api/parser/presets", authMiddleware(handlePromptPresets))

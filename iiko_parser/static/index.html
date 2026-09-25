@@ -201,35 +201,74 @@
                     </div>
                 </section>
 
-                <!-- ИНТЕРАКТИВНАЯ ЗОНА DRAG AND DROP -->
-                <section id="drop-zone" class="bg-[#111827] border-2 border-dashed border-slate-800/80 rounded-2xl p-8 shadow-[0_8px_30px_rgba(0,0,0,0.2)] text-center transition-all-300 space-y-4 cursor-pointer hover:border-brand-500/50">
-                    <div class="border-b border-slate-800 pb-3 text-left">
+                <!-- ИНТЕРАКТИВНАЯ ЗОНА DRAG AND DROP И ТЕЛЕМЕТРИИ СТАТУСА -->
+                <section id="drop-zone" class="bg-[#111827] border-2 border-dashed border-slate-800/80 rounded-2xl p-6 shadow-[0_8px_30px_rgba(0,0,0,0.2)] transition-all-300 space-y-4 hover:border-brand-500/50">
+                    <div class="border-b border-slate-800 pb-3 flex flex-wrap items-center justify-between gap-2">
                         <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-wider">2. Загрузка документов (PDF, фото, сканы)</h2>
+                        <div id="ai-telemetry-badge" class="flex items-center gap-1.5 text-[10px] text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2.5 py-0.5 rounded-full font-mono">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                            <span id="ai-telemetry-model">Gemini 3.1 Flash Lite (Активна)</span>
+                        </div>
                     </div>
-                    <div class="py-6 flex flex-col items-center justify-center space-y-3">
-                        <div class="text-4xl">📄</div>
-                        <div class="text-sm font-semibold text-slate-200">Перетащите сюда накладную (PDF, скан или фото) или выберите файл вручную</div>
-                        <div class="text-[10px] text-slate-500">Поддерживаются накладные (PDF, JPG, PNG). Можно загрузить сразу несколько фото (до 50 МБ).</div>
-                    </div>
-                    <div class="flex flex-col md:flex-row md:items-center justify-center gap-4">
-                        <input type="file" id="pdf-file" accept="application/pdf, image/jpeg, image/png, image/webp" multiple class="block w-full max-w-xs text-xs text-slate-400
-                            file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0
-                            file:text-[11px] file:font-bold file:bg-brand-500 file:text-white
-                            hover:file:bg-brand-600 cursor-pointer outline-none file:transition-all-300 shadow-sm">
-                        
-                        <button id="btn-parse" class="bg-brand-500 hover:bg-brand-600 text-white px-6 py-2.5 rounded-xl text-xs font-bold transition-all-300 flex items-center gap-2 opacity-50 cursor-not-allowed shadow-sm" disabled>
-                            ✨ Распознать через AI
-                        </button>
-                        <button id="btn-create-empty" class="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2.5 rounded-xl text-xs font-bold transition-all-300 flex items-center gap-2 shadow-sm ml-2">
-                            📝 Ввести вручную
-                        </button>
-                        <button id="btn-open-archive" onclick="openInvoiceArchive()" type="button" class="bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 px-5 py-2.5 rounded-xl text-xs font-bold border border-slate-700 transition-all-300 flex items-center gap-2 shadow-sm ml-2">
-                            📚 Архив накладных
-                        </button>
-                    </div>
-                    <div id="parse-loader" class="hidden text-xs text-brand-400 animate-pulse font-medium flex items-center justify-center gap-2 pt-2">
-                        <span class="inline-block w-4 h-4 border-2 border-brand-400 border-t-transparent rounded-full animate-spin"></span>
-                        Нейросеть анализирует структуру УПД и коэффициенты фасовки... Пожалуйста, подождите.
+
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+                        <!-- ЛЕВАЯ КОЛОНКА: Консоль телеметрии и лог этапов парсинга -->
+                        <div class="lg:col-span-5 bg-[#090d16] border border-slate-800/90 rounded-xl p-3.5 flex flex-col justify-between text-left font-mono text-[11px] shadow-inner">
+                            <div class="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-2 text-slate-400 text-[10px]">
+                                <span class="flex items-center gap-1.5 font-bold tracking-wider text-slate-300">
+                                    <span class="w-2 h-2 rounded-full bg-brand-400 animate-pulse"></span>
+                                    <span>СТАТУС И ЭТАПЫ РАСПОЗНАВАНИЯ</span>
+                                </span>
+                                <span id="ai-status-timer" class="text-brand-400 font-semibold">00:00</span>
+                            </div>
+
+                            <!-- Поток логов / таблица этапов -->
+                            <div id="ai-log-stream" class="space-y-1.5 overflow-y-auto max-h-[145px] pr-1 scrollbar-thin text-slate-300 flex-1">
+                                <div class="text-slate-500 italic text-[10px] py-1 flex items-center gap-1.5">
+                                    <span>⏳</span>
+                                    <span>Ожидание выбора накладной для запуска...</span>
+                                </div>
+                            </div>
+
+                            <!-- Прогресс-бар этапа -->
+                            <div class="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between gap-3 text-[10px]">
+                                <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                    <div id="ai-step-progress" class="bg-brand-500 h-full w-0 transition-all duration-300"></div>
+                                </div>
+                                <span id="ai-step-name" class="text-slate-400 whitespace-nowrap">Ожидание</span>
+                            </div>
+                        </div>
+
+                        <!-- ПРАВАЯ КОЛОНКА: Дропзона и кнопки действий -->
+                        <div class="lg:col-span-7 flex flex-col items-center justify-center space-y-4 py-2 text-center">
+                            <div class="flex flex-col items-center justify-center space-y-2">
+                                <div class="text-3xl">📄</div>
+                                <div class="text-sm font-semibold text-slate-200">Перетащите сюда накладную или выберите файл</div>
+                                <div class="text-[10px] text-slate-500">Поддерживаются PDF, JPG, PNG (до 50 МБ). Рекомендуется четкий скан.</div>
+                            </div>
+
+                            <div class="flex flex-wrap items-center justify-center gap-3 w-full">
+                                <input type="file" id="pdf-file" accept="application/pdf, image/jpeg, image/png, image/webp" multiple class="block text-xs text-slate-400
+                                    file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0
+                                    file:text-[11px] file:font-bold file:bg-brand-500 file:text-white
+                                    hover:file:bg-brand-600 cursor-pointer outline-none file:transition-all-300 shadow-sm">
+
+                                <button id="btn-parse" class="bg-brand-500 hover:bg-brand-600 text-white px-5 py-2 rounded-xl text-xs font-bold transition-all-300 flex items-center gap-2 opacity-50 cursor-not-allowed shadow-sm" disabled>
+                                    ✨ Распознать через AI
+                                </button>
+                                <button id="btn-create-empty" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all-300 flex items-center gap-2 shadow-sm">
+                                    📝 Вручную
+                                </button>
+                                <button id="btn-open-archive" onclick="openInvoiceArchive()" type="button" class="bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 transition-all-300 flex items-center gap-2 shadow-sm">
+                                    📚 Архив
+                                </button>
+                            </div>
+
+                            <div id="parse-loader" class="hidden text-xs text-brand-400 animate-pulse font-medium flex items-center justify-center gap-2 pt-1">
+                                <span class="inline-block w-4 h-4 border-2 border-brand-400 border-t-transparent rounded-full animate-spin"></span>
+                                <span id="parse-loader-text">Нейросеть обрабатывает документ...</span>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -824,11 +863,11 @@
     <script src="js/state.js?v=11.1"></script>
     <script src="js/auth.js?v=11.0"></script>
     <script src="js/ui.js?v=11.0"></script>
-    <script src="js/parser.js?v=11.7"></script>
+    <script src="js/parser.js?v=12.0"></script>
     <script src="js/analytics.js?v=12.5"></script>
     <script src="js/templates.js?v=11.0"></script>
     <script src="js/presets.js?v=11.0"></script>
-    <script src="js/main.js?v=11.0"></script>
+    <script src="js/main.js?v=12.0"></script>
     <script src="js/tickets.js?v=1.0"></script>
     <script src="js/reconciliation.js?v=1.0"></script>
 

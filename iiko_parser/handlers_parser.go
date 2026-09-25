@@ -161,6 +161,38 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isStreaming := r.FormValue("stream") == "true" || strings.Contains(r.Header.Get("Accept"), "application/x-ndjson")
+	var flusher http.Flusher
+	if isStreaming {
+		w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, no-transform")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		if f, ok := w.(http.Flusher); ok {
+			flusher = f
+		}
+	}
+
+	sendProgress := func(icon string, msg string, percent int) {
+		if !isStreaming {
+			return
+		}
+		event := map[string]interface{}{
+			"type":     "log",
+			"time":     time.Now().Format("15:04:05"),
+			"icon":     icon,
+			"message":  msg,
+			"progress": percent,
+		}
+		b, _ := json.Marshal(event)
+		w.Write(append(b, '\n'))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	sendProgress("📥", "Файлы приняты сервером, начало обработки...", 5)
+
 	var textBytes []byte
 	var imagesBase64 []string
 
@@ -223,6 +255,8 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 				textBytes = append(textBytes, tb...)
 				textBytes = append(textBytes, []byte("\n\n")...)
 
+				sendProgress("⚙️", "Рендеринг PDF страниц (pdftoppm, 2048px Crisp)...", 15)
+
 				imgPrefix := filepath.Join(tmpDir, "img")
 				cmdImg := exec.CommandContext(ctxCmd, "pdftoppm", "-jpeg", "-scale-to-x", "2048", "-scale-to-y", "-1", "-f", "1", "-l", "30", filePath, imgPrefix)
 				if err := cmdImg.Run(); err != nil {
@@ -269,16 +303,37 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(textBytes) == 0 && len(imagesBase64) == 0 {
+		if isStreaming {
+			sendProgress("❌", "Не удалось извлечь текст или изображения из файлов", 0)
+			return
+		}
 		http.Error(w, "Не удалось извлечь текст или изображения из переданных файлов", http.StatusBadRequest)
 		return
 	}
 
+	sendProgress("🖼️", fmt.Sprintf("Подготовлено %d страниц(ы) в высоком разрешении (2048px)", len(imagesBase64)), 25)
+
 	customPrompt := strings.TrimSpace(r.FormValue("prompt"))
-	aiData, err := parseWithClaude(string(textBytes), imagesBase64, customPrompt)
+	aiData, err := parseWithClaude(string(textBytes), imagesBase64, customPrompt, sendProgress)
 	if err != nil {
+		if isStreaming {
+			sendProgress("❌", "Сбой распознавания AI: "+err.Error(), 0)
+			errPayload := map[string]interface{}{
+				"type":  "error",
+				"error": err.Error(),
+			}
+			b, _ := json.Marshal(errPayload)
+			w.Write(append(b, '\n'))
+			if flusher != nil {
+				flusher.Flush()
+			}
+			return
+		}
 		http.Error(w, "Сбой распознавания AI: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	sendProgress("🔍", "Сопоставление товаров с номенклатурой iiko...", 95)
 
 	mappedSupplierUUID := ""
 	cleanVendorINN := strings.TrimSpace(aiData.VendorINN)
@@ -450,8 +505,7 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 		resultItems = append(resultItems, enriched)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	respPayload := map[string]interface{}{
 		"vendor_name":          aiData.VendorName,
 		"vendor_inn":           aiData.VendorINN,
 		"doc_number":           aiData.DocNumber,
@@ -463,6 +517,31 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 		"mapped_store_uuid":    mappedStoreUUID,
 		"used_model":           aiData.UsedModel,
 		"items":                resultItems,
+	}
+
+	if isStreaming {
+		sendProgress("🚀", "Парсинг успешно завершен!", 100)
+		finalEvent := map[string]interface{}{
+			"type":     "result",
+			"progress": 100,
+			"data":     respPayload,
+		}
+		b, _ := json.Marshal(finalEvent)
+		w.Write(append(b, '\n'))
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(respPayload)
+}
+
+func handleParserHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"models": GetModelsHealthStatus(),
 	})
 }
 

@@ -1,6 +1,79 @@
+let telemetryTimerInterval = null;
+let telemetryStartTime = 0;
+
+function startTelemetryTimer() {
+    stopTelemetryTimer();
+    telemetryStartTime = Date.now();
+    const timerEl = document.getElementById('ai-status-timer');
+    if (timerEl) timerEl.textContent = "00:00";
+    telemetryTimerInterval = setInterval(() => {
+        const elapsedSec = Math.floor((Date.now() - telemetryStartTime) / 1000);
+        const mins = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+        const secs = String(elapsedSec % 60).padStart(2, '0');
+        if (timerEl) timerEl.textContent = `${mins}:${secs}`;
+    }, 1000);
+}
+
+function stopTelemetryTimer() {
+    if (telemetryTimerInterval) {
+        clearInterval(telemetryTimerInterval);
+        telemetryTimerInterval = null;
+    }
+}
+
+function appendTelemetryLog(timeStr, icon, message) {
+    const streamEl = document.getElementById('ai-log-stream');
+    if (!streamEl) return;
+    const item = document.createElement('div');
+    item.className = "flex items-start gap-1.5 py-0.5 leading-snug";
+    item.innerHTML = `<span class="text-slate-500 font-mono text-[9px] shrink-0 pt-0.5">${timeStr}</span>` +
+                     `<span class="shrink-0 text-xs">${icon || '•'}</span>` +
+                     `<span class="text-slate-200 break-words">${message}</span>`;
+    streamEl.appendChild(item);
+    streamEl.scrollTop = streamEl.scrollHeight;
+}
+
+function updateTelemetryStep(text, percent) {
+    const stepName = document.getElementById('ai-step-name');
+    const progressBar = document.getElementById('ai-step-progress');
+    if (stepName && text) stepName.textContent = text;
+    if (progressBar && typeof percent === 'number') {
+        progressBar.style.width = `${Math.min(100, Math.max(0, percent))}%`;
+    }
+}
+
+async function loadModelHealthBadge() {
+    const badgeEl = document.getElementById('ai-telemetry-badge');
+    const modelEl = document.getElementById('ai-telemetry-model');
+    if (!badgeEl || !modelEl) return;
+    try {
+        const res = await fetch('api/parser/health', {
+            headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const models = data.models || [];
+            const active = models.find(m => m.status === 'active' || m.status === 'ok' || m.is_primary);
+            if (active) {
+                let cleanName = active.name.replace(/^gemini\//, '').replace(/-preview$/, '');
+                if (cleanName === 'gemini-3.5-flash') cleanName = 'Gemini 3.5 Flash';
+                else if (cleanName === 'gemini-3-flash') cleanName = 'Gemini 3 Flash';
+                else if (cleanName === 'gemini-3.1-flash-lite') cleanName = 'Gemini 3.1 Flash Lite';
+                modelEl.textContent = `${cleanName} (Готова)`;
+                badgeEl.className = "flex items-center gap-1.5 text-[10px] text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2.5 py-0.5 rounded-full font-mono";
+            } else {
+                modelEl.textContent = "Gemini (Высокая нагрузка)";
+                badgeEl.className = "flex items-center gap-1.5 text-[10px] text-amber-400 bg-amber-950/60 border border-amber-800/60 px-2.5 py-0.5 rounded-full font-mono";
+            }
+        }
+    } catch (e) {
+        console.error("Health check error:", e);
+    }
+}
+
 async function executeParseWithFiles(fileObjs) {
     if (!fileObjs || fileObjs.length === 0) {
-        alert("����������, �������� ���� ��������� (PDF ��� ����)");
+        alert("Пожалуйста, выберите файл накладной (PDF или фото)");
         return;
     }
 
@@ -11,35 +84,112 @@ async function executeParseWithFiles(fileObjs) {
     }
 
     const formData = new FormData();
-    for(let i=0; i<fileObjs.length; i++) { formData.append('pdf', fileObjs[i], fileObjs[i].name); }
+    for (let i = 0; i < fileObjs.length; i++) { 
+        formData.append('pdf', fileObjs[i], fileObjs[i].name); 
+    }
     formData.append('company_id', companyId);
+    if (typeof currentCustomPrompt !== 'undefined' && currentCustomPrompt) {
+        formData.append('prompt', currentCustomPrompt);
+    }
+    formData.append('stream', 'true');
 
     els.btnParse.disabled = true;
     els.loaderParse.classList.remove('hidden');
     els.resSection.classList.add('hidden');
 
+    const logStream = document.getElementById('ai-log-stream');
+    if (logStream) logStream.innerHTML = '';
+    startTelemetryTimer();
+    updateTelemetryStep("Инициализация...", 5);
+    appendTelemetryLog(new Date().toLocaleTimeString('ru-RU'), "⏳", "Подготовка файлов и отправка запроса на сервер...");
+
     try {
         const res = await fetch('api/parse', {
             method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + getAuthToken() },
+            headers: { 
+                'Authorization': 'Bearer ' + getAuthToken(),
+                'Accept': 'application/x-ndjson'
+            },
             body: formData
         });
 
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) {
+            const errTxt = await res.text();
+            throw new Error(errTxt || res.statusText);
+        }
 
-        currentDocData = await res.json();
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let receivedResult = null;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+                try {
+                    const evt = JSON.parse(trimmed);
+                    if (evt.type === 'log') {
+                        appendTelemetryLog(evt.time || new Date().toLocaleTimeString('ru-RU'), evt.icon || '•', evt.message || '');
+                        if (typeof evt.progress === 'number') {
+                            updateTelemetryStep(evt.message, evt.progress);
+                        }
+                    } else if (evt.type === 'result') {
+                        receivedResult = evt.data;
+                        if (typeof evt.progress === 'number') {
+                            updateTelemetryStep("Готово!", evt.progress);
+                        }
+                    } else if (evt.type === 'error') {
+                        throw new Error(evt.error || "Ошибка распознавания");
+                    }
+                } catch (jsonErr) {
+                    if (line.includes('"type":"error"')) {
+                        throw jsonErr;
+                    }
+                    console.warn("Stream line parse warning:", jsonErr, line);
+                }
+            }
+        }
+
+        if (buffer.trim()) {
+            try {
+                const evt = JSON.parse(buffer.trim());
+                if (evt.type === 'result') receivedResult = evt.data;
+                else if (evt.type === 'error') throw new Error(evt.error);
+            } catch (e) {}
+        }
+
+        if (!receivedResult) {
+            throw new Error("Не удалось получить структурированные данные из ответа сервера");
+        }
+
+        currentDocData = receivedResult;
         if (currentDocData && currentDocData.used_model) {
             window.lastUsedModel = currentDocData.used_model;
         }
         renderTable(currentDocData);
         els.resSection.classList.remove('hidden');
+        appendTelemetryLog(new Date().toLocaleTimeString('ru-RU'), "🎉", "Накладная успешно распознана и готова к проверке!");
+        updateTelemetryStep("Завершено 100%", 100);
+        loadModelHealthBadge();
     } catch (err) {
+        appendTelemetryLog(new Date().toLocaleTimeString('ru-RU'), "❌", "Ошибка: " + err.message);
+        updateTelemetryStep("Сбой", 0);
         alert("❌ Ошибка парсинга AI: " + err.message);
     } finally {
+        stopTelemetryTimer();
         els.btnParse.disabled = false;
         els.loaderParse.classList.add('hidden');
     }
 }
+
 async function executeAppendParseWithFiles(fileObjs) {
     if (!fileObjs || fileObjs.length === 0) return;
     if (!currentDocData) {
