@@ -214,16 +214,6 @@ func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter
 		req.Header.Set("Authorization", "Bearer "+aiApiKey)
 		req.Header.Set("Content-Type", "application/json")
 
-		// Ограничиваем время ожидания конкретной попытки:
-		// Для Gemini жесткий тайм-аут 8s (чтобы не застревать в очередях OmniRoute при 429),
-		// для Claude до 120s для полной и точной обработки объемных накладных.
-		timeoutSec := 120
-		if strings.Contains(strings.ToLower(modelToUse), "gemini") {
-			timeoutSec = 8
-		}
-		ctxReq, cancelReq := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
-		req = req.WithContext(ctxReq)
-
 		resp, err := llmHTTPClient.Do(req)
 		if err != nil {
 			cancel()
@@ -625,16 +615,20 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 			promptToUse := mainPrompt
 			// Для страниц 2..N используем специализированный лаконичный промпт
 			if pageIdx > 0 {
-				time.Sleep(time.Duration(pageIdx*300) * time.Millisecond)
-			}
-
-			var promptToUse string
-			if pageIdx == 0 {
-				promptToUse = chunkPage1Prompt
-			} else {
 				promptToUse = continuationPageParserPrompt
 			}
-			fullPrompt := fmt.Sprintf("%s\n\nВНИМАНИЕ: Обработай СТРОГО страницу %d из %d и верни только JSON-объект.", promptToUse, pageIdx+1, numPages)
+
+			var parts []map[string]interface{}
+			parts = append(parts, map[string]interface{}{
+				"type": "text",
+				"text": fmt.Sprintf("%s\n\n[Страница %d из %d]", promptToUse, pageIdx+1, numPages),
+			})
+			parts = append(parts, map[string]interface{}{
+				"type": "image_url",
+				"image_url": map[string]string{
+					"url": "data:image/jpeg;base64," + imagesBase64[pageIdx],
+				},
+			})
 
 			raw, model, err := callLLM(parts, func(icon, msg string, pct int) {
 				report(icon, fmt.Sprintf("[Стр %d/%d] %s", pageIdx+1, numPages, msg), pct)
@@ -647,20 +641,7 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 
 			parsed, err := parseLLMContentToAiResponse(raw, model)
 			if err != nil {
-				log.Printf("⚠️ Ошибка разбора JSON страницы %d (%v). Повторная строгая попытка через Claude...", pageIdx+1, err)
-				retryPrompt := fmt.Sprintf("%s\n\nОШИБКА: Твой ответ обязан содержать СТРОГО валидный JSON-объект {...} с товарами страницы %d! Без вступительного текста, без markdown, не жди другие страницы!", promptToUse, pageIdx+1)
-				retryRaw, retryModel, retryErr := dispatchLLMCall(retryPrompt, []string{imagesBase64[pageIdx]}, "kr/claude-sonnet-4.5")
-				if retryErr == nil {
-					if retryParsed, retryJsonErr := parseLLMContentToAiResponse(retryRaw, retryModel); retryJsonErr == nil {
-						parsed = retryParsed
-						model = retryModel
-						err = nil
-					}
-				}
-			}
-
-			if err != nil {
-				log.Printf("❌ Ошибка парсинга страницы %d: %v", pageIdx+1, err)
+				log.Printf("❌ Ошибка разбора JSON страницы %d: %v", pageIdx+1, err)
 				pageErrors[pageIdx] = fmt.Errorf("страница %d: %w", pageIdx+1, err)
 				return
 			}
@@ -762,10 +743,24 @@ func applyAutoReflection(parsed *AiResponse, imagesBase64 []string, text string,
   ]
 }`, parsed.DocPrintedTotalSum, calcTotal, delta, parsed.DocPrintedTotalSum, parsed.DocPrintedTotalSum)
 
+	var parts []map[string]interface{}
+	parts = append(parts, map[string]interface{}{
+		"type": "text",
+		"text": reflectionPrompt,
+	})
+
 	// Ограничиваем количество картинок для рефлексии (до 5 ключевых страниц), чтобы не раздувать payload
 	reflectImages := imagesBase64
 	if len(reflectImages) > 5 {
 		reflectImages = reflectImages[:5]
+	}
+	for _, b64 := range reflectImages {
+		parts = append(parts, map[string]interface{}{
+			"type": "image_url",
+			"image_url": map[string]string{
+				"url": "data:image/jpeg;base64," + b64,
+			},
+		})
 	}
 
 	raw, model, err := callLLM(parts, report)
