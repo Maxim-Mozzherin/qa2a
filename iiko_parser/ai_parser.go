@@ -621,9 +621,13 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 			}
 
 			promptToUse := mainPrompt
-			// Для страниц 2..N используем специализированный лаконичный промпт
+			// Для страниц 2..N используем специализированный промпт (все правила для товаров сохранены, отключена только шапка документа)
 			if pageIdx > 0 {
-				promptToUse = continuationPageParserPrompt
+				if customPrompt != "" {
+					promptToUse = continuationPageParserPrompt + "\n\nДОПОЛНИТЕЛЬНЫЕ ПОЛЬЗОВАТЕЛЬСКИЕ ПРАВИЛА:\n" + customPrompt
+				} else {
+					promptToUse = continuationPageParserPrompt
+				}
 			}
 
 			var parts []map[string]interface{}
