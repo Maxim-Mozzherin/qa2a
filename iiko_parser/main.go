@@ -24,9 +24,10 @@ var (
 	externalApiKey string
 
 	// Параметры нейросетевого парсера
-	aiApiKey  string
-	aiBaseUrl string
-	aiModel   string
+	aiApiKey     string
+	aiBaseUrl    string
+	aiModel      string
+	googleApiKey string
 
 	// URL основного сервиса QA2A
 	qa2aBaseURL string

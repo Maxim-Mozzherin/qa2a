@@ -65,7 +65,24 @@ const els = {
     reconcileLoader: document.getElementById('reconcile-loader'),
     reconcileResults: document.getElementById('reconcile-results'),
     reconcileTbody: document.getElementById('reconcile-tbody'),
+
+    modelSelect: document.getElementById('ai-model-select'),
+    usedModelBadge: document.getElementById('used-model-badge'),
 };
+
+// Восстановление выбранной модели из localStorage
+document.addEventListener('DOMContentLoaded', () => {
+    const modelSelect = document.getElementById('ai-model-select');
+    if (modelSelect) {
+        const saved = localStorage.getItem('iiko_selected_ai_model');
+        if (saved) {
+            modelSelect.value = saved;
+        }
+        modelSelect.addEventListener('change', () => {
+            localStorage.setItem('iiko_selected_ai_model', modelSelect.value);
+        });
+    }
+});
 
 let iikoCatalog = [];
 let iikoSuppliers = [];
