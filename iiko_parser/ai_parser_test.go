@@ -157,7 +157,7 @@ func TestApplyAutoReflection_NoReflectionWhenSumsMatch(t *testing.T) {
 		},
 	}
 	// Difference is 0.0, reflection should not trigger any call and return unchanged
-	res := applyAutoReflection(resp, nil, "")
+	res := applyAutoReflection(resp, nil, "", nil)
 	if len(res.Items) != 2 {
 		t.Errorf("Expected 2 items, got %d", len(res.Items))
 	}

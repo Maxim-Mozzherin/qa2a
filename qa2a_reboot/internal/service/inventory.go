@@ -206,8 +206,8 @@ func (s *InventoryService) RejectWriteoff(companyID, opID, chefUserID int) error
 		if op.Type != "writeoff" {
 			return fmt.Errorf("отклонить можно только операцию списания")
 		}
-		if op.Status == "approved" {
-			return fmt.Errorf("операция уже утверждена и не может быть отклонена")
+		if op.ExportedToIiko {
+			return fmt.Errorf("нельзя отклонить операцию, которая уже выгружена в iiko RMS")
 		}
 		if op.Status == "rejected" {
 			return fmt.Errorf("операция уже отклонена")

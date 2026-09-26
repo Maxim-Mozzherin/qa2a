@@ -37,6 +37,7 @@ func (h *Handler) RecordOfferViewsHandler(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
+	req.Body = http.MaxBytesReader(w, req.Body, 1<<20)
 	var ids []int
 	if err := json.NewDecoder(req.Body).Decode(&ids); err != nil {
 		http.Error(w, "Invalid body", http.StatusBadRequest)

@@ -106,9 +106,16 @@ func (h *Handler) FinalizeInventoryHandler(w http.ResponseWriter, r *http.Reques
 		respondError(w, http.StatusForbidden, "Доступ к заведению запрещен")
 		return
 	}
+	userID := h.getUserID(r)
+	hasAccess, err := h.checkAdminAccess(cID, userID)
+	if err != nil || !hasAccess {
+		respondError(w, http.StatusForbidden, "Финализировать инвентаризацию могут только руководители заведения")
+		return
+	}
+
 	actID, _ := strconv.Atoi(mux.Vars(r)["id"])
 
-	err := h.inventoryService.FinalizeInventory(cID, actID)
+	err = h.inventoryService.FinalizeInventory(cID, actID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return

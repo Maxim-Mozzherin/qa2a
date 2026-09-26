@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS companies (
     iiko_api_login VARCHAR(255) NOT NULL DEFAULT '',
     iiko_api_password VARCHAR(255) NOT NULL DEFAULT '',
     iiko_writeoff_account VARCHAR(255) NOT NULL DEFAULT '97036ddb-b2e1-cd47-1669-c145daa9f9c5',
-    invite_code VARCHAR(50) UNIQUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 

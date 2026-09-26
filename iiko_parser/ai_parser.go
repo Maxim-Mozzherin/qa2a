@@ -267,7 +267,7 @@ func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter
 		if resp.StatusCode != http.StatusOK {
 			globalModelHealth.markFailed(modelToUse, 60*time.Second)
 			lastErr = fmt.Errorf("модель %s вернула ошибку (HTTP %d): %s", modelToUse, resp.StatusCode, string(respBody))
-			log.Printf("⚠️ Модель %s вернула ошибку (HTTP %d): %s. Переход к следующей модели Gemini...", modelToUse, resp.StatusCode)
+			log.Printf("⚠️ Модель %s вернула ошибку (HTTP %d): %s. Переход к следующей модели Gemini...", modelToUse, resp.StatusCode, string(respBody))
 			continue
 		}
 

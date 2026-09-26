@@ -78,6 +78,11 @@ func (h *Handler) CreatePositionHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	userID := h.getUserID(r)
+	hasAccess, err := h.checkAdminAccess(cID, userID)
+	if err != nil || !hasAccess {
+		respondError(w, http.StatusForbidden, "Создавать позиции номенклатуры могут только руководители заведения")
+		return
+	}
 
 	var req struct {
 		Name     string  `json:"name"`
@@ -92,7 +97,7 @@ func (h *Handler) CreatePositionHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	err := h.inventoryService.CreatePosition(&models.Position{
+	err = h.inventoryService.CreatePosition(&models.Position{
 		CompanyID: cID,
 		Name:      req.Name,
 		Unit:      req.Unit,

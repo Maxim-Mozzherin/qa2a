@@ -22,7 +22,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/qa2a ./cmd/api
 # -----------------------------------------------------------------------------
 FROM alpine:3.20 AS runner
 
-RUN apk add --no-cache ca-certificates tzdata curl
+RUN apk add --no-cache ca-certificates tzdata curl && \
+    adduser -D -u 1000 appuser
 
 WORKDIR /app
 
@@ -34,7 +35,9 @@ COPY --from=builder /app/web /app/web
 COPY --from=builder /app/fonts /app/fonts
 
 # Create directories for dynamic uploads
-RUN mkdir -p /app/uploads/tickets
+RUN mkdir -p /app/uploads/tickets && chown -R appuser:appuser /app
+
+USER appuser
 
 ENV GOFPDF_FONTPATH=/app/fonts
 ENV PORT=8082
@@ -45,3 +48,4 @@ HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
   CMD curl -f http://localhost:8082/health || exit 1
 
 ENTRYPOINT ["/app/qa2a"]
+

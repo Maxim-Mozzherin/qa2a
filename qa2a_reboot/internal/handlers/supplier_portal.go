@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"qa2a/internal/middleware"
 	"qa2a/internal/service"
+	"qa2a/pkg/ratelimit"
 	"strings"
 )
 
@@ -86,6 +87,13 @@ func (h *Handler) RegisterSupplierHandler(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
+	clientIP := ratelimit.GetClientIP(req)
+	rateKey := fmt.Sprintf("sup_reg_%d_%s", tgID, clientIP)
+	if allowed, remaining := h.joinLimiter.Allow(rateKey); !allowed {
+		respondError(w, http.StatusTooManyRequests, fmt.Sprintf("Слишком много запросов регистрации. Подождите %d сек.", int(remaining.Seconds())+1))
+		return
+	}
+
 	req.Body = http.MaxBytesReader(w, req.Body, 1<<20)
 	var reqBody struct {
 		CompanyName string `json:"company_name"`
@@ -105,6 +113,7 @@ func (h *Handler) RegisterSupplierHandler(w http.ResponseWriter, req *http.Reque
 		http.Error(w, `{"error": "Server error"}`, http.StatusInternalServerError)
 		return
 	}
+	h.joinLimiter.RecordSuccess(rateKey)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status": "ok"}`))
 }
@@ -122,6 +131,13 @@ func (h *Handler) JoinSupplierHandler(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
+	clientIP := ratelimit.GetClientIP(req)
+	rateKey := fmt.Sprintf("sup_join_%d_%s", tgID, clientIP)
+	if allowed, remaining := h.joinLimiter.Allow(rateKey); !allowed {
+		respondError(w, http.StatusTooManyRequests, fmt.Sprintf("Слишком много попыток ввода кода. Подождите %d сек.", int(remaining.Seconds())+1))
+		return
+	}
+
 	req.Body = http.MaxBytesReader(w, req.Body, 1<<20)
 	var reqBody struct {
 		Code string `json:"code"`
@@ -133,9 +149,10 @@ func (h *Handler) JoinSupplierHandler(w http.ResponseWriter, req *http.Request) 
 
 	err := h.marketplaceService.JoinSupplier(tgID, reqBody.Code)
 	if err != nil {
-		http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.joinLimiter.RecordSuccess(rateKey)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status": "ok"}`))
 }

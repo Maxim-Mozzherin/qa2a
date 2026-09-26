@@ -20,12 +20,25 @@ func (h *Handler) CreateProcurementHandler(w http.ResponseWriter, r *http.Reques
 	}
 	userID := h.getUserID(r)
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		Items []models.ProcurementItem `json:"items"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Неверный формат заявки")
 		return
+	}
+
+	if len(req.Items) == 0 {
+		respondError(w, http.StatusBadRequest, "Заявка должна содержать хотя бы одну позицию")
+		return
+	}
+
+	for _, item := range req.Items {
+		if item.Quantity <= 0 {
+			respondError(w, http.StatusBadRequest, "Количество позиций в заявке должно быть строго больше нуля")
+			return
+		}
 	}
 
 	if err := h.inventoryService.CreateProcurementRequest(cID, userID, req.Items); err != nil {

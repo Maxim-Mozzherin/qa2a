@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"qa2a/internal/middleware"
@@ -126,7 +127,13 @@ func (h *Handler) getUserID(r *http.Request) int {
 	}
 
 	// Fallback для незащищенных маршрутов (онбординг / создание первого бизнеса)
-	tIDStr := r.Header.Get("X-Telegram-ID")
+	tIDStr := strings.TrimSpace(r.Header.Get("X-Telegram-ID"))
+	if tIDStr == "" {
+		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			tIDStr = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+	}
 	if tID := verifySignedToken(tIDStr, h.botToken); tID != 0 {
 		if user, err := h.authService.GetUserByTgID(tID); err == nil && user != nil {
 			return user.ID

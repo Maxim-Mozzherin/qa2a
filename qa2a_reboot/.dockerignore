@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.env.*
+.gemini
+.tmp.driveupload
+uploads
+*.log
+qa2a
+qa2a_app
+qa2a-server
+*.exe
+Dockerfile*
