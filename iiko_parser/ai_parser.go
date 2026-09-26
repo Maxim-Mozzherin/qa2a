@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -456,16 +457,56 @@ func mergePageResponses(pages []*AiResponse) *AiResponse {
 		return res
 	}
 
-	// 1. Берем реквизиты документа с первой страницы
-	combined := &AiResponse{
-		VendorName:   pages[0].VendorName,
-		VendorINN:    pages[0].VendorINN,
-		DocNumber:    pages[0].DocNumber,
-		DocDate:      pages[0].DocDate,
-		Consignee:    pages[0].Consignee,
-		ConsigneeINN: pages[0].ConsigneeINN,
-		Shipper:      pages[0].Shipper,
-		UsedModel:    pages[0].UsedModel,
+	// 0. Сортируем страницы по логическому порядку документа:
+	// Страница с реквизитами шапки или меньшими номерами строк встает первой
+	sort.SliceStable(pages, func(i, j int) bool {
+		if pages[i] == nil || len(pages[i].Items) == 0 {
+			return false
+		}
+		if pages[j] == nil || len(pages[j].Items) == 0 {
+			return true
+		}
+		hasHeaderI := pages[i].VendorName != "" || pages[i].DocNumber != ""
+		hasHeaderJ := pages[j].VendorName != "" || pages[j].DocNumber != ""
+		if hasHeaderI && !hasHeaderJ {
+			return true
+		}
+		if !hasHeaderI && hasHeaderJ {
+			return false
+		}
+		minI := 999999
+		for _, it := range pages[i].Items {
+			if it.Num > 0 && it.Num < minI {
+				minI = it.Num
+			}
+		}
+		minJ := 999999
+		for _, it := range pages[j].Items {
+			if it.Num > 0 && it.Num < minJ {
+				minJ = it.Num
+			}
+		}
+		return minI < minJ
+	})
+
+	// 1. Ищем реквизиты документа на любой странице, где они обнаружены
+	combined := &AiResponse{}
+	for _, p := range pages {
+		if p == nil {
+			continue
+		}
+		if combined.VendorName == "" && p.VendorName != "" {
+			combined.VendorName = p.VendorName
+			combined.VendorINN = p.VendorINN
+			combined.DocNumber = p.DocNumber
+			combined.DocDate = p.DocDate
+			combined.Consignee = p.Consignee
+			combined.ConsigneeINN = p.ConsigneeINN
+			combined.Shipper = p.Shipper
+		}
+		if combined.UsedModel == "" && p.UsedModel != "" {
+			combined.UsedModel = p.UsedModel
+		}
 	}
 
 	// 2. Ищем печатный итог на последней странице (или любой другой, где он найден)
@@ -496,7 +537,21 @@ func mergePageResponses(pages []*AiResponse) *AiResponse {
 		}
 	}
 
-	// 4. Назначаем красивую сквозную нумерацию 1..N
+	// 4. Сортируем все позиции по оригинальному номеру num (если номера присутствуют)
+	hasValidNums := true
+	for _, it := range allItems {
+		if it.Num <= 0 {
+			hasValidNums = false
+			break
+		}
+	}
+	if hasValidNums && len(allItems) > 1 {
+		sort.SliceStable(allItems, func(i, j int) bool {
+			return allItems[i].Num < allItems[j].Num
+		})
+	}
+
+	// 5. Назначаем красивую сквозную нумерацию 1..N
 	for i := range allItems {
 		allItems[i].Num = i + 1
 	}
