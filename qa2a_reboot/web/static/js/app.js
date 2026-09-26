@@ -267,19 +267,6 @@ function applyTelegramTheme() {
         root.style.setProperty('--primary', '#2D3748');
         root.style.setProperty('--accent', '#4F6EF7');
     }
-
-    if (tg.setHeaderColor) tg.setHeaderColor(isDark ? '#161D2A' : '#FFFFFF');
-    if (tg.setBackgroundColor) tg.setBackgroundColor(isDark ? '#0F141C' : '#F5F6F8');
-    if (tg.setBottomBarColor) tg.setBottomBarColor(isDark ? '#161D2A' : '#FFFFFF');
-}
-
-function setWriteoffReason(reason) {
-    const input = document.getElementById('w_comment');
-    if (!input) return;
-    input.value = reason;
-    if (tg.HapticFeedback) {
-        tg.HapticFeedback.selectionChanged();
-    }
 }
 
 if (tg.ready) {
@@ -2636,7 +2623,6 @@ window.deleteAccount = deleteAccount;
 window.saveAndSyncIiko = saveAndSyncIiko;
 window.forceExportDay = forceExportDay;
 window.submitOperation = submitOperation;
-window.setWriteoffReason = setWriteoffReason;
 window.filterSearch = filterSearch;
 window.selectPos = selectPos;
 window.selectGhostPos = selectGhostPos;
