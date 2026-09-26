@@ -15,8 +15,8 @@
     <!-- ====================================================================== -->
     <!-- ХЕДЕР ПРИЛОЖЕНИЯ                                                       -->
     <!-- ====================================================================== -->
-    <header style="display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 12px; height: 90px; position: fixed; top: 0; width: 100%; z-index: 1000; background: var(--bg); border-bottom: 1px solid var(--border);">
-        <div style="font-size: 10px; font-weight: 900; letter-spacing: 2px; color: var(--text-muted); text-transform: uppercase; position: absolute; top: 15px; text-align: center; width: 100%;">QA2A</div>
+    <header>
+        <div style="font-size: 9px; font-weight: 900; letter-spacing: 2px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 2px;">QA2A</div>
         <h1 id="orgName" style="font-size: 15px; font-weight: 800; color: var(--primary); margin: 0; text-align: center; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Загрузка...</h1>
     </header>
 
@@ -24,7 +24,7 @@
     <!-- ОНБОРДИНГ (НЕТ ПРИВЯЗАННЫХ ЗАВЕДЕНИЙ)                                 -->
     <!-- ====================================================================== -->
     
-<div id="onboarding" class="app-container" style="display:none; padding-top: 90px; height: 100vh;">
+<div id="onboarding" class="app-container" style="display:none;">
     <div style="text-align: center; margin-bottom: 25px; padding: 0 20px;">
         <h2 style="margin-bottom: 10px; font-size: 24px; font-weight: 800;">Добро пожаловать в QA2A</h2>
     </div>
@@ -176,7 +176,7 @@
             <!-- ВКЛАДКА 2: СПИСАНИЕ ТОВАРОВ -->
             <div id="tab-writeoff" class="tab-content" style="display:none;">
                 <div class="section">
-                    <div style="display: flex; justify-content: space-between; align-items: center; min-height: 28px; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; min-height: 28px; margin-bottom: 12px;">
                         <div class="section-title" style="margin-bottom: 0;">Списание товара</div>
                         <button type="button" id="btn_pending_writeoffs" onclick="openPendingWriteoffsDrawer()" style="display:none; align-items:center; gap:6px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); color: #EF4444; height: 28px; padding: 0 12px; border-radius: 20px; font-size: 12px; font-weight: 700; cursor: pointer; transition: 0.2s; box-sizing: border-box;">
                             <span>Активные</span>
@@ -184,27 +184,34 @@
                         </button>
                     </div>
                     
-                    <div class="input-group">
+                    <div class="input-group input-group-search">
                         <label for="w_search">Товар</label>
                         <input type="text" id="w_search" oninput="filterSearch('w')" placeholder="Поиск товара по каталогу..." autocomplete="off">
                         <div id="w_results" class="search-results"></div>
                         <input type="hidden" id="w_name">
                     </div>
 
-                    <div style="display:flex; gap:10px; margin-bottom: 15px;">
+                    <div class="form-row">
                         <div style="flex:2;">
                             <label for="w_qty">Количество</label>
-                            <input type="number" id="w_qty" step="any" placeholder="0.00" style="margin-bottom:0;">
+                            <input type="number" id="w_qty" step="any" placeholder="0.00">
                         </div>
                         <div style="flex:1;">
                             <label for="w_unit_display">Ед. изм.</label>
-                            <input type="text" id="w_unit_display" readonly placeholder="ед." style="margin-bottom:0; text-align:center; font-weight:800; background:var(--surface);">
+                            <input type="text" id="w_unit_display" readonly placeholder="ед." style="text-align:center; font-weight:800; background:var(--surface);">
                         </div>
                     </div>
 
                     <div class="input-group">
                         <label for="w_comment">Причина списания / Комментарий</label>
-                        <input type="text" id="w_comment" placeholder="Порча, брак, служебное питание, бой..." style="margin-bottom:0;">
+                        <input type="text" id="w_comment" placeholder="Порча, брак, служебное питание, бой...">
+                        <div class="reason-chips">
+                            <button type="button" class="chip-tag" onclick="setWriteoffReason('Брак')">Брак</button>
+                            <button type="button" class="chip-tag" onclick="setWriteoffReason('Бой')">Бой</button>
+                            <button type="button" class="chip-tag" onclick="setWriteoffReason('Питание персонала')">Питание персонала</button>
+                            <button type="button" class="chip-tag" onclick="setWriteoffReason('Проработка')">Проработка</button>
+                            <button type="button" class="chip-tag" onclick="setWriteoffReason('Порча')">Порча</button>
+                        </div>
                     </div>
 
                     <div class="input-group">
@@ -217,53 +224,53 @@
 
                     <div class="input-group">
                         <label for="w_location">Склад списания</label>
-                        <select id="w_location" style="margin-bottom:0;"></select>
+                        <select id="w_location"></select>
                     </div>
 
                     <div class="input-group">
                         <label for="w_account_id">Счет (Статья расходов)</label>
-                        <select id="w_account_id" style="margin-bottom:0;"></select>
+                        <select id="w_account_id"></select>
                     </div>
 
-                    <div id="w_ghost_warning" style="display:none; background-color: rgba(245, 158, 11, 0.1); color: #D97706; padding: 12px; border-radius: 8px; font-size: 11px; margin-top: 15px; border: 1px solid rgba(245, 158, 11, 0.3); line-height: 1.4;">
+                    <div id="w_ghost_warning" style="display:none; background-color: rgba(245, 158, 11, 0.1); color: #D97706; padding: 12px; border-radius: 8px; font-size: 11px; margin-top: 10px; margin-bottom: 14px; border: 1px solid rgba(245, 158, 11, 0.3); line-height: 1.4;">
                         ⚠️ <b>Этого товара нет в каталоге!</b><br>Он будет записан как «Неучтенка» и передан бухгалтеру на согласование.
                     </div>
                     
-                    <button type="button" class="btn-main" onclick="submitOperation('writeoff', 'w')" style="margin-top:15px; background:#EF4444;">Списать</button>
+                    <button type="button" class="btn-main" onclick="submitOperation('writeoff', 'w')" style="margin-top:8px; background:#EF4444;">Списать</button>
                 </div>
             </div>
 
             <!-- ВКЛАДКА 3: ВНУТРЕННЕЕ ПЕРЕМЕЩЕНИЕ -->
             <div id="tab-transfer" class="tab-content" style="display:none;">
                 <div class="section">
-                    <div style="display: flex; justify-content: space-between; align-items: center; min-height: 28px; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; min-height: 28px; margin-bottom: 12px;">
                         <div class="section-title" style="margin-bottom: 0;">Внутреннее перемещение</div>
                     </div>
                     
-                    <div class="input-group">
+                    <div class="input-group input-group-search">
                         <label for="tr_search">Товар / Полуфабрикат</label>
                         <input type="text" id="tr_search" oninput="filterSearch('tr')" placeholder="Поиск перемещаемой позиции..." autocomplete="off">
                         <div id="tr_results" class="search-results"></div>
                         <input type="hidden" id="tr_name">
                     </div>
 
-                    <div style="display:flex; gap:10px; margin-bottom: 15px;">
+                    <div class="form-row">
                         <div style="flex:2;">
                             <label for="tr_qty">Количество</label>
-                            <input type="number" id="tr_qty" step="any" placeholder="0.00" style="margin-bottom:0;">
+                            <input type="number" id="tr_qty" step="any" placeholder="0.00">
                         </div>
                         <div style="flex:1;">
                             <label for="tr_unit_display">Ед. изм.</label>
-                            <input type="text" id="tr_unit_display" readonly placeholder="ед." style="margin-bottom:0; text-align:center; font-weight:800; background:var(--surface);">
+                            <input type="text" id="tr_unit_display" readonly placeholder="ед." style="text-align:center; font-weight:800; background:var(--surface);">
                         </div>
                     </div>
 
                     <div class="input-group">
                         <label for="tr_comment">Причина перемещения / Комментарий</label>
-                        <input type="text" id="tr_comment" placeholder="Напр. перенос в бар, приготовление для банкета..." style="margin-bottom:0;">
+                        <input type="text" id="tr_comment" placeholder="Напр. перенос в бар, заготовка для кухни...">
                     </div>
 
-                    <div class="input-group" style="margin-top:15px">
+                    <div class="input-group">
                         <label>Дата и время перемещения</label>
                         <div class="date-input-wrapper">
                             <div class="fake-input" id="tr_date_fake">Выберите дату...</div>
@@ -271,17 +278,17 @@
                         </div>
                     </div>
 
-                    <div class="input-group" style="margin-top:15px">
+                    <div class="input-group">
                         <label for="tr_location">Откуда (Склад-отправитель)</label>
-                        <select id="tr_location" style="margin-bottom:0;"></select>
+                        <select id="tr_location"></select>
                     </div>
 
-                    <div class="input-group" style="margin-top:15px">
+                    <div class="input-group">
                         <label for="tr_to_location">Куда (Склад-получатель)</label>
-                        <select id="tr_to_location" style="margin-bottom:0;"></select>
+                        <select id="tr_to_location"></select>
                     </div>
 
-                    <button type="button" class="btn-main" onclick="submitOperation('transfer', 'tr')" style="margin-top:15px; background:var(--accent);">Переместить</button>
+                    <button type="button" class="btn-main" onclick="submitOperation('transfer', 'tr')" style="margin-top:8px; background:var(--accent);">Переместить</button>
                 </div>
             </div>
 
