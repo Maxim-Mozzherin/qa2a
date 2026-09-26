@@ -96,7 +96,7 @@ func main() {
 		log.Fatalf("❌ Критическая ошибка: AI_API_KEY отсутствует в .env")
 	}
 	aiBaseUrl = getEnv("AI_BASE_URL", "http://127.0.0.1:20128/v1/chat/completions")
-	aiModel = getEnv("AI_MODEL", "gemini/gemini-3.5-flash,gemini/gemini-3-flash-preview,gemini/gemini-3.1-flash-lite-preview")
+	aiModel = getEnv("AI_MODEL", "gemini/gemini-3.5-flash,gemini/gemini-3-flash,gemini/gemini-3.1-flash-lite")
 
 	qa2aBaseURL = getEnv("QA2A_URL", "http://127.0.0.1:8082")
 
@@ -250,7 +250,7 @@ func main() {
 		}
 
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Telegram-ID, X-Company-ID, X-Firm-Token")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Telegram-ID, X-Company-ID, X-Firm-Token")
 
 		if req.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)

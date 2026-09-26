@@ -108,7 +108,7 @@ async function executeParseWithFiles(fileObjs) {
             method: 'POST',
             headers: { 
                 'Authorization': 'Bearer ' + getAuthToken(),
-                'Accept': 'application/x-ndjson'
+                'Accept': 'application/x-ndjson, application/json'
             },
             body: formData
         });
@@ -118,52 +118,63 @@ async function executeParseWithFiles(fileObjs) {
             throw new Error(errTxt || res.statusText);
         }
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-        let buffer = '';
         let receivedResult = null;
+        const contentType = res.headers.get('content-type') || '';
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+        if (contentType.includes('application/json') && !contentType.includes('ndjson')) {
+            const jsonResp = await res.json();
+            receivedResult = (jsonResp && jsonResp.data) ? jsonResp.data : jsonResp;
+        } else if (res.body && typeof res.body.getReader === 'function') {
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop();
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
-            for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed) continue;
-                try {
-                    const evt = JSON.parse(trimmed);
-                    if (evt.type === 'log') {
-                        appendTelemetryLog(evt.time || new Date().toLocaleTimeString('ru-RU'), evt.icon || '•', evt.message || '');
-                        if (typeof evt.progress === 'number') {
-                            updateTelemetryStep(evt.message, evt.progress);
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+                    try {
+                        const evt = JSON.parse(trimmed);
+                        if (evt.type === 'log') {
+                            appendTelemetryLog(evt.time || new Date().toLocaleTimeString('ru-RU'), evt.icon || '•', evt.message || '');
+                            if (typeof evt.progress === 'number') {
+                                updateTelemetryStep(evt.message, evt.progress);
+                            }
+                        } else if (evt.type === 'result') {
+                            receivedResult = evt.data;
+                            if (typeof evt.progress === 'number') {
+                                updateTelemetryStep("Готово!", evt.progress);
+                            }
+                        } else if (evt.type === 'error') {
+                            throw new Error(evt.error || "Ошибка распознавания");
                         }
-                    } else if (evt.type === 'result') {
-                        receivedResult = evt.data;
-                        if (typeof evt.progress === 'number') {
-                            updateTelemetryStep("Готово!", evt.progress);
+                    } catch (jsonErr) {
+                        if (line.includes('"type":"error"')) {
+                            throw jsonErr;
                         }
-                    } else if (evt.type === 'error') {
-                        throw new Error(evt.error || "Ошибка распознавания");
+                        console.warn("Stream line parse warning:", jsonErr, line);
                     }
-                } catch (jsonErr) {
-                    if (line.includes('"type":"error"')) {
-                        throw jsonErr;
-                    }
-                    console.warn("Stream line parse warning:", jsonErr, line);
                 }
             }
-        }
 
-        if (buffer.trim()) {
-            try {
-                const evt = JSON.parse(buffer.trim());
-                if (evt.type === 'result') receivedResult = evt.data;
-                else if (evt.type === 'error') throw new Error(evt.error);
-            } catch (e) {}
+            if (buffer.trim()) {
+                try {
+                    const evt = JSON.parse(buffer.trim());
+                    if (evt.type === 'result') receivedResult = evt.data;
+                    else if (evt.type === 'error') throw new Error(evt.error);
+                } catch (e) {}
+            }
+        } else {
+            const txt = await res.text();
+            const jsonResp = JSON.parse(txt);
+            receivedResult = (jsonResp && jsonResp.data) ? jsonResp.data : jsonResp;
         }
 
         if (!receivedResult) {
@@ -173,6 +184,14 @@ async function executeParseWithFiles(fileObjs) {
         currentDocData = receivedResult;
         if (currentDocData && currentDocData.used_model) {
             window.lastUsedModel = currentDocData.used_model;
+            if (els.usedModelBadge) {
+                let cleanName = currentDocData.used_model.replace(/^gemini\//, '').replace(/-preview$/, '');
+                if (cleanName === 'gemini-3.5-flash') cleanName = 'Gemini 3.5 Flash';
+                else if (cleanName === 'gemini-3-flash') cleanName = 'Gemini 3 Flash';
+                else if (cleanName === 'gemini-3.1-flash-lite') cleanName = 'Gemini 3.1 Flash Lite';
+                els.usedModelBadge.textContent = "⚡ " + cleanName;
+                els.usedModelBadge.classList.remove('hidden');
+            }
         }
         renderTable(currentDocData);
         els.resSection.classList.remove('hidden');

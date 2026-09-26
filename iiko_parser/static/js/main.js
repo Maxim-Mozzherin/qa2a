@@ -123,45 +123,72 @@ if (els.btnParse) {
         e.preventDefault();
         e.stopPropagation();
     }, false);
+    document.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    }, false);
 });
 
 if (els.dropZone) {
     ['dragenter', 'dragover'].forEach(eventName => {
-        els.dropZone.addEventListener(eventName, () => {
+        els.dropZone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             els.dropZone.classList.add('border-brand-500', 'bg-brand-500/5');
         }, false);
     });
 
-    ['dragleave', 'drop'].forEach(eventName => {
-        els.dropZone.addEventListener(eventName, () => {
+    ['dragleave'].forEach(eventName => {
+        els.dropZone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             els.dropZone.classList.remove('border-brand-500', 'bg-brand-500/5');
         }, false);
     });
 
+    let isDropping = false;
     els.dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        els.dropZone.classList.remove('border-brand-500', 'bg-brand-500/5');
+
+        isDropping = true;
+        setTimeout(() => { isDropping = false; }, 500);
+
         const dt = e.dataTransfer;
+        if (!dt || !dt.files || dt.files.length === 0) return;
         const files = dt.files;
 
-        if (files.length > 0) {
-            const file = files[0];
-            const validExts = [".pdf", ".png", ".jpg", ".jpeg", ".webp"];
-            const isValid = validExts.some(ext => file.name.toLowerCase().endsWith(ext)) || file.type.startsWith("image/") || file.type === "application/pdf";
-            
-            if (!isValid) {
-                alert("Пожалуйста, выберите файл накладной (PDF или фото)");
-                return;
-            }
-
-            els.file.files = files;
-            executeParseWithFiles(files);
+        const file = files[0];
+        const validExts = [".pdf", ".png", ".jpg", ".jpeg", ".webp"];
+        const isValid = validExts.some(ext => file.name.toLowerCase().endsWith(ext)) || file.type.startsWith("image/") || file.type === "application/pdf";
+        
+        if (!isValid) {
+            alert("Пожалуйста, выберите файл накладной (PDF или фото)");
+            return;
         }
+
+        try {
+            els.file.files = files;
+        } catch (_) {}
+
+        executeParseWithFiles(files);
     }, false);
 
     els.dropZone.addEventListener('click', (e) => {
+        if (isDropping) return;
         if (e.target.closest('button, select, input, a, label, #prompt-preset-select, #btn-open-prompt-modal')) {
             return;
         }
         els.file.click();
+    });
+}
+
+if (els.file) {
+    els.file.addEventListener('change', () => {
+        if (els.file.files && els.file.files.length > 0) {
+            executeParseWithFiles(els.file.files);
+        }
     });
 }
 

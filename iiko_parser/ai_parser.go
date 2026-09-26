@@ -125,6 +125,14 @@ func runProbes() {
 func formatCleanModelName(m string) string {
 	s := strings.TrimPrefix(m, "gemini/")
 	s = strings.TrimSuffix(s, "-preview")
+	switch s {
+	case "gemini-3.5-flash":
+		return "Gemini 3.5 Flash"
+	case "gemini-3-flash":
+		return "Gemini 3 Flash"
+	case "gemini-3.1-flash-lite":
+		return "Gemini 3.1 Flash Lite"
+	}
 	return s
 }
 
@@ -168,8 +176,8 @@ func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter
 	if len(orderedModels) == 0 {
 		orderedModels = []string{
 			"gemini/gemini-3.5-flash",
-			"gemini/gemini-3-flash-preview",
-			"gemini/gemini-3.1-flash-lite-preview",
+			"gemini/gemini-3-flash",
+			"gemini/gemini-3.1-flash-lite",
 		}
 	}
 

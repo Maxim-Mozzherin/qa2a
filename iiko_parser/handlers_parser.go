@@ -166,7 +166,6 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 	if isStreaming {
 		w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache, no-transform")
-		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no")
 		if f, ok := w.(http.Flusher); ok {
 			flusher = f
