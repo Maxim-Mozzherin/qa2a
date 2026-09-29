@@ -26,6 +26,7 @@ type Handler struct {
 	adminTgID          int64
 	externalApiKey     string
 	joinLimiter        *ratelimit.Limiter
+	actionLimiter      *ratelimit.Limiter
 }
 
 // New создает новый экземпляр HTTP-обработчика.
@@ -49,6 +50,7 @@ func New(
 		adminTgID:          adminTgID,
 		externalApiKey:     externalApiKey,
 		joinLimiter:        ratelimit.NewLimiter(5, 1*time.Minute, 5*time.Minute, 10000),
+		actionLimiter:      ratelimit.NewLimiter(30, 1*time.Minute, 5*time.Minute, 10000),
 	}
 }
 

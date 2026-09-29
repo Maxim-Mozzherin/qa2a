@@ -92,9 +92,10 @@ func (b *Bot) handleCommand(text string) {
 	} else if strings.HasPrefix(text, "/backup") {
 		b.SendFullBackup()
 	} else if strings.HasPrefix(text, "/restart") {
-		b.SendText("🔄 Инициирован перезапуск сервисов (qa2a, iiko_parser)...")
+		b.SendText("🔄 Инициирован перезапуск сервисов (qa2a, iiko-parser)...")
 		go func() {
 			time.Sleep(1 * time.Second) // Даем время на отправку сообщения
+			exec.Command("systemctl", "restart", "iiko-parser").Run()
 			exec.Command("systemctl", "restart", "iiko_parser").Run()
 			exec.Command("systemctl", "restart", "qa2a").Run()
 		}()
@@ -203,28 +204,67 @@ func (b *Bot) SendFullBackup() {
 		return
 	}
 
-	dumpCmd := exec.Command("docker", "exec", "qa2a-postgres", "pg_dump", "-U", "admin", "-d", "qa2a")
-	dumpCmd.Stdout = sqlFile
-	var dumpErr bytes.Buffer
-	dumpCmd.Stderr = &dumpErr
+	// Пробуем дамп через возможные имена Docker-контейнеров или нативный pg_dump
+	dumpSuccess := false
+	var lastDumpErr string
 
-	if err := dumpCmd.Run(); err != nil {
-		sqlFile.Close()
+	containerCandidates := []string{"qa2a-dev-db", "qa2a-postgres", "qa2a_dev_db", "postgres"}
+	for _, cName := range containerCandidates {
+		cmd := exec.Command("docker", "exec", cName, "pg_dump", "-U", "admin", "-d", "qa2a")
+		cmd.Stdout = sqlFile
+		var errBuf bytes.Buffer
+		cmd.Stderr = &errBuf
+		if err := cmd.Run(); err == nil {
+			dumpSuccess = true
+			break
+		} else {
+			lastDumpErr = errBuf.String()
+		}
+	}
+
+	if !dumpSuccess {
+		// Fallback: нативный pg_dump на локальном порту СУБД (5433 / 5432 / 5434)
+		nativePorts := []string{"5433", "5432", "5434"}
+		for _, port := range nativePorts {
+			cmd := exec.Command("pg_dump", "-h", "localhost", "-p", port, "-U", "admin", "-d", "qa2a")
+			cmd.Stdout = sqlFile
+			var errBuf bytes.Buffer
+			cmd.Stderr = &errBuf
+			if err := cmd.Run(); err == nil {
+				dumpSuccess = true
+				break
+			} else {
+				lastDumpErr = errBuf.String()
+			}
+		}
+	}
+
+	sqlFile.Close()
+	if !dumpSuccess {
 		os.Remove(sqlPath)
-		b.SendText("❌ Ошибка дампа БД: " + err.Error() + "\n" + dumpErr.String())
-		log.Printf("[Bot Backup] DB dump failed: %v, stderr: %s", err, dumpErr.String())
+		b.SendText("❌ Ошибка дампа БД: " + lastDumpErr)
+		log.Printf("[Bot Backup] DB dump failed, last stderr: %s", lastDumpErr)
 		return
 	}
-	sqlFile.Close()
 
 	// 2. Archive everything directly via tar without shell
 	archivePath := "/tmp/qa2a_full_backup.tar.gz"
 	tarCmd := exec.Command("tar", "-czf", archivePath,
 		"--exclude=.git",
-		"--exclude=qa2a",
-		"--exclude=qa2a_app",
+		"--exclude=*.env",
+		"--exclude=.env*",
+		"--exclude=.superadmin_credentials",
+		"--exclude=*.exe",
+		"--exclude=*backup*",
+		"--exclude=*_backup*",
+		"--exclude=qa2a-reboot/qa2a",
+		"--exclude=qa2a-reboot/qa2a_app",
+		"--exclude=iiko_parser/iiko",
+		"--exclude=iiko_parser/iiko-parser",
 		"--exclude=iiko_parser/iiko_parser",
 		"--exclude=iiko_parser/parser_app",
+		"--exclude=iiko_parser/temp/*",
+		"--exclude=*.tar.gz",
 		"-C", "/opt",
 		"qa2a-reboot", "iiko_parser",
 	)
@@ -241,40 +281,116 @@ func (b *Bot) SendFullBackup() {
 	defer os.Remove(archivePath)
 	defer os.Remove(sqlPath)
 
-	// 3. Send file to Telegram
-	file, err := os.Open(archivePath)
+	fi, err := os.Stat(archivePath)
 	if err != nil {
-		b.SendText("❌ Не удалось открыть архив: " + err.Error())
+		b.SendText("❌ Не удалось прочитать архив: " + err.Error())
 		return
 	}
-	defer file.Close()
 
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	
-	_ = writer.WriteField("chat_id", fmt.Sprintf("%d", b.AdminID))
-	_ = writer.WriteField("caption", "📦 <b>Полный бэкап сервера</b> #backup\n\nВнутри:\n📁 Файлы проекта (<code>/opt/qa2a-reboot</code>, <code>/opt/iiko_parser</code>)\n🗄 Дамп базы данных (<code>database.sql</code>)")
-	_ = writer.WriteField("parse_mode", "HTML")
+	sizeMB := float64(fi.Size()) / (1024 * 1024)
 
-	part, _ := writer.CreateFormFile("document", filepath.Base(archivePath))
-	io.Copy(part, file)
-	writer.Close()
+	// Лимит Telegram Bot API на отправку одного документа — 50 МБ
+	const tgMaxFileSize = 48 * 1024 * 1024
+	if fi.Size() > tgMaxFileSize {
+		b.SendText(fmt.Sprintf("⚠️ Размер архива (%.1f МБ) превышает лимит Telegram (50 МБ). Разбиваю на части...", sizeMB))
+
+		partPrefix := "/tmp/qa2a_full_backup.tar.gz.part_"
+		splitCmd := exec.Command("split", "-b", "45M", archivePath, partPrefix)
+		if err := splitCmd.Run(); err != nil {
+			b.SendText("❌ Не удалось разбить архив: " + err.Error())
+			return
+		}
+
+		parts, _ := filepath.Glob(partPrefix + "*")
+		defer func() {
+			for _, p := range parts {
+				os.Remove(p)
+			}
+		}()
+
+		totalParts := len(parts)
+		for idx, part := range parts {
+			caption := fmt.Sprintf("📦 <b>Часть %d из %d</b> полного бэкапа\n\nДля объединения на сервере:\n<code>cat qa2a_full_backup.tar.gz.part_* > qa2a_full_backup.tar.gz</code>", idx+1, totalParts)
+			if err := b.sendDocument(part, caption); err != nil {
+				b.SendText(fmt.Sprintf("❌ Ошибка отправки части %d: %s", idx+1, err.Error()))
+				return
+			}
+			time.Sleep(1 * time.Second)
+		}
+		b.SendText("✅ Все части бэкапа успешно отправлены!")
+		return
+	}
+
+	caption := fmt.Sprintf("📦 <b>Полный бэкап сервера</b> (%.1f МБ) #backup\n\nВнутри:\n📁 Файлы проекта (<code>/opt/qa2a-reboot</code>, <code>/opt/iiko_parser</code>)\n🗄 Дамп базы данных (<code>database.sql</code>)", sizeMB)
+	if err := b.sendDocument(archivePath, caption); err != nil {
+		b.SendText("❌ Ошибка API Telegram при отправке файла: " + err.Error())
+		return
+	}
+
+	b.SendText("✅ Бэкап успешно отправлен!")
+}
+
+func (b *Bot) sendDocument(filePath, caption string) error {
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+
+	go func() {
+		var err error
+		defer func() {
+			if err != nil {
+				pw.CloseWithError(err)
+			} else {
+				pw.Close()
+			}
+		}()
+
+		if err = writer.WriteField("chat_id", fmt.Sprintf("%d", b.AdminID)); err != nil {
+			return
+		}
+		if caption != "" {
+			if err = writer.WriteField("caption", caption); err != nil {
+				return
+			}
+			if err = writer.WriteField("parse_mode", "HTML"); err != nil {
+				return
+			}
+		}
+
+		part, err := writer.CreateFormFile("document", filepath.Base(filePath))
+		if err != nil {
+			return
+		}
+
+		file, err := os.Open(filePath)
+		if err != nil {
+			return
+		}
+		defer file.Close()
+
+		_, err = io.Copy(part, file)
+		if err != nil {
+			return
+		}
+		err = writer.Close()
+	}()
 
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendDocument", b.Token)
-	req, _ := http.NewRequest("POST", url, body)
+	req, err := http.NewRequest("POST", url, pr)
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Do(req)
 	if err != nil {
-		b.SendText("❌ Ошибка отправки архива: " + err.Error())
-		return
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		b.SendText("❌ Ошибка API Telegram при отправке файла: " + string(respBody))
-	} else {
-		b.SendText("✅ Бэкап успешно отправлен!")
+		return fmt.Errorf("%s", string(respBody))
 	}
+	return nil
 }

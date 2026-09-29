@@ -2,6 +2,8 @@ package repository
 
 import (
 	"qa2a/internal/models"
+
+	"github.com/jmoiron/sqlx"
 )
 
 // ============================================================================
@@ -25,6 +27,28 @@ func (r *Repository) GetLocations(companyID int) ([]models.Location, error) {
 		ORDER BY name ASC`
 	err := r.db.Select(&locs, query, companyID)
 	return locs, err
+}
+
+// CheckLocationBelongsToCompanyTx проверяет принадлежность склада заведению в рамках транзакции.
+func (r *Repository) CheckLocationBelongsToCompanyTx(tx *sqlx.Tx, companyID, locationID int) (bool, error) {
+	if companyID <= 0 || locationID <= 0 {
+		return false, nil
+	}
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM locations WHERE id = $1 AND company_id = $2)`
+	err := tx.QueryRow(query, locationID, companyID).Scan(&exists)
+	return exists, err
+}
+
+// CheckLocationBelongsToCompany проверяет принадлежность склада заведению.
+func (r *Repository) CheckLocationBelongsToCompany(companyID, locationID int) (bool, error) {
+	if companyID <= 0 || locationID <= 0 {
+		return false, nil
+	}
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM locations WHERE id = $1 AND company_id = $2)`
+	err := r.db.QueryRow(query, locationID, companyID).Scan(&exists)
+	return exists, err
 }
 
 // CreatePosition добавляет товарную позицию в каталог заведения.

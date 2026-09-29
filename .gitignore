@@ -9,6 +9,7 @@ server.log
 /qa2a_app
 qa2a_reboot/qa2a
 qa2a_reboot/qa2a_app
+iiko_parser/iiko
 iiko_parser/iiko_parser
 iiko_parser/iiko-parser
 iiko_parser/iiko_parser.exe
@@ -16,3 +17,8 @@ iiko_parser/parser_app
 temp/
 uploads/
 *.exe
+/VPN/
+/dev/
+/qa2a-reboot/
+*backup*
+qa2a_clean_project.txt

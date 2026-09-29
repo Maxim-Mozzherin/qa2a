@@ -12,3 +12,5 @@ qa2a_app
 api
 *.exe
 uploads/
+*backup*
+qa2a_backup_*

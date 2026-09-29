@@ -14,27 +14,28 @@ import (
 // ПОРТАЛ ПОСТАВЩИКА (B2B MARKETPLACE SUPPLIER PORTAL)
 // ============================================================================
 
+// GetSupplierOffersHandler возвращает список торговых предложений (офферов) текущего поставщика.
 func (h *Handler) GetSupplierOffersHandler(w http.ResponseWriter, req *http.Request) {
 	if req.Method == "OPTIONS" {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	supplierID, _ := req.Context().Value("supplier_id").(int)
+	supplierID := middleware.GetSupplierID(req.Context())
 	if supplierID == 0 {
-		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "Неавторизованный доступ к кабинету поставщика")
 		return
 	}
 
 	offers, err := h.marketplaceService.GetSupplierOffers(supplierID)
 	if err != nil {
-		http.Error(w, `{"error": "Internal Server Error"}`, http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "Ошибка получения списка офферов")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(offers)
+	respondJSON(w, http.StatusOK, offers)
 }
 
+// extractToken извлекает Bearer или X-Telegram-ID токен из заголовков HTTP-запроса.
 func extractToken(req *http.Request) string {
 	token := strings.TrimSpace(req.Header.Get("X-Telegram-ID"))
 	if token == "" {
@@ -46,6 +47,7 @@ func extractToken(req *http.Request) string {
 	return token
 }
 
+// SaveSupplierOfferHandler создает или обновляет торговое предложение поставщика.
 func (h *Handler) SaveSupplierOfferHandler(w http.ResponseWriter, req *http.Request) {
 	if req.Method == "OPTIONS" {
 		w.WriteHeader(http.StatusOK)
@@ -54,23 +56,40 @@ func (h *Handler) SaveSupplierOfferHandler(w http.ResponseWriter, req *http.Requ
 	req.Body = http.MaxBytesReader(w, req.Body, 1<<20)
 	var offer service.CreateOfferReq
 	if err := json.NewDecoder(req.Body).Decode(&offer); err != nil {
-		http.Error(w, `{"error": "Bad request"}`, http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Неверный формат данных оффера")
 		return
 	}
 
-	supplierID, _ := req.Context().Value("supplier_id").(int)
+	supplierID := middleware.GetSupplierID(req.Context())
 	if supplierID == 0 {
-		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "Неавторизованный доступ к кабинету поставщика")
 		return
 	}
 
 	err := h.marketplaceService.SaveSupplierOffer(supplierID, offer)
 	if err != nil {
-		http.Error(w, `{"error": "Server error"}`, http.StatusInternalServerError)
+		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok"}`))
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) authenticateSupplierTgUser(req *http.Request) (int64, error) {
+	tokenStr := extractToken(req)
+	tgID, tokenVersion := middleware.VerifySignedTokenWithVersion(tokenStr, h.botToken)
+	if tgID <= 0 {
+		return 0, fmt.Errorf("Unauthorized")
+	}
+	if h.inventoryService != nil && h.inventoryService.GetRepo() != nil {
+		user, err := h.inventoryService.GetRepo().GetUserByTgID(tgID)
+		if err != nil || user == nil {
+			return 0, fmt.Errorf("User not found")
+		}
+		if user.TokenVersion != tokenVersion {
+			return 0, fmt.Errorf("Session invalidated")
+		}
+	}
+	return tgID, nil
 }
 
 func (h *Handler) RegisterSupplierHandler(w http.ResponseWriter, req *http.Request) {
@@ -79,10 +98,8 @@ func (h *Handler) RegisterSupplierHandler(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	// Read auth token manually supporting both X-Telegram-ID and Authorization Bearer
-	tokenStr := extractToken(req)
-	tgID := middleware.VerifySignedTokenExported(tokenStr, h.botToken)
-	if tgID == 0 {
+	tgID, err := h.authenticateSupplierTgUser(req)
+	if err != nil {
 		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
@@ -107,7 +124,7 @@ func (h *Handler) RegisterSupplierHandler(w http.ResponseWriter, req *http.Reque
 		reqBody.CompanyName = "Demo Supplier" // fallback
 	}
 
-	_, err := h.marketplaceService.RegisterSupplier(tgID, reqBody.CompanyName)
+	_, err = h.marketplaceService.RegisterSupplier(tgID, reqBody.CompanyName)
 
 	if err != nil {
 		http.Error(w, `{"error": "Server error"}`, http.StatusInternalServerError)
@@ -124,9 +141,8 @@ func (h *Handler) JoinSupplierHandler(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	tokenStr := extractToken(req)
-	tgID := middleware.VerifySignedTokenExported(tokenStr, h.botToken)
-	if tgID == 0 {
+	tgID, err := h.authenticateSupplierTgUser(req)
+	if err != nil {
 		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
@@ -147,7 +163,7 @@ func (h *Handler) JoinSupplierHandler(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	err := h.marketplaceService.JoinSupplier(tgID, reqBody.Code)
+	err = h.marketplaceService.JoinSupplier(tgID, reqBody.Code)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
@@ -157,58 +173,56 @@ func (h *Handler) JoinSupplierHandler(w http.ResponseWriter, req *http.Request) 
 	w.Write([]byte(`{"status": "ok"}`))
 }
 
+// GetSupplierMeHandler возвращает профиль текущего поставщика (название компании и код приглашения).
 func (h *Handler) GetSupplierMeHandler(w http.ResponseWriter, req *http.Request) {
-	tokenStr := extractToken(req)
-	tgID := middleware.VerifySignedTokenExported(tokenStr, h.botToken)
-	if tgID == 0 {
-		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
+	tgID, err := h.authenticateSupplierTgUser(req)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "Неавторизованный запрос")
 		return
 	}
 
-	db := h.marketplaceService.GetDb() // We will add GetDb() to marketplaceService
+	db := h.marketplaceService.GetDb()
 	var res struct {
 		CompanyName string `json:"company_name"`
 		InviteCode  string `json:"invite_code"`
 	}
-	err := db.QueryRow("SELECT s.company_name, COALESCE(s.invite_code, '') FROM marketplace_suppliers s JOIN marketplace_supplier_users u ON s.id = u.supplier_id WHERE u.tg_id = $1 LIMIT 1", tgID).Scan(&res.CompanyName, &res.InviteCode)
+	err = db.QueryRow("SELECT s.company_name, COALESCE(s.invite_code, '') FROM marketplace_suppliers s JOIN marketplace_supplier_users u ON s.id = u.supplier_id WHERE u.tg_id = $1 LIMIT 1", tgID).Scan(&res.CompanyName, &res.InviteCode)
 	if err != nil {
-		http.Error(w, `{"error": "Not found"}`, http.StatusNotFound)
+		respondError(w, http.StatusNotFound, "Поставщик не найден")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	respondJSON(w, http.StatusOK, res)
 }
 
+// DeleteSupplierOfferHandler удаляет торговое предложение поставщика.
 func (h *Handler) DeleteSupplierOfferHandler(w http.ResponseWriter, req *http.Request) {
 	if req.Method == "OPTIONS" {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	supplierID, _ := req.Context().Value("supplier_id").(int)
+	supplierID := middleware.GetSupplierID(req.Context())
 	if supplierID == 0 {
-		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "Неавторизованный доступ к кабинету поставщика")
 		return
 	}
 
-	// Parse offer ID from query or body? Let just take from query
 	idStr := req.URL.Query().Get("id")
 	if idStr == "" {
-		http.Error(w, `{"error": "Missing ID"}`, http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Не указан ID предложения (?id=)")
 		return
 	}
 
 	var offerID int
 	if _, err := fmt.Sscanf(idStr, "%d", &offerID); err != nil || offerID <= 0 {
-		http.Error(w, `{"error": "Invalid ID"}`, http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Некорректный ID предложения")
 		return
 	}
 
 	err := h.marketplaceService.DeleteSupplierOffer(supplierID, offerID)
 	if err != nil {
-		http.Error(w, `{"error": "Internal Server Error"}`, http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "Ошибка удаления оффера")
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok"}`))
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

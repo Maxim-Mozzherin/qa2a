@@ -76,18 +76,6 @@ func initRootSuperadmin() {
 			}
 		}
 	}
-
-	// 3. Ensure user bugh has role = 'superadmin' if it exists
-	_, err = db.Exec("UPDATE accounting_users SET role = 'superadmin' WHERE login = 'bugh'")
-	if err != nil {
-		log.Printf("⚠️ Ошибка актуализации роли bugh: %v", err)
-	}
-
-	// 4. Ensure user buh is a global_accountant with godmode access but no invite rights
-	_, err = db.Exec("UPDATE accounting_users SET role = 'global_accountant', accounting_firm_id = NULL WHERE login = 'buh'")
-	if err != nil {
-		log.Printf("⚠️ Ошибка обновления роли buh: %v", err)
-	}
 }
 
 func initPromptPresets() {

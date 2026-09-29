@@ -91,6 +91,12 @@ func handleRegisterAccountant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	lowerLogin := strings.ToLower(req.Login)
+	if lowerLogin == "bugh" || lowerLogin == "buh" || lowerLogin == "superadmin" || lowerLogin == "root" || lowerLogin == "admin" {
+		http.Error(w, "Данный логин зарезервирован системой", http.StatusBadRequest)
+		return
+	}
+
 	if len(req.Password) < 8 {
 		http.Error(w, "Пароль должен содержать не менее 8 символов", http.StatusBadRequest)
 		return

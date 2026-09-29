@@ -67,6 +67,7 @@ func (h *Handler) SaveSupplierContactHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		SupplierUUID string `json:"supplier_uuid"`
 		TgUsername   string `json:"tg_username"`

@@ -54,6 +54,11 @@ func (s *InventoryService) SetInitialBalance(userID, companyID int, posName stri
 	}
 	trimmedPos := strings.TrimSpace(posName)
 	return s.repo.ExecuteInTx(func(tx *sqlx.Tx) error {
+		validLoc, errLoc := s.repo.CheckLocationBelongsToCompanyTx(tx, companyID, locationID)
+		if errLoc != nil || !validLoc {
+			return fmt.Errorf("склад #%d не принадлежит вашему заведению", locationID)
+		}
+
 		op := &models.Operation{
 			CompanyID:      companyID,
 			UserID:         userID,
@@ -111,6 +116,10 @@ func (s *InventoryService) WriteOff(
 	}
 
 	return s.repo.ExecuteInTx(func(tx *sqlx.Tx) error {
+		validLoc, errLoc := s.repo.CheckLocationBelongsToCompanyTx(tx, companyID, locationID)
+		if errLoc != nil || !validLoc {
+			return fmt.Errorf("склад #%d не принадлежит вашему заведению", locationID)
+		}
 		op := &models.Operation{
 			CompanyID:    companyID,
 			UserID:       userID,
@@ -156,6 +165,11 @@ func (s *InventoryService) EditWriteoff(
 	}
 
 	return s.repo.ExecuteInTx(func(tx *sqlx.Tx) error {
+		validLoc, errLoc := s.repo.CheckLocationBelongsToCompanyTx(tx, companyID, locID)
+		if errLoc != nil || !validLoc {
+			return fmt.Errorf("склад #%d не принадлежит вашему заведению", locID)
+		}
+
 		oldOp, err := s.repo.GetOperationByIDTx(tx, companyID, opID)
 		if err != nil {
 			return fmt.Errorf("операция #%d не найдена: %w", opID, err)
@@ -249,6 +263,9 @@ func (s *InventoryService) Transfer(
 	}
 
 	trimmedPos := strings.TrimSpace(posName)
+	if trimmedPos == "" {
+		return fmt.Errorf("наименование перемещаемого товара не указано")
+	}
 	pos, err := s.repo.GetPositionByName(companyID, trimmedPos)
 	if err != nil {
 		return fmt.Errorf("позиция '%s' не найдена в номенклатуре: %w", trimmedPos, err)
@@ -266,6 +283,15 @@ func (s *InventoryService) Transfer(
 	cleanComment := strings.TrimSpace(comment)
 
 	return s.repo.ExecuteInTx(func(tx *sqlx.Tx) error {
+		validFrom, errFrom := s.repo.CheckLocationBelongsToCompanyTx(tx, companyID, fromLoc)
+		if errFrom != nil || !validFrom {
+			return fmt.Errorf("склад-отправитель #%d не принадлежит вашему заведению", fromLoc)
+		}
+		validTo, errTo := s.repo.CheckLocationBelongsToCompanyTx(tx, companyID, toLoc)
+		if errTo != nil || !validTo {
+			return fmt.Errorf("склад-получатель #%d не принадлежит вашему заведению", toLoc)
+		}
+
 		// Расход со склада-отправителя
 		opOut := &models.Operation{
 			CompanyID:    companyID,

@@ -26,11 +26,17 @@ func (h *Handler) StartInventoryHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	userID := h.getUserID(r)
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		LocationID int `json:"location_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Неверный формат JSON")
+		return
+	}
+
+	if req.LocationID <= 0 {
+		respondError(w, http.StatusBadRequest, "Укажите корректный идентификатор склада (location_id)")
 		return
 	}
 
@@ -66,6 +72,10 @@ func (h *Handler) GetInventoryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actID, _ := strconv.Atoi(mux.Vars(r)["id"])
+	if actID <= 0 {
+		respondError(w, http.StatusBadRequest, "Некорректный ID акта инвентаризации")
+		return
+	}
 
 	act, err := h.inventoryService.GetInventory(cID, actID)
 	if err != nil {
@@ -83,7 +93,13 @@ func (h *Handler) SaveInventoryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actID, _ := strconv.Atoi(mux.Vars(r)["id"])
+	if actID <= 0 {
+		respondError(w, http.StatusBadRequest, "Некорректный ID акта инвентаризации")
+		return
+	}
 
+	// Лимит 5 МБ для больших списков инвентаризационных строк
+	r.Body = http.MaxBytesReader(w, r.Body, 5<<20)
 	var items []models.InventoryItem
 	if err := json.NewDecoder(r.Body).Decode(&items); err != nil {
 		respondError(w, http.StatusBadRequest, "Неверный формат позиций инвентаризации")
@@ -114,6 +130,10 @@ func (h *Handler) FinalizeInventoryHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	actID, _ := strconv.Atoi(mux.Vars(r)["id"])
+	if actID <= 0 {
+		respondError(w, http.StatusBadRequest, "Некорректный ID акта инвентаризации")
+		return
+	}
 
 	err = h.inventoryService.FinalizeInventory(cID, actID)
 	if err != nil {
@@ -125,6 +145,7 @@ func (h *Handler) FinalizeInventoryHandler(w http.ResponseWriter, r *http.Reques
 }
 
 // DeleteInventoryHandler удаляет незавершенный черновик инвентаризации.
+// Доступно только руководству заведения (Owner, Admin, Manager).
 func (h *Handler) DeleteInventoryHandler(w http.ResponseWriter, r *http.Request) {
 	cID := h.getCompanyID(r)
 	if cID == 0 {
@@ -139,6 +160,10 @@ func (h *Handler) DeleteInventoryHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	actID, _ := strconv.Atoi(mux.Vars(r)["id"])
+	if actID <= 0 {
+		respondError(w, http.StatusBadRequest, "Некорректный ID акта инвентаризации")
+		return
+	}
 
 	err = h.inventoryService.DeleteInventory(cID, actID)
 	if err != nil {
@@ -157,6 +182,10 @@ func (h *Handler) GetIikoDraftsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	locID, _ := strconv.Atoi(r.URL.Query().Get("location_id"))
+	if locID <= 0 {
+		respondError(w, http.StatusBadRequest, "Укажите корректный идентификатор склада (?location_id=)")
+		return
+	}
 
 	locs, err := h.inventoryService.GetLocations(cID)
 	if err != nil {
@@ -194,6 +223,7 @@ func (h *Handler) StartInventoryFromDraftHandler(w http.ResponseWriter, r *http.
 	}
 	userID := h.getUserID(r)
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		LocationID int    `json:"location_id"`
 		DraftID    string `json:"draft_id"`
@@ -203,7 +233,13 @@ func (h *Handler) StartInventoryFromDraftHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	act, err := h.inventoryService.StartInventoryFromDraft(cID, userID, req.LocationID, req.DraftID)
+	cleanDraftID := strings.TrimSpace(req.DraftID)
+	if req.LocationID <= 0 || cleanDraftID == "" {
+		respondError(w, http.StatusBadRequest, "Укажите корректный location_id и draft_id")
+		return
+	}
+
+	act, err := h.inventoryService.StartInventoryFromDraft(cID, userID, req.LocationID, cleanDraftID)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
@@ -220,6 +256,10 @@ func (h *Handler) GetTemplatesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	locID, _ := strconv.Atoi(r.URL.Query().Get("location_id"))
+	if locID <= 0 {
+		respondError(w, http.StatusBadRequest, "Укажите корректный идентификатор склада (?location_id=)")
+		return
+	}
 
 	list, err := h.inventoryService.GetTemplates(cID, locID)
 	if err != nil {
@@ -239,12 +279,18 @@ func (h *Handler) StartInventoryFromTemplateHandler(w http.ResponseWriter, r *ht
 	}
 	userID := h.getUserID(r)
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		LocationID int `json:"location_id"`
 		TemplateID int `json:"template_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Неверный формат JSON")
+		return
+	}
+
+	if req.LocationID <= 0 || req.TemplateID <= 0 {
+		respondError(w, http.StatusBadRequest, "Укажите корректный location_id и template_id")
 		return
 	}
 
@@ -258,6 +304,7 @@ func (h *Handler) StartInventoryFromTemplateHandler(w http.ResponseWriter, r *ht
 }
 
 // CreateExternalTemplateHandler принимает созданный в iiko_parser шаблон от бухгалтера.
+// Защищен симметричным статическим токеном EXTERNAL_API_KEY.
 func (h *Handler) CreateExternalTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	authHeader := r.Header.Get("Authorization")
 	token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
@@ -276,6 +323,7 @@ func (h *Handler) CreateExternalTemplateHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var req struct {
 		StoreUUID string   `json:"store_uuid"`
 		Name      string   `json:"name"`
@@ -287,6 +335,8 @@ func (h *Handler) CreateExternalTemplateHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	req.StoreUUID = strings.TrimSpace(req.StoreUUID)
+	req.Name = strings.TrimSpace(req.Name)
 	if req.StoreUUID == "" || req.Name == "" || len(req.Items) == 0 {
 		respondError(w, http.StatusBadRequest, "Заполните обязательные поля (store_uuid, name, items)")
 		return

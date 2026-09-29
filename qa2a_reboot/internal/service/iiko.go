@@ -623,6 +623,13 @@ func (s *IikoService) FetchDraftInventories(companyID int, storeExternalID strin
 	return filtered, nil
 }
 
+// escapeXML экранирует специальные символы XML (&, <, >, ", ') для защиты от XML-инъекций и сбоев парсера iiko.
+func escapeXML(s string) string {
+	var b bytes.Buffer
+	_ = xml.EscapeText(&b, []byte(s))
+	return b.String()
+}
+
 // ExportInventoryAct отправляет заполненный акт инвентаризации в iiko RMS через XML импорт.
 func (s *IikoService) ExportInventoryAct(companyID int, storeExternalID string, iikoDocID string, docNum string, items []models.InventoryItem) error {
 	settings, err := s.getDecryptedSettings(companyID)
@@ -642,13 +649,13 @@ func (s *IikoService) ExportInventoryAct(companyID int, storeExternalID string, 
 		<item>
 			<productId>%s</productId>
 			<amountContainer>%.3f</amountContainer>
-		</item>`, item.ExternalID, item.ActualAmount))
+		</item>`, escapeXML(item.ExternalID), item.ActualAmount))
 		}
 	}
 
 	idTag := ""
 	if iikoDocID != "" {
-		idTag = fmt.Sprintf("<id>%s</id>", iikoDocID)
+		idTag = fmt.Sprintf("<id>%s</id>", escapeXML(iikoDocID))
 	}
 	if docNum == "" {
 		docNum = fmt.Sprintf("QA-INV-%d", time.Now().Unix())
@@ -664,7 +671,7 @@ func (s *IikoService) ExportInventoryAct(companyID int, storeExternalID string, 
 	<comment>Заполнено из QA2A</comment>
 	<items>%s
 	</items>
-</document>`, idTag, docNum, time.Now().Format("2006-01-02T15:04:00"), storeExternalID, itemsXML.String())
+</document>`, idTag, escapeXML(docNum), time.Now().Format("2006-01-02T15:04:00"), escapeXML(storeExternalID), itemsXML.String())
 
 	url := fmt.Sprintf("%s/resto/api/documents/import/incomingInventory?key=%s", settings.Host, token)
 	req, err := http.NewRequest("POST", url, bytes.NewBufferString(xmlPayload))
@@ -896,7 +903,7 @@ func (s *IikoService) ExportDailyOperations(companyID int, isScheduled bool) err
 						<num>%d</num>
 						<product>%s</product>
 						<amount>%.3f</amount>
-					</item>`, idx+1, item.ProductID, item.TotalAmount))
+					</item>`, idx+1, escapeXML(item.ProductID), item.TotalAmount))
 				exportedOpIDs = append(exportedOpIDs, strings.Split(item.OpIDs, ",")...)
 			}
 
@@ -916,7 +923,7 @@ func (s *IikoService) ExportDailyOperations(companyID int, isScheduled bool) err
 				<status>NEW</status> 
 				<items>%s
 				</items>
-			</document>`, storeFrom, storeTo, formattedDate, finalComment, xmlItems.String())
+			</document>`, escapeXML(storeFrom), escapeXML(storeTo), formattedDate, escapeXML(finalComment), xmlItems.String())
 
 			url := fmt.Sprintf("%s/resto/api/documents/import/productionDocument?key=%s", settings.Host, token)
 			req, _ := http.NewRequest("POST", url, bytes.NewBufferString(xmlPayload))

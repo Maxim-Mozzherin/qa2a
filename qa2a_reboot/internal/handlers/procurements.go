@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"qa2a/internal/models"
 )
@@ -11,7 +12,8 @@ import (
 // ЗАЯВКИ НА ЗАКУПКУ (PROCUREMENT)
 // ============================================================================
 
-// CreateProcurementHandler регистрирует новую заявку на поставку.
+// CreateProcurementHandler регистрирует новую заявку сотрудников на поставку сырья/товаров.
+// Проверяет непустоту списка позиций и положительное количество.
 func (h *Handler) CreateProcurementHandler(w http.ResponseWriter, r *http.Request) {
 	cID := h.getCompanyID(r)
 	if cID == 0 {
@@ -35,6 +37,10 @@ func (h *Handler) CreateProcurementHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	for _, item := range req.Items {
+		if strings.TrimSpace(item.PositionName) == "" {
+			respondError(w, http.StatusBadRequest, "Наименование позиции не может быть пустым")
+			return
+		}
 		if item.Quantity <= 0 {
 			respondError(w, http.StatusBadRequest, "Количество позиций в заявке должно быть строго больше нуля")
 			return
@@ -49,14 +55,14 @@ func (h *Handler) CreateProcurementHandler(w http.ResponseWriter, r *http.Reques
 	respondJSON(w, http.StatusCreated, map[string]string{"status": "created"})
 }
 
-// GetProcurementsHandler возвращает заявки на закупку (по умолчанию: pending).
+// GetProcurementsHandler возвращает заявки на закупку заведения с фильтрацией по статусу (pending/approved/rejected).
 func (h *Handler) GetProcurementsHandler(w http.ResponseWriter, r *http.Request) {
 	cID := h.getCompanyID(r)
 	if cID == 0 {
 		respondError(w, http.StatusForbidden, "Доступ к заведению запрещен")
 		return
 	}
-	status := r.URL.Query().Get("status")
+	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
 	if status == "" {
 		status = "pending"
 	}
@@ -70,7 +76,8 @@ func (h *Handler) GetProcurementsHandler(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, http.StatusOK, requests)
 }
 
-// UpdateProcurementStatusHandler утверждает или отклоняет заявку руководством.
+// UpdateProcurementStatusHandler утверждает или отклоняет заявку на закупку руководством заведения.
+// Проверяет допустимые статусы (approved, rejected, pending) и права доступа.
 func (h *Handler) UpdateProcurementStatusHandler(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
 	if userID == 0 {
@@ -78,12 +85,24 @@ func (h *Handler) UpdateProcurementStatusHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		RequestID int    `json:"request_id"`
 		Status    string `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Неверный формат JSON")
+		return
+	}
+
+	if req.RequestID <= 0 {
+		respondError(w, http.StatusBadRequest, "Некорректный ID заявки на закупку")
+		return
+	}
+
+	cleanStatus := strings.ToLower(strings.TrimSpace(req.Status))
+	if cleanStatus != "approved" && cleanStatus != "rejected" && cleanStatus != "pending" {
+		respondError(w, http.StatusBadRequest, "Недопустимый статус заявки (разрешены: approved, rejected, pending)")
 		return
 	}
 
@@ -102,7 +121,7 @@ func (h *Handler) UpdateProcurementStatusHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if err := h.inventoryService.UpdateProcurementStatus(req.RequestID, req.Status, userID); err != nil {
+	if err := h.inventoryService.UpdateProcurementStatus(req.RequestID, cleanStatus, userID); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

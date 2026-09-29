@@ -3,6 +3,7 @@ package service
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -132,8 +133,9 @@ func (s *MarketplaceService) GetSupplierOffers(supplierID int) ([]OfferResponse,
 	return offers, nil
 }
 
+// CreateOfferReq содержит параметры создания/редактирования спецпредложения поставщика.
 type CreateOfferReq struct {
-    ID         int     `json:"id"`
+	ID         int     `json:"id"`
 	Title      string  `json:"title"`
 	Desc       string  `json:"desc"`
 	PriceType  string  `json:"price_type"`
@@ -141,31 +143,50 @@ type CreateOfferReq struct {
 	Keywords   string  `json:"keywords"`
 }
 
+// SaveSupplierOffer сохраняет или обновляет спецпредложение в каталоге маркетплейса.
+// Проверяет корректность JSON в поле keywords и валидность ценообразования.
 func (s *MarketplaceService) SaveSupplierOffer(supplierID int, req CreateOfferReq) error {
-	if req.Keywords == "" {
-		req.Keywords = "[]"
+	cleanTitle := strings.TrimSpace(req.Title)
+	if cleanTitle == "" {
+		return fmt.Errorf("наименование спецпредложения не может быть пустым")
 	}
+
+	pt := strings.ToLower(strings.TrimSpace(req.PriceType))
+	if pt != "exact" && pt != "from" && pt != "request" {
+		pt = "request"
+	}
+	if req.PriceValue < 0 {
+		return fmt.Errorf("цена предложения не может быть отрицательной")
+	}
+
+	cleanKeywords := strings.TrimSpace(req.Keywords)
+	if cleanKeywords == "" || !json.Valid([]byte(cleanKeywords)) {
+		cleanKeywords = "[]"
+	}
+
 	db := s.repo.GetDb()
-    if req.ID > 0 {
+	if req.ID > 0 {
 		_, err := db.Exec(`
 			UPDATE marketplace_offers 
 			SET title = $1, description = $2, price_type = $3, price_value = $4, keywords = $5::jsonb
 			WHERE id = $6 AND supplier_id = $7
-		`, req.Title, req.Desc, req.PriceType, req.PriceValue, req.Keywords, req.ID, supplierID)
+		`, cleanTitle, strings.TrimSpace(req.Desc), pt, req.PriceValue, cleanKeywords, req.ID, supplierID)
 		return err
 	}
 	_, err := db.Exec(`
-        INSERT INTO marketplace_offers (supplier_id, title, description, price_type, price_value, keywords)
-        VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-    `, supplierID, req.Title, req.Desc, req.PriceType, req.PriceValue, req.Keywords)
+		INSERT INTO marketplace_offers (supplier_id, title, description, price_type, price_value, keywords)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+	`, supplierID, cleanTitle, strings.TrimSpace(req.Desc), pt, req.PriceValue, cleanKeywords)
 	return err
 }
 
+// DeleteSupplierOffer удаляет спецпредложение поставщика по его ID.
 func (s *MarketplaceService) DeleteSupplierOffer(supplierID, offerID int) error {
 	_, err := s.repo.GetDb().Exec("DELETE FROM marketplace_offers WHERE id = $1 AND supplier_id = $2", offerID, supplierID)
 	return err
 }
 
+// RegisterSupplier регистрирует нового поставщика и генерирует уникальный invite-код.
 func (s *MarketplaceService) RegisterSupplier(tgID int64, username string) (int, error) {
 	db := s.repo.GetDb()
 	var supplierID int
@@ -183,16 +204,21 @@ func (s *MarketplaceService) RegisterSupplier(tgID int64, username string) (int,
 	}
 	inviteCode := fmt.Sprintf("SUP-%s", strings.ToUpper(hex.EncodeToString(randomBytes)))
 
-	// Always insert a new record in marketplace_suppliers (do not query by plain company_name)
-	err = db.QueryRow("INSERT INTO marketplace_suppliers (company_name, invite_code) VALUES ($1, $2) RETURNING id", username, inviteCode).Scan(&supplierID)
+	cleanName := strings.TrimSpace(username)
+	if cleanName == "" {
+		cleanName = "Поставщик"
+	}
+
+	err = db.QueryRow("INSERT INTO marketplace_suppliers (company_name, invite_code) VALUES ($1, $2) RETURNING id", cleanName, inviteCode).Scan(&supplierID)
 	if err != nil {
 		return 0, err
 	}
 
-	_, err = db.Exec("INSERT INTO marketplace_supplier_users (supplier_id, tg_id, tg_username) VALUES ($1, $2, $3) ON CONFLICT (tg_id) DO UPDATE SET supplier_id = EXCLUDED.supplier_id, tg_username = EXCLUDED.tg_username", supplierID, tgID, username)
+	_, err = db.Exec("INSERT INTO marketplace_supplier_users (supplier_id, tg_id, tg_username) VALUES ($1, $2, $3) ON CONFLICT (tg_id) DO UPDATE SET supplier_id = EXCLUDED.supplier_id, tg_username = EXCLUDED.tg_username", supplierID, tgID, cleanName)
 	return supplierID, err
 }
 
+// RecordOfferViews инкрементирует количество показов для переданного списка ID предложений.
 func (s *MarketplaceService) RecordOfferViews(offerIDs []int) error {
 	if len(offerIDs) == 0 {
 		return nil
@@ -202,17 +228,22 @@ func (s *MarketplaceService) RecordOfferViews(offerIDs []int) error {
 	return err
 }
 
+// RecordOfferClick инкрементирует количество кликов по офферу.
 func (s *MarketplaceService) RecordOfferClick(offerID int) error {
 	db := s.repo.GetDb()
 	_, err := db.Exec("UPDATE marketplace_offers SET clicks_count = clicks_count + 1 WHERE id = $1", offerID)
 	return err
 }
 
-
+// JoinSupplier привязывает сотрудника к существующему кабинету поставщика по инвайт-коду.
 func (s *MarketplaceService) JoinSupplier(tgID int64, code string) error {
 	db := s.repo.GetDb()
 	var supplierID int
-	err := db.Get(&supplierID, "SELECT id FROM marketplace_suppliers WHERE invite_code = $1", code)
+	cleanCode := strings.ToUpper(strings.TrimSpace(code))
+	if cleanCode == "" {
+		return fmt.Errorf("код приглашения не может быть пустым")
+	}
+	err := db.Get(&supplierID, "SELECT id FROM marketplace_suppliers WHERE UPPER(invite_code) = $1", cleanCode)
 	if err != nil {
 		return fmt.Errorf("Неверный код поставщика")
 	}
@@ -220,5 +251,5 @@ func (s *MarketplaceService) JoinSupplier(tgID int64, code string) error {
 	return err
 }
 
-
+// GetDb возвращает внутренний пул соединений с базой данных.
 func (s *MarketplaceService) GetDb() *sqlx.DB { return s.repo.GetDb() }

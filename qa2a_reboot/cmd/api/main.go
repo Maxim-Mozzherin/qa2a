@@ -111,7 +111,7 @@ func main() {
 			if origin != "" {
 				isAllowed := false
 				for _, o := range allowedOrigins {
-					if o == "*" || strings.EqualFold(o, origin) {
+					if o != "*" && strings.EqualFold(o, origin) {
 						isAllowed = true
 						break
 					}
@@ -146,8 +146,9 @@ func main() {
 		http.ServeFile(w, req, "web/templates/index.html")
 	}).Methods("GET")
 
+	// Раздача статики Mini App с защитой от листинга директорий (neuteredFileSystem)
 	staticDir := http.Dir("web/static")
-	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(staticDir)))
+	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(neuteredFileSystem{fs: staticDir})))
 
 	uploadsInitDir := os.Getenv("UPLOADS_DIR")
 	if uploadsInitDir == "" {
@@ -174,10 +175,14 @@ func main() {
 	api.HandleFunc("/iiko/webhook", h.IikoWebhookHandler).Methods("POST")
 	api.HandleFunc("/external/inventory-templates", h.CreateExternalTemplateHandler).Methods("POST", "OPTIONS")
 
+	// Публичные эндпоинты кабинета поставщика (регистрация и вход регистрируются ДО закрытого саброутера)
+	api.HandleFunc("/supplier/register", h.RegisterSupplierHandler).Methods("POST", "OPTIONS")
+	api.HandleFunc("/supplier/join", h.JoinSupplierHandler).Methods("POST", "OPTIONS")
+	api.HandleFunc("/supplier/me", h.GetSupplierMeHandler).Methods("GET", "OPTIONS")
+
 	// ==========================================
-	// ЗАЩИЩЕННЫЕ МАРШРУТЫ API (AuthMiddleware)
+	// ЗАЩИЩЕННЫЕ МАРШРУТЫ ПОСТАВЩИКА (SupplierAuthMiddleware)
 	// ==========================================
-	
 	supplierApi := api.PathPrefix("/supplier").Subrouter()
 	supplierApi.Use(middleware.SupplierAuthMiddleware(repo, cfg.BotToken, func(tgID int64) int {
 		id, _ := mktSvc.GetSupplierIDByTgID(tgID)
@@ -186,9 +191,10 @@ func main() {
 	supplierApi.HandleFunc("/offers", h.GetSupplierOffersHandler).Methods("GET", "OPTIONS")
 	supplierApi.HandleFunc("/offers", h.SaveSupplierOfferHandler).Methods("POST", "OPTIONS")
 	supplierApi.HandleFunc("/offers", h.DeleteSupplierOfferHandler).Methods("DELETE", "OPTIONS")
-	api.HandleFunc("/supplier/register", h.RegisterSupplierHandler).Methods("POST", "OPTIONS")
-	api.HandleFunc("/supplier/join", h.JoinSupplierHandler).Methods("POST", "OPTIONS")
-	api.HandleFunc("/supplier/me", h.GetSupplierMeHandler).Methods("GET", "OPTIONS")
+
+	// ==========================================
+	// ЗАЩИЩЕННЫЕ МАРШРУТЫ ЗАВЕДЕНИЙ (AuthMiddleware)
+	// ==========================================
 
 	protected := api.PathPrefix("/").Subrouter()
 	// Передаем токен бота для верификации HMAC-SHA256 подписей

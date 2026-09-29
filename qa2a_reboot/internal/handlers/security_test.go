@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"qa2a/internal/middleware"
 )
 
 func TestVerifySignedToken_Security(t *testing.T) {
@@ -141,4 +143,29 @@ func TestHealthHandler(t *testing.T) {
 	if !strings.Contains(body, "qa2a-backend") {
 		t.Errorf("expected body to contain service name 'qa2a-backend', got %s", body)
 	}
+}
+
+func TestSupplierIDContext_Security(t *testing.T) {
+	// 1. Context without supplier
+	req := httptest.NewRequest("GET", "/", nil)
+	if id := middleware.GetSupplierID(req.Context()); id != 0 {
+		t.Errorf("expected 0 for empty context, got %d", id)
+	}
+
+	// 2. Context with typed SupplierIDKey
+	ctx := middleware.SupplierAuthMiddleware(nil, "", func(int64) int { return 42 })
+	handler := ctx(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got := middleware.GetSupplierID(r.Context())
+		if got != 42 {
+			t.Errorf("expected supplierID 42, got %d", got)
+		}
+	}))
+
+	// Execute with signed token
+	token := generateSignedToken(12345, 1, "test-secret")
+	reqAuth := httptest.NewRequest("GET", "/supplier/offers", nil)
+	reqAuth.Header.Set("X-Telegram-ID", token)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, reqAuth)
 }

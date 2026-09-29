@@ -93,6 +93,15 @@ func (h *Handler) UpdateOperationHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if req.Qty <= 0 {
+		respondError(w, http.StatusBadRequest, "Количество должно быть строго больше нуля")
+		return
+	}
+	if req.Loc <= 0 {
+		respondError(w, http.StatusBadRequest, "Укажите корректный склад")
+		return
+	}
+
 	opDate := parseFlexibleDate(req.Date)
 
 	err := h.inventoryService.EditWriteoff(userID, cID, opID, req.Qty, req.Loc, req.Comment, req.AccountID, opDate)

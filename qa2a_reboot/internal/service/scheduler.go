@@ -93,7 +93,14 @@ func (s *Scheduler) scheduleLoop() {
 		case <-timer.C:
 			s.executeSafeDailyExport()
 			if s.OnExportComplete != nil {
-				go s.OnExportComplete()
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("[scheduler] ❌ Panic in OnExportComplete callback: %v", r)
+						}
+					}()
+					s.OnExportComplete()
+				}()
 			}
 		}
 	}

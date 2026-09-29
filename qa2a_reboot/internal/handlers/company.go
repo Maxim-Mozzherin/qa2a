@@ -84,32 +84,57 @@ func (h *Handler) JoinCompanyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetJoinRequestsHandler возвращает список активных заявок на вступление в заведение.
+// Доступно только руководству заведения (Owner, Admin, Manager).
 func (h *Handler) GetJoinRequestsHandler(w http.ResponseWriter, r *http.Request) {
 	cID := h.getCompanyID(r)
-	if cID == 0 { respondError(w, http.StatusForbidden, "Доступ запрещен"); return }
-	hasAccess, _ := h.checkAdminAccess(cID, h.getUserID(r))
-	if !hasAccess { respondError(w, http.StatusForbidden, "Только руководство может просматривать заявки"); return }
-	
+	if cID == 0 {
+		respondError(w, http.StatusForbidden, "Доступ запрещен")
+		return
+	}
+	hasAccess, err := h.checkAdminAccess(cID, h.getUserID(r))
+	if err != nil || !hasAccess {
+		respondError(w, http.StatusForbidden, "Только руководство может просматривать заявки на вступление")
+		return
+	}
+
 	reqs, err := h.inventoryService.GetRepo().GetJoinRequests(cID)
-	if err != nil { respondError(w, http.StatusInternalServerError, err.Error()); return }
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	respondJSON(w, http.StatusOK, reqs)
 }
 
-// ApproveJoinRequestHandler подтверждает заявку на вступление нового сотрудника.
+// ApproveJoinRequestHandler подтверждает заявку на вступление нового сотрудника в команду.
 func (h *Handler) ApproveJoinRequestHandler(w http.ResponseWriter, r *http.Request) {
 	cID := h.getCompanyID(r)
+	if cID == 0 {
+		respondError(w, http.StatusForbidden, "Доступ запрещен")
+		return
+	}
 	reqID, _ := strconv.Atoi(mux.Vars(r)["id"])
-	hasAccess, _ := h.checkAdminAccess(cID, h.getUserID(r))
-	if !hasAccess { respondError(w, http.StatusForbidden, "Нет доступа"); return }
-	
-	var uData struct { TgID int64 `db:"tg_id"`; CompanyName string `db:"name"` }
+	if reqID <= 0 {
+		respondError(w, http.StatusBadRequest, "Некорректный идентификатор заявки")
+		return
+	}
+	hasAccess, err := h.checkAdminAccess(cID, h.getUserID(r))
+	if err != nil || !hasAccess {
+		respondError(w, http.StatusForbidden, "Нет доступа: утверждать заявки может только руководство")
+		return
+	}
+
+	var uData struct {
+		TgID        int64  `db:"tg_id"`
+		CompanyName string `db:"name"`
+	}
 	q := `SELECT u.tg_id, c.name FROM join_requests jr JOIN users u ON jr.user_id = u.id JOIN companies c ON jr.company_id = c.id WHERE jr.id = $1 AND jr.company_id = $2`
 	_ = h.inventoryService.GetRepo().GetDb().Get(&uData, q, reqID, cID)
 
 	if err := h.inventoryService.GetRepo().ApproveJoinRequest(reqID, cID); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error()); return
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	
+
 	if uData.TgID > 0 {
 		msg := fmt.Sprintf("✅ <b>Заявка одобрена!</b>\nВы добавлены в команду заведения <b>%s</b>.\nПерезапустите приложение (закройте и откройте заново), чтобы начать работу.", html.EscapeString(uData.CompanyName))
 		go h.sendTelegramMessage(uData.TgID, msg)
@@ -120,18 +145,33 @@ func (h *Handler) ApproveJoinRequestHandler(w http.ResponseWriter, r *http.Reque
 // RejectJoinRequestHandler отклоняет заявку на вступление сотрудника.
 func (h *Handler) RejectJoinRequestHandler(w http.ResponseWriter, r *http.Request) {
 	cID := h.getCompanyID(r)
+	if cID == 0 {
+		respondError(w, http.StatusForbidden, "Доступ запрещен")
+		return
+	}
 	reqID, _ := strconv.Atoi(mux.Vars(r)["id"])
-	hasAccess, _ := h.checkAdminAccess(cID, h.getUserID(r))
-	if !hasAccess { respondError(w, http.StatusForbidden, "Нет доступа"); return }
-	
-	var uData struct { TgID int64 `db:"tg_id"`; CompanyName string `db:"name"` }
+	if reqID <= 0 {
+		respondError(w, http.StatusBadRequest, "Некорректный идентификатор заявки")
+		return
+	}
+	hasAccess, err := h.checkAdminAccess(cID, h.getUserID(r))
+	if err != nil || !hasAccess {
+		respondError(w, http.StatusForbidden, "Нет доступа: отклонять заявки может только руководство")
+		return
+	}
+
+	var uData struct {
+		TgID        int64  `db:"tg_id"`
+		CompanyName string `db:"name"`
+	}
 	q := `SELECT u.tg_id, c.name FROM join_requests jr JOIN users u ON jr.user_id = u.id JOIN companies c ON jr.company_id = c.id WHERE jr.id = $1 AND jr.company_id = $2`
 	_ = h.inventoryService.GetRepo().GetDb().Get(&uData, q, reqID, cID)
 
 	if err := h.inventoryService.GetRepo().RejectJoinRequest(reqID, cID); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error()); return
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	
+
 	if uData.TgID > 0 {
 		msg := fmt.Sprintf("❌ <b>Заявка отклонена</b>\nРуководство заведения <b>%s</b> отклонило ваш запрос на присоединение.", html.EscapeString(uData.CompanyName))
 		go h.sendTelegramMessage(uData.TgID, msg)
@@ -139,7 +179,7 @@ func (h *Handler) RejectJoinRequestHandler(w http.ResponseWriter, r *http.Reques
 	respondJSON(w, http.StatusOK, map[string]string{"status": "rejected"})
 }
 
-// CreateCompanyHandler создает новое заведение от имени текущего пользователя.
+// CreateCompanyHandler создает новое заведение от имени текущего пользователя (он становится Owner).
 func (h *Handler) CreateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
 	if userID == 0 {
@@ -156,7 +196,13 @@ func (h *Handler) CreateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := h.authService.CreateCompany(userID, req.Name)
+	cleanName := strings.TrimSpace(req.Name)
+	if cleanName == "" {
+		respondError(w, http.StatusBadRequest, "Наименование заведения не может быть пустым")
+		return
+	}
+
+	id, err := h.authService.CreateCompany(userID, cleanName)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
@@ -235,8 +281,8 @@ func (h *Handler) RemoveMemberHandler(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
 	targetUserID, _ := strconv.Atoi(mux.Vars(r)["id"])
 
-	if targetUserID == 0 {
-		respondError(w, http.StatusBadRequest, "Не указан ID пользователя для удаления")
+	if targetUserID <= 0 {
+		respondError(w, http.StatusBadRequest, "Не указан корректный ID пользователя для удаления")
 		return
 	}
 

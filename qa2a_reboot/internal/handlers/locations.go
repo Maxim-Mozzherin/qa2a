@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"strings"
 
 	"qa2a/internal/models"
 )
@@ -11,7 +13,8 @@ import (
 // СКЛАДЫ И ПОЗИЦИИ КАТАЛОГА
 // ============================================================================
 
-// GetLocationsHandler возвращает список складов заведения.
+// GetLocationsHandler возвращает список складов текущего заведения.
+// Доступно всем авторизованным сотрудникам.
 func (h *Handler) GetLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	cID := h.getCompanyID(r)
 	if cID == 0 {
@@ -26,7 +29,8 @@ func (h *Handler) GetLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, res)
 }
 
-// CreateLocationHandler создает новый склад в заведении.
+// CreateLocationHandler создает новый физический или виртуальный склад в заведении.
+// Доступно только руководству заведения (Owner, Admin, Manager).
 func (h *Handler) CreateLocationHandler(w http.ResponseWriter, r *http.Request) {
 	cID := h.getCompanyID(r)
 	if cID == 0 {
@@ -40,6 +44,7 @@ func (h *Handler) CreateLocationHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -48,14 +53,20 @@ func (h *Handler) CreateLocationHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := h.inventoryService.CreateLocation(cID, req.Name); err != nil {
+	cleanName := strings.TrimSpace(req.Name)
+	if cleanName == "" {
+		respondError(w, http.StatusBadRequest, "Наименование склада не может быть пустым")
+		return
+	}
+
+	if err := h.inventoryService.CreateLocation(cID, cleanName); err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusCreated, map[string]string{"status": "created"})
 }
 
-// GetPositionsHandler возвращает справочник номенклатуры заведения.
+// GetPositionsHandler возвращает справочник номенклатуры (товаров/полуфабрикатов) заведения.
 func (h *Handler) GetPositionsHandler(w http.ResponseWriter, r *http.Request) {
 	cID := h.getCompanyID(r)
 	if cID == 0 {
@@ -70,7 +81,8 @@ func (h *Handler) GetPositionsHandler(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, res)
 }
 
-// CreatePositionHandler добавляет товар в номенклатуру заведения.
+// CreatePositionHandler добавляет новую товарную позицию в номенклатуру заведения.
+// При указании начального остатка и склада атомарно фиксирует initial_balance.
 func (h *Handler) CreatePositionHandler(w http.ResponseWriter, r *http.Request) {
 	cID := h.getCompanyID(r)
 	if cID == 0 {
@@ -84,6 +96,7 @@ func (h *Handler) CreatePositionHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		Name     string  `json:"name"`
 		Unit     string  `json:"unit"`
@@ -97,11 +110,22 @@ func (h *Handler) CreatePositionHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	cleanName := strings.TrimSpace(req.Name)
+	if cleanName == "" {
+		respondError(w, http.StatusBadRequest, "Наименование товара не может быть пустым")
+		return
+	}
+
+	cleanUnit := strings.TrimSpace(req.Unit)
+	if cleanUnit == "" {
+		cleanUnit = "шт"
+	}
+
 	err = h.inventoryService.CreatePosition(&models.Position{
 		CompanyID: cID,
-		Name:      req.Name,
-		Unit:      req.Unit,
-		Supplier:  req.Supplier,
+		Name:      cleanName,
+		Unit:      cleanUnit,
+		Supplier:  strings.TrimSpace(req.Supplier),
 	})
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
@@ -109,7 +133,11 @@ func (h *Handler) CreatePositionHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if req.InitQty > 0 && req.Loc > 0 {
-		_ = h.inventoryService.SetInitialBalance(userID, cID, req.Name, req.InitQty, req.Unit, req.Loc)
+		if errBal := h.inventoryService.SetInitialBalance(userID, cID, cleanName, req.InitQty, cleanUnit, req.Loc); errBal != nil {
+			log.Printf("[locations] ⚠️ Ошибка фиксации начального остатка для '%s': %v", cleanName, errBal)
+			respondError(w, http.StatusBadRequest, "Позиция создана, но произошла ошибка фиксации остатка: "+errBal.Error())
+			return
+		}
 	}
 
 	respondJSON(w, http.StatusCreated, map[string]string{"status": "created"})

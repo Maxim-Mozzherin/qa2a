@@ -71,8 +71,14 @@ func handlePromptPresets(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if req.ID > 0 {
+			var existingCompanyID int
 			var isDef bool
-			_ = db.QueryRow("SELECT is_default FROM parser_prompt_presets WHERE id = $1", req.ID).Scan(&isDef)
+			err := db.QueryRow("SELECT company_id, is_default FROM parser_prompt_presets WHERE id = $1", req.ID).Scan(&existingCompanyID, &isDef)
+			if err != nil {
+				http.Error(w, "Пресет не найден", http.StatusNotFound)
+				return
+			}
+
 			if isDef {
 				var newID int
 				err := db.QueryRow(`
@@ -88,7 +94,18 @@ func handlePromptPresets(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			_, err := db.Exec(`
+			// Проверка прав: бухгалтер может обновлять только пресеты доступных ему заведений
+			if existingCompanyID > 0 && !checkAccountantAccessUser(user, existingCompanyID) {
+				http.Error(w, "Доступ к обновлению пресета данного заведения запрещен", http.StatusForbidden)
+				return
+			}
+			// Общесистемные шаблоны (company_id == 0) может обновлять только superadmin или global_accountant
+			if existingCompanyID == 0 && user.Role != "superadmin" && user.Role != "global_accountant" {
+				http.Error(w, "Глобальные шаблоны может изменять только администратор платформы", http.StatusForbidden)
+				return
+			}
+
+			_, err = db.Exec(`
 				UPDATE parser_prompt_presets
 				SET name = $1, description = $2, prompt = $3, updated_at = NOW()
 				WHERE id = $4 AND is_default = FALSE

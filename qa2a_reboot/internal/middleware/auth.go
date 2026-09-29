@@ -24,11 +24,30 @@ const (
 
 	// UserContextKey — ключ контекста для полной структуры пользователя.
 	UserContextKey contextKey = "userModel"
+
+	// SupplierIDKey — ключ контекста для числового ID поставщика B2B-маркетплейса.
+	SupplierIDKey contextKey = "supplierID"
 )
 
 // GetUserID извлекает ID авторизованного пользователя из контекста запроса.
 func GetUserID(ctx context.Context) int {
 	if val := ctx.Value(UserIDKey); val != nil {
+		if id, ok := val.(int); ok {
+			return id
+		}
+	}
+	return 0
+}
+
+// GetSupplierID извлекает ID поставщика из контекста авторизованного запроса.
+func GetSupplierID(ctx context.Context) int {
+	if val := ctx.Value(SupplierIDKey); val != nil {
+		if id, ok := val.(int); ok {
+			return id
+		}
+	}
+	// Fallback для совместимости со строковым ключом
+	if val := ctx.Value("supplier_id"); val != nil {
 		if id, ok := val.(int); ok {
 			return id
 		}
@@ -206,8 +225,8 @@ func SupplierAuthMiddleware(repo *repository.Repository, botToken string, checkS
 				sendUnauthorizedResponse(w, "Not a supplier")
 				return
 			}
-			// Use contextKey to avoid collisions
-			ctx := context.WithValue(r.Context(), "supplier_id", supplierID)
+			// Сохраняем типизированный идентификатор поставщика в контексте запроса
+			ctx := context.WithValue(r.Context(), SupplierIDKey, supplierID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

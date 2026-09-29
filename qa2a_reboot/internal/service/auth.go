@@ -190,6 +190,16 @@ func (s *AuthService) UpdateMemberRole(companyID, actorID, targetUserID int, rol
 		return fmt.Errorf("передать статус Владельца может только текущий Владелец")
 	}
 
+	// Запрет менеджеру изменять роли или должности администраторов и других менеджеров
+	if actorRole == "manager" && (targetRole == "admin" || targetRole == "manager" || targetRole == "owner") {
+		return fmt.Errorf("менеджер не может изменять роли или должности администраторов и менеджеров")
+	}
+
+	// Запрет менеджеру повышать кого-либо до администратора или менеджера
+	if actorRole == "manager" && (newRole == "admin" || newRole == "manager") {
+		return fmt.Errorf("назначать роли администратора и менеджера может только Владелец или Администратор")
+	}
+
 	cleanTitle := strings.TrimSpace(title)
 	log.Printf("[auth] Изменение роли сотрудника ID:%d -> %s (должность: '%s') инициатором ID:%d", targetUserID, newRole, cleanTitle, actorID)
 

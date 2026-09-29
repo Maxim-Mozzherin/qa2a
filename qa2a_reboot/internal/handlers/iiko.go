@@ -27,7 +27,8 @@ func (h *Handler) GetIikoSettingsHandler(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, http.StatusOK, settings)
 }
 
-// SaveIikoSettingsHandler сохраняет и шифрует реквизиты iiko RMS.
+// SaveIikoSettingsHandler сохраняет и шифрует (AES-256-GCM) реквизиты подключения к iiko RMS.
+// Доступно только Владельцу, Администратору или Управляющему заведения.
 func (h *Handler) SaveIikoSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	cID := h.getCompanyID(r)
 	if cID == 0 {
@@ -36,6 +37,7 @@ func (h *Handler) SaveIikoSettingsHandler(w http.ResponseWriter, r *http.Request
 	}
 	userID := h.getUserID(r)
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		Host     string `json:"host"`
 		Login    string `json:"login"`

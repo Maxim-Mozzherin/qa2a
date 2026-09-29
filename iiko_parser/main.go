@@ -233,7 +233,7 @@ func main() {
 		if origin != "" {
 			isAllowed := false
 			for _, o := range allowedOrigins {
-				if o == "*" || strings.EqualFold(o, origin) {
+				if o != "*" && strings.EqualFold(o, origin) {
 					isAllowed = true
 					break
 				}
