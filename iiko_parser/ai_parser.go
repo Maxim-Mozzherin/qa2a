@@ -53,7 +53,7 @@ func (m *ModelHealthManager) markHealthy(model string) {
 	}
 }
 
-// pingModel отправляет фоновый проверочный запрос (таймаут 25с) для фонового демона проверки доступности
+// pingModel отправляет фоновый проверочный запрос (таймаут 35с) для фонового демона проверки доступности
 func pingModel(model string) bool {
 	probePayload := map[string]interface{}{
 		"model":      model,
@@ -67,7 +67,7 @@ func pingModel(model string) bool {
 	if err != nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
@@ -86,17 +86,13 @@ func pingModel(model string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// startModelHealthChecker фоново проверяет доступность моделей каждые 60 секунд.
+// startModelHealthChecker фоново проверяет доступность моделей каждые 60 секунд (без наложений).
 func startModelHealthChecker() {
 	go func() {
-		// Первичный пинг через 200мс после старта сервиса
-		time.Sleep(200 * time.Millisecond)
-		runProbes()
-
-		ticker := time.NewTicker(60 * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
+		time.Sleep(500 * time.Millisecond)
+		for {
 			runProbes()
+			time.Sleep(60 * time.Second)
 		}
 	}()
 }
