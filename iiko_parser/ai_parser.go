@@ -53,10 +53,18 @@ func (m *ModelHealthManager) markHealthy(model string) {
 	}
 }
 
+// normalizeModelForEndpoint убирает префикс "gemini/", если обращение идет напрямую в Google API
+func normalizeModelForEndpoint(model string) string {
+	if strings.Contains(aiBaseUrl, "googleapis.com") {
+		return strings.TrimPrefix(model, "gemini/")
+	}
+	return model
+}
+
 // pingModel отправляет фоновый проверочный запрос (таймаут 35с) для фонового демона проверки доступности
 func pingModel(model string) bool {
 	probePayload := map[string]interface{}{
-		"model":      model,
+		"model":      normalizeModelForEndpoint(model),
 		"max_tokens": 5,
 		"stream":     false,
 		"messages": []map[string]interface{}{
@@ -86,13 +94,13 @@ func pingModel(model string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// startModelHealthChecker фоново проверяет доступность моделей каждые 60 секунд (без наложений).
+// startModelHealthChecker фоново проверяет доступность моделей каждые 100 секунд (без наложений).
 func startModelHealthChecker() {
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		for {
 			runProbes()
-			time.Sleep(60 * time.Second)
+			time.Sleep(100 * time.Second)
 		}
 	}()
 }
@@ -108,7 +116,7 @@ func runProbes() {
 			globalModelHealth.markHealthy(modelName)
 			log.Printf("💓 [HealthCheck] Модель %s доступна и готова к работе", modelName)
 		} else {
-			globalModelHealth.markFailed(modelName, 60*time.Second)
+			globalModelHealth.markFailed(modelName, 100*time.Second)
 		}
 		time.Sleep(1 * time.Second)
 	}
@@ -190,12 +198,12 @@ func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter
 			continue
 		}
 
-		// 2. Модель активна: отправляем запрос с надежным таймаутом (60 сек на распознавание документа)
+		// 2. Модель активна: отправляем запрос с надежным таймаутом (100 сек на распознавание документа)
 		if report != nil {
-			report("⚡", fmt.Sprintf("Таргетный запрос в %s...", cleanName), 40)
+			report("⚡", fmt.Sprintf("Таргетный запрос к %s...", cleanName), 40)
 		}
 
-		payload["model"] = modelToUse
+		payload["model"] = normalizeModelForEndpoint(modelToUse)
 		chosenModel = modelToUse
 		startTime := time.Now()
 
@@ -204,7 +212,7 @@ func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter
 			return "", "", fmt.Errorf("ошибка сериализации JSON для AI: %w", err)
 		}
 
-		attemptTimeout := 60 * time.Second
+		attemptTimeout := 100 * time.Second
 		ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
 
 		req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
@@ -218,7 +226,7 @@ func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter
 		resp, err := llmHTTPClient.Do(req)
 		if err != nil {
 			cancel()
-			globalModelHealth.markFailed(modelToUse, 60*time.Second)
+			globalModelHealth.markFailed(modelToUse, 100*time.Second)
 			lastErr = fmt.Errorf("модель %s не ответила за %v или сбой сети: %w", modelToUse, attemptTimeout, err)
 			log.Printf("⚠️ Модель %s не ответила за %v (%v). Переход к следующей модели Gemini...", modelToUse, attemptTimeout, err)
 			continue
@@ -229,7 +237,7 @@ func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter
 		cancel()
 
 		if err != nil {
-			globalModelHealth.markFailed(modelToUse, 60*time.Second)
+			globalModelHealth.markFailed(modelToUse, 100*time.Second)
 			lastErr = fmt.Errorf("ошибка чтения ответа AI (%s): %w", modelToUse, err)
 			log.Printf("⚠️ Ошибка чтения ответа модели %s: %v. Переход к следующей модели Gemini...", modelToUse, err)
 			continue
@@ -256,7 +264,7 @@ func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError || resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadGateway {
-			globalModelHealth.markFailed(modelToUse, 60*time.Second)
+			globalModelHealth.markFailed(modelToUse, 100*time.Second)
 			lastErr = fmt.Errorf("модель %s вернула HTTP %d: %s", modelToUse, resp.StatusCode, string(respBody))
 			log.Printf("⚠️ Модель %s вернула HTTP %d — немедленный переход к следующей модели Gemini...", modelToUse, resp.StatusCode)
 			if report != nil {
@@ -290,7 +298,7 @@ func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter
 		if report != nil {
 			report("🚨", fmt.Sprintf("Все модели в кулдауне. Аварийный запуск %s напрямую...", cleanLite), 35)
 		}
-		payload["model"] = fallbackLite
+		payload["model"] = normalizeModelForEndpoint(fallbackLite)
 		chosenModel = fallbackLite
 		startTime := time.Now()
 		jsonData, _ := json.Marshal(payload)

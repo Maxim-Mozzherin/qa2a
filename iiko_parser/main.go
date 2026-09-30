@@ -91,12 +91,25 @@ func main() {
 		log.Fatalf("❌ Критическая ошибка: DB_PASS отсутствует в .env")
 	}
 
-	aiApiKey = os.Getenv("AI_API_KEY")
-	if aiApiKey == "" {
-		log.Fatalf("❌ Критическая ошибка: AI_API_KEY отсутствует в .env")
+	useDirectGoogle := os.Getenv("USE_DIRECT_GOOGLE") == "true"
+	if useDirectGoogle {
+		googleKey := os.Getenv("GOOGLE_API_KEY")
+		if googleKey == "" {
+			log.Fatalf("❌ Критическая ошибка: задан USE_DIRECT_GOOGLE=true, но GOOGLE_API_KEY отсутствует в .env")
+		}
+		aiApiKey = googleKey
+		aiBaseUrl = getEnv("AI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions")
+		aiModel = getEnv("AI_MODEL", "gemini-2.0-flash,gemini-1.5-flash,gemini-2.5-pro")
+		log.Printf("🌐 [AI Config] Включен ПРЯМОЙ режим работы с Google Gemini API (минуя OmniRoute): %s", aiBaseUrl)
+	} else {
+		aiApiKey = os.Getenv("AI_API_KEY")
+		if aiApiKey == "" {
+			log.Fatalf("❌ Критическая ошибка: AI_API_KEY отсутствует в .env")
+		}
+		aiBaseUrl = getEnv("AI_BASE_URL", "http://127.0.0.1:20128/v1/chat/completions")
+		aiModel = getEnv("AI_MODEL", "gemini/gemini-3.5-flash,gemini/gemini-3-flash,gemini/gemini-3.1-flash-lite")
+		log.Printf("🔀 [AI Config] Включен режим работы через шлюз OmniRoute: %s", aiBaseUrl)
 	}
-	aiBaseUrl = getEnv("AI_BASE_URL", "http://127.0.0.1:20128/v1/chat/completions")
-	aiModel = getEnv("AI_MODEL", "gemini/gemini-3.5-flash,gemini/gemini-3-flash,gemini/gemini-3.1-flash-lite")
 
 	qa2aBaseURL = getEnv("QA2A_URL", "http://127.0.0.1:8082")
 
