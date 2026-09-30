@@ -53,7 +53,7 @@ func (m *ModelHealthManager) markHealthy(model string) {
 	}
 }
 
-// pingModel отправляет сверхбыстрый легковесный запрос (таймаут 3.5с) для проверки готовности модели
+// pingModel отправляет фоновый проверочный запрос (таймаут 20с) для фонового демона проверки доступности
 func pingModel(model string) bool {
 	probePayload := map[string]interface{}{
 		"model":      model,
@@ -67,7 +67,7 @@ func pingModel(model string) bool {
 	if err != nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
@@ -114,6 +114,7 @@ func runProbes() {
 			defer wg.Done()
 			if pingModel(modelName) {
 				globalModelHealth.markHealthy(modelName)
+				log.Printf("💓 [HealthCheck] Модель %s доступна и готова к работе", modelName)
 			} else {
 				globalModelHealth.markFailed(modelName, 60*time.Second)
 			}
@@ -198,9 +199,9 @@ func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter
 			continue
 		}
 
-		// 2. Модель активна: отправляем запрос с надежным таймаутом (50 сек на распознавание картинки)
+		// 2. Модель активна: отправляем запрос с надежным таймаутом (60 сек на распознавание документа)
 		if report != nil {
-			report("⚡", fmt.Sprintf("Отправка запроса в %s...", cleanName), 40)
+			report("⚡", fmt.Sprintf("Таргетный запрос в %s...", cleanName), 40)
 		}
 
 		payload["model"] = modelToUse
@@ -212,7 +213,7 @@ func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter
 			return "", "", fmt.Errorf("ошибка сериализации JSON для AI: %w", err)
 		}
 
-		attemptTimeout := 50 * time.Second
+		attemptTimeout := 60 * time.Second
 		ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
 
 		req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
