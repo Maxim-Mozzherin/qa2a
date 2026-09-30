@@ -129,6 +129,8 @@ func formatCleanModelName(m string) string {
 	switch s {
 	case "gemini-3.5-flash":
 		return "Gemini 3.5 Flash"
+	case "gemini-3.5-flash-lite":
+		return "Gemini 3.5 Flash Lite"
 	case "gemini-3-flash":
 		return "Gemini 3 Flash"
 	case "gemini-3.1-flash-lite":
