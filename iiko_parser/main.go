@@ -210,7 +210,6 @@ func main() {
 	mux.HandleFunc("/api/accounting/tickets/resolve", authMiddleware(handleUpdateAccountingTicket))
 
 	mux.HandleFunc("/api/analytics", authMiddleware(handleAnalytics))
-	mux.HandleFunc("/api/iiko/invoices/export", authMiddleware(handleIikoInvoicesExport))
 	mux.HandleFunc("/api/toxic-writeoffs", authMiddleware(handleToxicWriteoffs))
 	mux.HandleFunc("/api/history/invoices", authMiddleware(handleGetHistoryInvoices))
 	mux.HandleFunc("/api/history/invoice-items", authMiddleware(handleHistoryInvoiceItems))
