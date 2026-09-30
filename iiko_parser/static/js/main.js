@@ -266,8 +266,12 @@ if (els.btnImport) {
             if (!originalItem) return;
 
             let multInput = (typeof originalItem.multiplier === 'number') ? originalItem.multiplier : 1.0;
+            const unitCapInput = tr.querySelector('.iiko-unit-capacity');
             const finalQtyInput = tr.querySelector('.iiko-final-qty');
-            if (finalQtyInput) {
+            if (unitCapInput) {
+                const cap = parseFloat(unitCapInput.value.replace(',', '.')) || 0;
+                if (cap > 0) multInput = cap;
+            } else if (finalQtyInput) {
                 const finalQ = parseFloat(finalQtyInput.value.replace(',', '.')) || 0;
                 const q = parseFloat(originalItem.quantity) || 0;
                 if (q > 0) multInput = finalQ / q;
@@ -354,7 +358,9 @@ if (els.btnImport) {
             consignee: currentDocData.consignee,
             shipper: currentDocData.shipper,
             invoice_number: currentDocData.doc_number,
-            invoice_date: els.resDocdate ? els.resDocdate.value.trim() : "",
+            invoice_date: (typeof parseRuToIsoDate === 'function')
+                ? parseRuToIsoDate(els.resDocdate ? els.resDocdate.value.trim() : "")
+                : (els.resDocdate ? els.resDocdate.value.trim() : ""),
             items: itemsToImport
         };
 

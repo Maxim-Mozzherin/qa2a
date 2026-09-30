@@ -704,6 +704,9 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 	dateIncomingStr := time.Now().Format("02.01.2006")
 	if pt, err := time.Parse("2006-01-02", docDate); err == nil {
 		dateIncomingStr = pt.Format("02.01.2006")
+	} else if pt, err := time.Parse("02.01.2006", docDate); err == nil {
+		dateIncomingStr = pt.Format("02.01.2006")
+		docDate = pt.Format("2006-01-02")
 	}
 
 	doc := IikoIncomingInvoiceXML{
@@ -751,6 +754,8 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 	// 5. И ТОЛЬКО ПРИ УСПЕХЕ В IIKO СОХРАНЯЕМ В ЛОКАЛЬНУЮ БД
 	parsedDocDate := time.Now()
 	if pt, err := time.Parse("2006-01-02", req.InvoiceDate); err == nil {
+		parsedDocDate = pt
+	} else if pt, err := time.Parse("02.01.2006", req.InvoiceDate); err == nil {
 		parsedDocDate = pt
 	}
 	dbInvoiceDate := parsedDocDate.Format("2006-01-02")

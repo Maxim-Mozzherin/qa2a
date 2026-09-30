@@ -1,3 +1,25 @@
+function formatToRuDate(raw) {
+    if (!raw) return "";
+    raw = String(raw).trim();
+    if (/^\d{2}\.\d{2}\.\d{4}$/.test(raw)) return raw;
+    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[3]}.${m[2]}.${m[1]}`;
+    return raw;
+}
+
+function parseRuToIsoDate(raw) {
+    if (!raw) return "";
+    raw = String(raw).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const m = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+    if (m) {
+        return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    }
+    return raw;
+}
+window.formatToRuDate = formatToRuDate;
+window.parseRuToIsoDate = parseRuToIsoDate;
+
 let telemetryTimerInterval = null;
 let telemetryStartTime = 0;
 
@@ -346,7 +368,20 @@ function renderTable(data) {
     els.resDocnum.innerText = data.doc_number || "Б/Н";
     
     if (els.resDocdate) {
-        els.resDocdate.value = data.doc_date || "";
+        els.resDocdate.value = formatToRuDate(data.doc_date || "");
+        if (!els.resDocdate._hasRuMask) {
+            els.resDocdate._hasRuMask = true;
+            els.resDocdate.addEventListener('input', (e) => {
+                let val = e.target.value.replace(/[^0-9.]/g, '');
+                if (!val.includes('.') && val.length === 8) {
+                    val = `${val.slice(0,2)}.${val.slice(2,4)}.${val.slice(4,8)}`;
+                }
+                e.target.value = val;
+                if (currentDocData) {
+                    currentDocData.doc_date = parseRuToIsoDate(val);
+                }
+            });
+        }
     }
 
     if (els.resConsignee) {
@@ -437,9 +472,6 @@ function renderTable(data) {
         } else if (isAi) {
             multClass = "border-teal-500/80 bg-teal-500/10 text-teal-300";
             multBadge = `<div class="text-[9px] text-teal-400 font-semibold mt-1 text-center">✨ ИИ веса</div>`;
-        } else if (isHistory) {
-            multClass = "border-indigo-500/80 bg-indigo-500/10 text-indigo-300";
-            multBadge = `<div class="text-[9px] text-indigo-400 font-semibold mt-1 text-center">📋 По каталогу</div>`;
         }
 
         let effectiveTip = item.ai_tip;
@@ -495,6 +527,13 @@ function renderTable(data) {
             </td>
             <td class="px-2 py-3 text-center align-middle">
                 <div class="flex items-center justify-center gap-1.5">
+                    <input type="text" inputmode="decimal" oninput="this.value = this.value.replace(/[^0-9.,]/g, '');" class="iiko-unit-capacity w-16 bg-[#090d16] border border-slate-800 rounded-lg p-1.5 text-xs outline-none focus:bg-[#111827] focus:border-brand-500 text-center font-bold text-brand-300 transition-all" 
+                        value="${initMult}" title="Масса или объем 1 единицы товара (коэффициент фасовки)">
+                    <span class="text-[11px] text-slate-400 font-semibold unit-capacity-label">${escapeHtml(item.base_unit || item.unit || 'кг/шт')}</span>
+                </div>
+            </td>
+            <td class="px-2 py-3 text-center align-middle">
+                <div class="flex items-center justify-center gap-1.5">
                     <input type="text" inputmode="decimal" oninput="this.value = this.value.replace(/[^0-9.,]/g, '');" class="iiko-final-qty w-16 bg-[#090d16] border border-slate-800 rounded-lg p-1.5 text-xs outline-none focus:bg-[#111827] focus:border-brand-500 text-center ${multClass} font-bold" 
                         value="${initFinalQty.toFixed(3)}" title="Итоговое оприходование в iiko">
                     <input type="text" class="iiko-base-unit-input w-12 bg-[#090d16] border border-slate-800 rounded-lg p-1.5 text-[11px] outline-none focus:bg-[#111827] focus:border-brand-500 text-center text-slate-400 font-semibold" 
@@ -529,6 +568,8 @@ function renderTable(data) {
             </td>
         `;
 
+        const unitCapInput = tr.querySelector('.iiko-unit-capacity');
+        const unitCapLabel = tr.querySelector('.unit-capacity-label');
         const finalQtyInput = tr.querySelector('.iiko-final-qty');
         const baseUnitInput = tr.querySelector('.iiko-base-unit-input');
         const aiQtyInput = tr.querySelector('.ai-qty-input');
@@ -536,7 +577,21 @@ function renderTable(data) {
         const sumInput = tr.querySelector('.ai-sum-input');
         const priceUnitLabel = tr.querySelector('.price-unit-label');
 
-        // When Final Qty changes -> Recalculate Multiplier and update model
+        // When Unit Capacity (Фасовка 1 ед.) changes -> Recalculate Final Qty
+        const recalcFromUnitCapacity = () => {
+            let cap = parseFloat(unitCapInput.value.replace(',', '.')) || 0;
+            let q = parseFloat(aiQtyInput.value.replace(',', '.')) || 0;
+            let p = parseFloat(aiPriceInput.value.replace(',', '.')) || 0;
+            let sWithNds = parseFloat(sumInput.value.replace(',', '.')) || (q * p);
+            
+            let finalQ = q * cap;
+            if (finalQtyInput) {
+                finalQtyInput.value = (Math.round(finalQ * 1000) / 1000).toFixed(3);
+            }
+            updateDataModel(q, p, cap, sWithNds);
+        };
+
+        // When Final Qty changes -> Recalculate Multiplier and update unitCapInput
         const recalcFromFinalQty = () => {
             let finalQ = parseFloat(finalQtyInput.value.replace(',', '.')) || 0;
             let q = parseFloat(aiQtyInput.value.replace(',', '.')) || 0;
@@ -544,6 +599,9 @@ function renderTable(data) {
             let m = q > 0 ? (finalQ / q) : 1.0;
             let sWithNds = parseFloat(sumInput.value.replace(',', '.')) || (q * p);
 
+            if (unitCapInput) {
+                unitCapInput.value = (Math.round(m * 1000) / 1000).toString();
+            }
             updateDataModel(q, p, m, sWithNds);
         };
 
@@ -551,7 +609,7 @@ function renderTable(data) {
         const recalcFromQtyPrice = () => {
             let q = parseFloat(aiQtyInput.value.replace(',', '.')) || 0;
             let p = parseFloat(aiPriceInput.value.replace(',', '.')) || 0;
-            let m = (currentDocData.items[idx] && typeof currentDocData.items[idx].multiplier === 'number') ? currentDocData.items[idx].multiplier : 1.0;
+            let m = parseFloat(unitCapInput ? unitCapInput.value.replace(',', '.') : (currentDocData.items[idx]?.multiplier || 1.0)) || 1.0;
             
             let sWithNds = q * p;
             sumInput.value = sWithNds.toFixed(2);
@@ -566,7 +624,7 @@ function renderTable(data) {
         const recalcFromSum = () => {
             let q = parseFloat(aiQtyInput.value.replace(',', '.')) || 0;
             let sWithNds = parseFloat(sumInput.value.replace(',', '.')) || 0;
-            let m = (currentDocData.items[idx] && typeof currentDocData.items[idx].multiplier === 'number') ? currentDocData.items[idx].multiplier : 1.0;
+            let m = parseFloat(unitCapInput ? unitCapInput.value.replace(',', '.') : (currentDocData.items[idx]?.multiplier || 1.0)) || 1.0;
             
             let p = q > 0 ? sWithNds / q : 0;
             aiPriceInput.value = p.toFixed(4);
@@ -588,11 +646,16 @@ function renderTable(data) {
         };
 
         const aiUnitInput = tr.querySelector('.ai-unit-input');
+        if (unitCapInput) unitCapInput.addEventListener('input', recalcFromUnitCapacity);
         if (finalQtyInput) finalQtyInput.addEventListener('input', recalcFromFinalQty);
         if (baseUnitInput) {
             baseUnitInput.addEventListener('input', () => {
+                const u = baseUnitInput.value.trim() || 'кг/шт';
                 if (currentDocData.items[idx]) {
-                    currentDocData.items[idx].base_unit = baseUnitInput.value.trim() || 'кг/шт';
+                    currentDocData.items[idx].base_unit = u;
+                }
+                if (unitCapLabel) {
+                    unitCapLabel.innerText = u;
                 }
             });
         }
@@ -637,7 +700,7 @@ function renderTable(data) {
                 <span class="text-slate-500 text-[10px] block">Σ Нетто (объем):</span>
                 <span id="footer-total-qty" class="font-extrabold text-emerald-400 text-xs">0.000</span>
             </td>
-            <td class="p-3 text-slate-500 text-[10px]" colspan="2">
+            <td class="p-3 text-slate-500 text-[10px]" colspan="3">
                 Сверьте эти три значения с итогами УПД/накладной
             </td>
             <td class="p-3 text-center border-l border-slate-800/60">
