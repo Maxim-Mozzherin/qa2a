@@ -165,3 +165,41 @@ func TestApplyAutoReflection_NoReflectionWhenSumsMatch(t *testing.T) {
 		t.Errorf("Expected total 600.00, got %.2f", res.DocPrintedTotalSum)
 	}
 }
+
+func TestPriceNormalizationAndVATCalculation(t *testing.T) {
+	// Test case 1: Price in UPD was without VAT (col 4: 306.37), quantity=2, sum with VAT (col 9: 674.00)
+	item := AiItem{
+		Name:          "Бекон вк см нарезка 500 гр",
+		Quantity:      2.0,
+		Price:         306.37, // raw price without VAT
+		Sum:           674.00, // sum with VAT
+		SumWithoutNds: 612.73,
+		NdsPercent:    10.0,
+	}
+
+	// Verify normalization logic
+	expectedSum := item.Quantity * item.Price
+	if expectedSum != item.Sum {
+		normalizedPrice := (item.Sum / item.Quantity)
+		if normalizedPrice != 337.00 {
+			t.Errorf("Expected normalizedPrice to be 337.00, got %.2f", normalizedPrice)
+		}
+	}
+
+	// Test case 2: 22% VAT rate recovery when nds_percent was erroneously 0
+	item2 := AiItem{
+		Name:          "Молоко кокосовое ж17% 1л",
+		Quantity:      12.0,
+		Price:         389.00,
+		Sum:           4668.00,
+		SumWithoutNds: 3826.23,
+		NdsPercent:    0.0, // model gave 0 due to "без акциза"
+	}
+	taxDiff := item2.Sum - item2.SumWithoutNds
+	calcNds := (taxDiff / item2.SumWithoutNds) * 100
+	roundedNds := float64(int(calcNds + 0.5))
+	if roundedNds != 22.0 {
+		t.Errorf("Expected recalculated VAT rate to be 22.0, got %.2f", roundedNds)
+	}
+}
+

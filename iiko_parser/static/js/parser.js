@@ -423,6 +423,7 @@ function renderTable(data) {
 
         const isAi = item.is_ai_guessed;
         const isWarning = item.is_weight_changed;
+        const isHistory = item.is_from_history || (item.mapped_uuid && initMult !== 1.0 && !isWarning);
 
         let multClass = "border-slate-800 bg-[#090d16] text-white focus:border-brand-500 focus:bg-[#111827]";
         let multBadge = "";
@@ -436,10 +437,17 @@ function renderTable(data) {
         } else if (isAi) {
             multClass = "border-teal-500/80 bg-teal-500/10 text-teal-300";
             multBadge = `<div class="text-[9px] text-teal-400 font-semibold mt-1 text-center">✨ ИИ веса</div>`;
+        } else if (isHistory) {
+            multClass = "border-indigo-500/80 bg-indigo-500/10 text-indigo-300";
+            multBadge = `<div class="text-[9px] text-indigo-400 font-semibold mt-1 text-center">📋 По каталогу</div>`;
         }
 
-        const aiTipHtml = (item.ai_tip && item.ai_tip !== "Обычный товар")
-            ? `<div class="text-[10px] text-brand-400 font-medium mt-1 bg-brand-500/5 border border-brand-500/10 rounded px-2 py-0.5 inline-block">💡 ${escapeHtml(item.ai_tip)}</div>`
+        let effectiveTip = item.ai_tip;
+        if ((!effectiveTip || effectiveTip === "Обычный товар") && initMult !== 1.0) {
+            effectiveTip = `1 ${item.unit || 'шт'} = ${initMult} ${item.base_unit || 'кг'}`;
+        }
+        const aiTipHtml = (effectiveTip && effectiveTip !== "Обычный товар")
+            ? `<div class="text-[10px] text-brand-400 font-medium mt-1 bg-brand-500/5 border border-brand-500/10 rounded px-2 py-0.5 inline-block">💡 ${escapeHtml(effectiveTip)}</div>`
             : "";
 
         const finalSumWithNds = parseFloat(item.sum) || 0;
@@ -666,7 +674,29 @@ function runDataValidation() {
         calculatedTotal += s;
 
         // 1. Math Validation (Row level)
-        if (q > 0 && Math.abs((q * p) - s) > 0.05) {
+        let curP = p;
+        const nds = parseFloat(item.nds_percent) || 0;
+        let isMathValid = true;
+
+        if (q > 0) {
+            if (Math.abs((q * curP) - s) > 0.05) {
+                // Если цена была передана без НДС из графы 4 УПД
+                if (nds > 0 && Math.abs((q * curP * (1 + nds / 100)) - s) <= 0.08) {
+                    curP = s / q;
+                    item.price = curP;
+                    const row = document.querySelector(`tr[data-item-idx="${idx}"]`);
+                    if (row) {
+                        const priceInput = row.querySelector('.ai-price-input');
+                        if (priceInput) priceInput.value = curP.toFixed(2);
+                    }
+                    isMathValid = true;
+                } else {
+                    isMathValid = false;
+                }
+            }
+        }
+
+        if (!isMathValid) {
             errors.push(`Строка ${idx + 1} (${item.name || 'Без названия'}): Математика не сходится (Кол-во × Цена ≠ Сумма)`);
             const row = document.querySelector(`tr[data-item-idx="${idx}"]`);
             if (row) row.classList.add('bg-amber-500/10');

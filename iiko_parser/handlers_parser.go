@@ -13,6 +13,7 @@ import (
 	"iiko_parser/pkg/netutil"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -434,11 +435,29 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 		Multiplier        float64 `json:"multiplier"`
 		IsAiGuessed       bool    `json:"is_ai_guessed"`
 		IsWeightChanged   bool    `json:"is_weight_changed"`
+		IsFromHistory     bool    `json:"is_from_history"`
 		HistoryMultiplier float64 `json:"history_multiplier"`
 	}
 
 	var resultItems []EnrichedItem
 	for _, item := range aiData.Items {
+		// Нормализация цены с НДС, если модель вернула цену без НДС из колонки 4
+		if item.Quantity > 0 && item.Sum > 0 {
+			expectedSum := item.Quantity * item.Price
+			if math.Abs(expectedSum-item.Sum) > 0.05 {
+				item.Price = math.Round((item.Sum/item.Quantity)*10000) / 10000
+			}
+		}
+
+		// Перепроверка ставки НДС: если ставка 0, но сумма без НДС меньше итоговой суммы
+		if item.NdsPercent == 0 && item.SumWithoutNds > 0 && item.Sum > item.SumWithoutNds {
+			taxDiff := item.Sum - item.SumWithoutNds
+			calcNds := (taxDiff / item.SumWithoutNds) * 100
+			if calcNds > 0.5 {
+				item.NdsPercent = math.Round(calcNds)
+			}
+		}
+
 		enriched := EnrichedItem{
 			AiItem:     item,
 			Multiplier: 1.0,
@@ -487,6 +506,9 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 			enriched.MappedName = matched.InternalName
 			enriched.Multiplier = matched.Multiplier
 			enriched.IsAiGuessed = false
+			if matched.Multiplier > 0 && matched.Multiplier != 1.0 {
+				enriched.IsFromHistory = true
+			}
 
 			if item.AiMultiplier > 0 && item.AiMultiplier != 1.0 && item.AiMultiplier != matched.Multiplier {
 				enriched.IsWeightChanged = true
@@ -501,6 +523,22 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+
+		// Fallback для подсказки фасовки под названием
+		if enriched.AiTip == "" || enriched.AiTip == "Обычный товар" {
+			if enriched.Multiplier != 1.0 && enriched.Multiplier > 0 {
+				u := item.Unit
+				if u == "" {
+					u = "шт"
+				}
+				bu := item.BaseUnit
+				if bu == "" {
+					bu = "кг"
+				}
+				enriched.AiTip = fmt.Sprintf("1 %s = %.3g %s", u, enriched.Multiplier, bu)
+			}
+		}
+
 		resultItems = append(resultItems, enriched)
 	}
 
@@ -512,6 +550,7 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 		"consignee":            aiData.Consignee,
 		"consignee_inn":        aiData.ConsigneeINN,
 		"shipper":              aiData.Shipper,
+		"doc_printed_total_sum": aiData.DocPrintedTotalSum,
 		"mapped_supplier_uuid": mappedSupplierUUID,
 		"mapped_store_uuid":    mappedStoreUUID,
 		"used_model":           aiData.UsedModel,
