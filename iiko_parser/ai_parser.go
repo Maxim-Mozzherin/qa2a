@@ -53,7 +53,7 @@ func (m *ModelHealthManager) markHealthy(model string) {
 	}
 }
 
-// pingModel отправляет фоновый проверочный запрос (таймаут 20с) для фонового демона проверки доступности
+// pingModel отправляет фоновый проверочный запрос (таймаут 25с) для фонового демона проверки доступности
 func pingModel(model string) bool {
 	probePayload := map[string]interface{}{
 		"model":      model,
@@ -67,7 +67,7 @@ func pingModel(model string) bool {
 	if err != nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
@@ -89,7 +89,7 @@ func pingModel(model string) bool {
 // startModelHealthChecker фоново проверяет доступность моделей каждые 60 секунд.
 func startModelHealthChecker() {
 	go func() {
-		// Первичный параллельный пинг через 200мс после старта сервиса
+		// Первичный пинг через 200мс после старта сервиса
 		time.Sleep(200 * time.Millisecond)
 		runProbes()
 
@@ -103,24 +103,19 @@ func startModelHealthChecker() {
 
 func runProbes() {
 	rawModels := strings.Split(aiModel, ",")
-	var wg sync.WaitGroup
 	for _, raw := range rawModels {
-		m := strings.TrimSpace(raw)
-		if m == "" {
+		modelName := strings.TrimSpace(raw)
+		if modelName == "" {
 			continue
 		}
-		wg.Add(1)
-		go func(modelName string) {
-			defer wg.Done()
-			if pingModel(modelName) {
-				globalModelHealth.markHealthy(modelName)
-				log.Printf("💓 [HealthCheck] Модель %s доступна и готова к работе", modelName)
-			} else {
-				globalModelHealth.markFailed(modelName, 60*time.Second)
-			}
-		}(m)
+		if pingModel(modelName) {
+			globalModelHealth.markHealthy(modelName)
+			log.Printf("💓 [HealthCheck] Модель %s доступна и готова к работе", modelName)
+		} else {
+			globalModelHealth.markFailed(modelName, 60*time.Second)
+		}
+		time.Sleep(1 * time.Second)
 	}
-	wg.Wait()
 }
 
 // formatCleanModelName возвращает читаемое имя модели для UI логов
