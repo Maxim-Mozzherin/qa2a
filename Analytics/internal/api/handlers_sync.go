@@ -99,6 +99,7 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 		multiplier     float64
 	}
 	mappings := make(map[string]productMapping)
+	posUnits := make(map[string]string)
 
 	if targetCompanyID > 0 {
 		mapRows, err := s.db.Query(`
@@ -117,6 +118,21 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 						vendorItemName: strings.TrimSpace(vName),
 						multiplier:     mult,
 					}
+				}
+			}
+		}
+
+		// Загружаем эталонные единицы измерения из каталога positions
+		pRows, errPos := s.db.Query(`
+			SELECT external_id, unit 
+			FROM positions 
+			WHERE company_id = $1 AND unit IS NOT NULL AND unit != ''`, targetCompanyID)
+		if errPos == nil {
+			defer pRows.Close()
+			for pRows.Next() {
+				var extID, u string
+				if errScan := pRows.Scan(&extID, &u); errScan == nil && extID != "" {
+					posUnits[extID] = strings.TrimSpace(u)
 				}
 			}
 		}
@@ -168,9 +184,27 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 
 	for _, doc := range docs {
 		supplierName := suppliers[doc.SupplierUUID]
+		docNum := strings.TrimSpace(doc.DocumentNumber)
+		if docNum == "" {
+			docNum = strings.TrimSpace(doc.IncomingDocumentNumber)
+		}
+		if docNum == "" {
+			docNum = strings.TrimSpace(doc.TransportInvoiceNumber)
+		}
+		incomingNum := strings.TrimSpace(doc.IncomingDocumentNumber)
+
 		docDate, _ := time.Parse("2006-01-02T15:04:05", doc.DateIncoming)
 		if docDate.IsZero() {
 			docDate, _ = time.Parse("2006-01-02", doc.DateIncoming)
+		}
+		if docDate.IsZero() {
+			docDate, _ = time.Parse("2006-01-02T15:04:05", doc.IncomingDate)
+		}
+		if docDate.IsZero() {
+			docDate, _ = time.Parse("2006-01-02", doc.IncomingDate)
+		}
+		if docDate.IsZero() {
+			docDate = time.Now()
 		}
 
 		// Вычисляем суммарную стоимость накладной
@@ -179,19 +213,27 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 			totalSum += it.Sum
 		}
 
+		var supplierUUIDVal interface{}
+		if strings.TrimSpace(doc.SupplierUUID) != "" {
+			supplierUUIDVal = strings.TrimSpace(doc.SupplierUUID)
+		}
+
 		var invoiceDBID int
 		err := s.db.QueryRow(`
-			INSERT INTO analytics_invoices (restaurant_id, iiko_doc_id, doc_number, doc_date, supplier_id, supplier_name, total_sum, status)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			INSERT INTO analytics_invoices (restaurant_id, iiko_doc_id, doc_number, incoming_number, doc_date, supplier_uuid, supplier_name, total_sum, status)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			ON CONFLICT (restaurant_id, iiko_doc_id) DO UPDATE 
-			SET total_sum = EXCLUDED.total_sum,
+			SET doc_number = EXCLUDED.doc_number,
+			    incoming_number = EXCLUDED.incoming_number,
+			    total_sum = EXCLUDED.total_sum,
 			    supplier_name = EXCLUDED.supplier_name,
 			    doc_date = EXCLUDED.doc_date
 			RETURNING id`,
-			restID, doc.ID, doc.DocumentNumber, docDate, doc.SupplierUUID, supplierName, totalSum, doc.Status,
+			restID, doc.ID, docNum, incomingNum, docDate, supplierUUIDVal, supplierName, totalSum, doc.Status,
 		).Scan(&invoiceDBID)
 
 		if err != nil {
+			log.Printf("⚠️ [Sync] Ошибка сохранения накладной %s (%s): %v", doc.ID, docNum, err)
 			continue
 		}
 		importedInvoices++
@@ -200,11 +242,11 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 		_, _ = s.db.Exec(`DELETE FROM analytics_invoice_items WHERE invoice_id = $1`, invoiceDBID)
 
 		// Очищаем старые позиции этой накладной в purchase_history перед записью (идемпотентность)
-		if targetCompanyID > 0 && doc.DocumentNumber != "" && !docDate.IsZero() {
+		if targetCompanyID > 0 && docNum != "" && !docDate.IsZero() {
 			_, _ = s.db.Exec(`
 				DELETE FROM purchase_history 
 				WHERE company_id = $1 AND invoice_number = $2 AND invoice_date = $3`,
-				targetCompanyID, doc.DocumentNumber, docDate.Format("2006-01-02"))
+				targetCompanyID, docNum, docDate.Format("2006-01-02"))
 		}
 
 		// Сохраняем позиции с классификацией и обогащением
@@ -245,8 +287,22 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 				price = it.Sum / qty
 			}
 
+			var prodUUIDVal interface{}
+			if strings.TrimSpace(it.ProductUUID) != "" {
+				prodUUIDVal = strings.TrimSpace(it.ProductUUID)
+			}
+
+			// Определяем единицу измерения: сначала из каталога positions, затем fallback
+			unit := posUnits[it.ProductUUID]
+			if unit == "" && !isNumericOrEmpty(it.Code) {
+				unit = it.Code
+			}
+			if unit == "" {
+				unit = "кг/шт"
+			}
+
 			// 1. Сохраняем в таблицу аналитического аудита
-			_, _ = s.db.Exec(`
+			_, errItem := s.db.Exec(`
 				INSERT INTO analytics_invoice_items (
 					invoice_id, restaurant_id, doc_date, product_uuid, product_name, product_article,
 					supplier_product_name, is_commodity, detected_brand, canonical_category,
@@ -254,10 +310,13 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 				) VALUES (
 					$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 				)`,
-				invoiceDBID, restID, docDate, it.ProductUUID, prodName, it.ProductArticle,
+				invoiceDBID, restID, docDate, prodUUIDVal, prodName, it.ProductArticle,
 				productNameInInvoice, cls.IsCommodity, cls.DetectedBrand, cls.CanonicalCategory,
-				qty, it.Code, price, it.Sum, it.VatSum,
+				qty, unit, price, it.Sum, it.VatSum,
 			)
+			if errItem != nil {
+				log.Printf("⚠️ [Sync] Ошибка добавления позиции %s в analytics_invoice_items: %v", it.ProductUUID, errItem)
+			}
 			importedItems++
 
 			// 2. Сохраняем в таблицу Godmode (purchase_history)
@@ -270,12 +329,7 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 					}
 				}
 
-				unit := it.Code
-				if unit == "" {
-					unit = "кг/шт"
-				}
-
-				_, _ = s.db.Exec(`
+				_, errHist := s.db.Exec(`
 					INSERT INTO purchase_history (
 						company_id, invoice_date, invoice_number, supplier_uuid, supplier_name,
 						iiko_product_uuid, iiko_product_name, product_name_in_invoice,
@@ -285,10 +339,13 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 						$6, $7, $8,
 						$9, $10, $11, $12, $13, $14, $15
 					)`,
-					targetCompanyID, docDate.Format("2006-01-02"), doc.DocumentNumber, doc.SupplierUUID, supplierName,
-					it.ProductUUID, prodName, productNameInInvoice,
+					targetCompanyID, docDate.Format("2006-01-02"), docNum, supplierUUIDVal, supplierName,
+					prodUUIDVal, prodName, productNameInInvoice,
 					cls.CanonicalCategory, cls.DetectedBrand, finalQty, unit, itemMultiplier, it.Sum, pricePerBaseUnit,
 				)
+				if errHist != nil {
+					log.Printf("⚠️ [Sync] Ошибка добавления в purchase_history: %v", errHist)
+				}
 			}
 		}
 	}
@@ -382,4 +439,17 @@ func (s *Server) ReclassifyAllItems() {
 
 	_ = tx.Commit()
 	log.Printf("📊 [Classifier] Успешно реклассифицировано %d уникальных товаров номенклатуры", len(names))
+}
+
+func isNumericOrEmpty(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return true
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

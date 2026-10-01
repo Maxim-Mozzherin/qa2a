@@ -131,10 +131,21 @@ func (c *Client) FetchIncomingInvoices(host, token, from, to, supplierID string)
 		return nil, fmt.Errorf("iiko вернул статус %d: %s", resp.StatusCode, string(body))
 	}
 
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 100<<20))
+	if err != nil {
+		return nil, fmt.Errorf("ошибка чтения ответа iiko: %w", err)
+	}
+	snippetLen := len(bodyBytes)
+	if snippetLen > 500 {
+		snippetLen = 500
+	}
+	fmt.Printf("📥 [iiko Client] URL: %s, Body len: %d, snippet: %s\n", urlStr, len(bodyBytes), string(bodyBytes[:snippetLen]))
+
 	var result ExportedInvoicesXML
-	if err := xml.NewDecoder(io.LimitReader(resp.Body, 100<<20)).Decode(&result); err != nil {
+	if err := xml.Unmarshal(bodyBytes, &result); err != nil {
 		return nil, fmt.Errorf("ошибка парсинга XML: %w", err)
 	}
+	fmt.Printf("📥 [iiko Client] Parsed %d documents from XML\n", len(result.Documents))
 	return &result, nil
 }
 
