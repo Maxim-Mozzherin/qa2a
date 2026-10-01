@@ -1,11 +1,13 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,12 +62,23 @@ func (s *Server) HandleSync(w http.ResponseWriter, r *http.Request) {
 // SyncRestaurant выполняет выгрузку накладных заведения за интервал дат через iiko API
 func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 	var host, login, encPass string
+	var companyID sql.NullInt64
 	err := s.db.QueryRow(`
-		SELECT iiko_host, iiko_login, iiko_password_enc 
+		SELECT iiko_host, iiko_login, iiko_password_enc, company_id 
 		FROM analytics_restaurants 
-		WHERE id = $1`, restID).Scan(&host, &login, &encPass)
+		WHERE id = $1`, restID).Scan(&host, &login, &encPass, &companyID)
 	if err != nil {
 		return 0, 0, fmt.Errorf("заведение не найдено: %w", err)
+	}
+
+	targetCompanyID := 0
+	if companyID.Valid && companyID.Int64 > 0 {
+		targetCompanyID = int(companyID.Int64)
+	} else {
+		_ = s.db.QueryRow(`SELECT id FROM companies WHERE iiko_host = $1 LIMIT 1`, host).Scan(&targetCompanyID)
+		if targetCompanyID > 0 {
+			_, _ = s.db.Exec(`UPDATE analytics_restaurants SET company_id = $1 WHERE id = $2`, targetCompanyID, restID)
+		}
 	}
 
 	plainPass, err := crypto.Decrypt(encPass, s.cfg.EncryptionKey)
@@ -78,6 +91,36 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 		return 0, 0, fmt.Errorf("ошибка авторизации в iiko RMS: %w", err)
 	}
 	defer s.iikoClient.Logout(host, token)
+
+	// Предварительная загрузка существующих маппингов (product_mappings)
+	// Приоритет: маппинги текущего заведения имеют наивысший приоритет
+	type productMapping struct {
+		vendorItemName string
+		multiplier     float64
+	}
+	mappings := make(map[string]productMapping)
+
+	if targetCompanyID > 0 {
+		mapRows, err := s.db.Query(`
+			SELECT iiko_product_uuid, vendor_item_name, COALESCE(multiplier, 1.0)
+			FROM product_mappings
+			WHERE company_id = $1 OR company_id IS NULL
+			ORDER BY (company_id = $1) ASC, updated_at ASC
+		`, targetCompanyID)
+		if err == nil {
+			defer mapRows.Close()
+			for mapRows.Next() {
+				var pUUID, vName string
+				var mult float64
+				if errScan := mapRows.Scan(&pUUID, &vName, &mult); errScan == nil && pUUID != "" {
+					mappings[pUUID] = productMapping{
+						vendorItemName: strings.TrimSpace(vName),
+						multiplier:     mult,
+					}
+				}
+			}
+		}
+	}
 
 	// Параллельная загрузка накладных, контрагентов и каталога номенклатуры
 	var (
@@ -156,15 +199,41 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 		// Очищаем старые позиции перед повторной вставкой для исключения дублирования
 		_, _ = s.db.Exec(`DELETE FROM analytics_invoice_items WHERE invoice_id = $1`, invoiceDBID)
 
-		// Сохраняем позиции с классификацией
+		// Очищаем старые позиции этой накладной в purchase_history перед записью (идемпотентность)
+		if targetCompanyID > 0 && doc.DocumentNumber != "" && !docDate.IsZero() {
+			_, _ = s.db.Exec(`
+				DELETE FROM purchase_history 
+				WHERE company_id = $1 AND invoice_number = $2 AND invoice_date = $3`,
+				targetCompanyID, doc.DocumentNumber, docDate.Format("2006-01-02"))
+		}
+
+		// Сохраняем позиции с классификацией и обогащением
 		for _, it := range doc.Items {
 			prodName := catalog[it.ProductUUID]
 			if prodName == "" {
 				prodName = it.ProductArticle
 			}
 
-			// Классификация новой детальной таксономией
-			cls := engine.ClassifyProduct(prodName)
+			// ПРИОРИТЕТ: если данный UUID ранее смапплен в product_mappings,
+			// берем приоритетное реальное название из накладной через парсер, а не из iiko
+			productNameInInvoice := prodName
+			itemMultiplier := 1.0
+			if m, ok := mappings[it.ProductUUID]; ok && m.vendorItemName != "" {
+				productNameInInvoice = m.vendorItemName
+				if m.multiplier > 0 {
+					itemMultiplier = m.multiplier
+				}
+			}
+
+			// Классификация новой детальной таксономией:
+			// Сначала классифицируем по реальному названию из накладной, если оно есть
+			cls := engine.ClassifyProduct(productNameInInvoice)
+			if cls.CanonicalCategory == "Прочее" && productNameInInvoice != prodName {
+				clsFallback := engine.ClassifyProduct(prodName)
+				if clsFallback.CanonicalCategory != "Прочее" {
+					cls = clsFallback
+				}
+			}
 
 			qty := it.ActualAmount
 			if qty == 0 {
@@ -176,23 +245,55 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 				price = it.Sum / qty
 			}
 
+			// 1. Сохраняем в таблицу аналитического аудита
 			_, _ = s.db.Exec(`
 				INSERT INTO analytics_invoice_items (
 					invoice_id, restaurant_id, doc_date, product_uuid, product_name, product_article,
-					is_commodity, detected_brand, canonical_category,
+					supplier_product_name, is_commodity, detected_brand, canonical_category,
 					quantity, unit, price_per_unit, total_sum, vat_sum
 				) VALUES (
-					$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+					$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 				)`,
 				invoiceDBID, restID, docDate, it.ProductUUID, prodName, it.ProductArticle,
-				cls.IsCommodity, cls.DetectedBrand, cls.CanonicalCategory,
+				productNameInInvoice, cls.IsCommodity, cls.DetectedBrand, cls.CanonicalCategory,
 				qty, it.Code, price, it.Sum, it.VatSum,
 			)
 			importedItems++
+
+			// 2. Сохраняем в таблицу Godmode (purchase_history)
+			if targetCompanyID > 0 {
+				finalQty := qty * itemMultiplier
+				pricePerBaseUnit := price
+				if itemMultiplier > 0 && itemMultiplier != 1.0 {
+					if finalQty > 0 {
+						pricePerBaseUnit = it.Sum / finalQty
+					}
+				}
+
+				unit := it.Code
+				if unit == "" {
+					unit = "кг/шт"
+				}
+
+				_, _ = s.db.Exec(`
+					INSERT INTO purchase_history (
+						company_id, invoice_date, invoice_number, supplier_uuid, supplier_name,
+						iiko_product_uuid, iiko_product_name, product_name_in_invoice,
+						clean_category, brand, quantity, unit, multiplier, total_sum, price_per_base_unit
+					) VALUES (
+						$1, $2, $3, $4, $5,
+						$6, $7, $8,
+						$9, $10, $11, $12, $13, $14, $15
+					)`,
+					targetCompanyID, docDate.Format("2006-01-02"), doc.DocumentNumber, doc.SupplierUUID, supplierName,
+					it.ProductUUID, prodName, productNameInInvoice,
+					cls.CanonicalCategory, cls.DetectedBrand, finalQty, unit, itemMultiplier, it.Sum, pricePerBaseUnit,
+				)
+			}
 		}
 	}
 
-	log.Printf("📥 [Analytics Sync] Заведение %d: синхронизировано %d накладных, %d позиций", restID, importedInvoices, importedItems)
+	log.Printf("📥 [Analytics Sync] Заведение %d (company %d): синхронизировано %d накладных, %d позиций (включая Godmode)", restID, targetCompanyID, importedInvoices, importedItems)
 	return importedInvoices, importedItems, nil
 }
 

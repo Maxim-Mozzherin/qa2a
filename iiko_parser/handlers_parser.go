@@ -32,6 +32,7 @@ type IikoIncomingInvoiceXML struct {
 	DateIncoming           string                       `xml:"dateIncoming"`
 	UseDefaultDocumentTime bool                         `xml:"useDefaultDocumentTime"`
 	IncomingDocumentNumber string                       `xml:"incomingDocumentNumber"`
+	Comment                string                       `xml:"comment,omitempty"`
 	Status                 string                       `xml:"status"`
 	Items                  []IikoIncomingInvoiceItemXML `xml:"items>item"`
 }
@@ -598,6 +599,7 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 		Consignee     string  `json:"consignee"`
 		Shipper       string  `json:"shipper"`
 		InvoiceNumber string  `json:"invoice_number"`
+		Comment       string  `json:"comment"`
 		InvoiceDate   string  `json:"invoice_date"`
 		Items         []struct {
 			Name          string  `json:"name"`
@@ -648,7 +650,8 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 	// 2. Расшифровываем пароль и авторизуемся в iiko RMS для получения свежего токена
 	password, err := crypto.Decrypt(encryptedPass, encryptionKey)
 	if err != nil {
-		http.Error(w, "Ошибка дешифрования пароля iiko RMS: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Import] Decryption error for company %d: %v", req.CompanyID, err)
+		http.Error(w, "Ошибка дешифрования пароля iiko RMS. Проверьте настройки подключения.", http.StatusInternalServerError)
 		return
 	}
 
@@ -716,6 +719,7 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 		DateIncoming:           dateIncomingStr,
 		UseDefaultDocumentTime: true,
 		IncomingDocumentNumber: req.InvoiceNumber,
+		Comment:                strings.TrimSpace(req.Comment),
 		Status:                 "NEW",
 		Items:                  invoiceItems,
 	}
@@ -771,7 +775,8 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, "Ошибка БД при сохранении истории: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Import] Error starting transaction for company %d: %v", req.CompanyID, err)
+		http.Error(w, "Ошибка сохранения истории накладной в базе данных", http.StatusInternalServerError)
 		return
 	}
 	defer tx.Rollback()
@@ -807,6 +812,21 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 				req.CompanyID, req.VendorName, item.Name, item.MappedUUID, item.MappedName, item.Multiplier)
 			if err != nil {
 				log.Printf("⚠️ Ошибка сохранения маппинга: %v", err)
+			}
+
+			// Ретроактивное обогащение: если ранее позиции из синхронизации iiko сохранились с названием из iiko,
+			// обогащаем их реальным названием из подтвержденного маппинга накладной
+			if item.Name != "" {
+				_, _ = tx.Exec(`
+					UPDATE purchase_history
+					SET product_name_in_invoice = $1,
+					    clean_category = CASE WHEN clean_category = '' OR clean_category = 'Прочее' THEN $2 ELSE clean_category END,
+					    brand = CASE WHEN brand = '' THEN $3 ELSE brand END,
+					    multiplier = CASE WHEN $4 > 0 AND multiplier = 1.0 THEN $4 ELSE multiplier END
+					WHERE company_id = $5 
+					  AND iiko_product_uuid = $6 
+					  AND (product_name_in_invoice = iiko_product_name OR product_name_in_invoice = '')`,
+					item.Name, item.CleanCategory, item.Brand, item.Multiplier, req.CompanyID, item.MappedUUID)
 			}
 
 			finalQty := item.Quantity * item.Multiplier
@@ -889,9 +909,19 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 				}(companyID, prodName, growth, med, cur, vendor, invNum, dbInvoiceDate, storeName)
 			}
 
-			unit := item.Unit
-			if unit == "" {
-				unit = "кг/шт"
+			unit := strings.TrimSpace(item.Unit)
+			if isNumericOrInvalidUnit(unit) {
+				// 1. Попытаться взять эталонную единицу измерения из таблицы positions
+				var posUnit string
+				_ = tx.QueryRow(`
+					SELECT unit FROM positions 
+					WHERE company_id = $1 AND external_id = $2 AND unit IS NOT NULL AND unit != '' 
+					LIMIT 1`, req.CompanyID, item.MappedUUID).Scan(&posUnit)
+				if posUnit != "" && !isNumericOrInvalidUnit(posUnit) {
+					unit = posUnit
+				} else {
+					unit = "шт"
+				}
 			}
 
 			_, err = tx.Exec(`
@@ -907,16 +937,15 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 				log.Printf("⚠️ Ошибка записи purchase_history: %v", err)
 			}
 
-			// Retroactive Unit Auto-healing
-			cleanUnit := strings.TrimSpace(item.Unit)
-			if cleanUnit != "" && cleanUnit != "ед." && cleanUnit != "кг/шт" {
+			// Retroactive Unit Auto-healing (исправляет пустые или числовые артикулы на реальную единицу)
+			if !isNumericOrInvalidUnit(unit) {
 				_, healErr := tx.Exec(`
 					UPDATE purchase_history 
 					SET unit = $1 
 					WHERE company_id = $2 
 					  AND iiko_product_uuid = $3 
-					  AND unit IN ('ед.', 'кг/шт', '')
-				`, cleanUnit, req.CompanyID, item.MappedUUID)
+					  AND (unit IN ('ед.', 'кг/шт', '') OR unit ~ '^[0-9]+$')
+				`, unit, req.CompanyID, item.MappedUUID)
 				
 				if healErr != nil {
 					log.Printf("⚠️ Ошибка ретроспективного обновления единиц измерения для %s: %v", item.MappedUUID, healErr)
@@ -946,7 +975,8 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := tx.Commit(); err != nil {
-		http.Error(w, "Ошибка сохранения истории в локальную БД: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Import] Error committing transaction for company %d: %v", req.CompanyID, err)
+		http.Error(w, "Ошибка фиксации истории накладной в базе данных", http.StatusInternalServerError)
 		return
 	}
 
@@ -956,4 +986,19 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 		"message":       "Накладная успешно проведена в iiko RMS и сохранена в истории",
 		"iiko_response": string(respBody),
 	})
+}
+
+func isNumericOrInvalidUnit(u string) bool {
+	u = strings.TrimSpace(u)
+	if u == "" || u == "ед." || u == "кг/шт" {
+		return true
+	}
+	isDigits := true
+	for _, r := range u {
+		if r < '0' || r > '9' {
+			isDigits = false
+			break
+		}
+	}
+	return isDigits
 }
