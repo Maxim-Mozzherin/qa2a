@@ -1,0 +1,14 @@
+# Binaries
+analytics-server
+analytics-server.new
+analytics_server
+analytics_server.exe
+*.exe
+
+# Backups and temp files
+.src_backup/
+full_project.txt
+vygruzka-prikhodnykh-nakladnykh.pdf
+*.log
+.env
+.env.*

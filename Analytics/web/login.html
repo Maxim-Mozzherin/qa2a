@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QA2A Analytics — Вход для супер-администратора</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #0B0F19;
+            --card-bg: #111827;
+            --border: #1F2937;
+            --text-main: #F9FAFB;
+            --text-muted: #9CA3AF;
+            --accent: #2563EB;
+            --accent-hover: #1D4ED8;
+            --danger: #EF4444;
+            --danger-bg: rgba(239, 68, 68, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background-image: 
+                radial-gradient(at 100% 0%, rgba(37, 99, 235, 0.1) 0px, transparent 50%),
+                radial-gradient(at 0% 100%, rgba(17, 24, 39, 0.8) 0px, transparent 50%);
+        }
+
+        .login-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            width: 100%;
+            max-width: 420px;
+            padding: 36px 32px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+
+        .brand-header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            background: rgba(37, 99, 235, 0.15);
+            border: 1px solid rgba(37, 99, 235, 0.3);
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #60A5FA;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+
+        .title {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -0.5px;
+        }
+
+        .subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 6px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #D1D5DB;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 14px;
+            background-color: #1F2937;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            color: var(--text-main);
+            font-size: 14px;
+            font-family: inherit;
+            transition: all 0.2s ease;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+            background-color: #111827;
+        }
+
+        .btn-submit {
+            width: 100%;
+            padding: 12px 16px;
+            background-color: var(--accent);
+            color: #FFFFFF;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 24px;
+        }
+
+        .btn-submit:hover {
+            background-color: var(--accent-hover);
+        }
+
+        .btn-submit:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .error-box {
+            display: none;
+            background-color: var(--danger-bg);
+            border: 1px solid var(--danger);
+            color: #F87171;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 18px;
+            line-height: 1.4;
+        }
+
+        .footer-note {
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 24px;
+            border-top: 1px solid #1F2937;
+            padding-top: 16px;
+        }
+
+        .spinner {
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top: 2px solid #FFFFFF;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 0.8s linear infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="brand-header">
+            <div class="badge">🔒 Super-Admin Portal</div>
+            <h1 class="title">QA2A Analytics</h1>
+            <p class="subtitle">Вход в закрытую систему аудита закупок HoReCa</p>
+        </div>
+
+        <div id="errorBox" class="error-box"></div>
+
+        <form id="loginForm" autocomplete="on">
+            <div class="form-group">
+                <label for="loginInput">Логин или Email</label>
+                <input type="text" id="loginInput" name="login" required placeholder="admin или email@domain.ru" autofocus autocomplete="username">
+            </div>
+
+            <div class="form-group">
+                <label for="passwordInput">Пароль</label>
+                <input type="password" id="passwordInput" name="password" required placeholder="••••••••" autocomplete="current-password">
+            </div>
+
+            <button type="submit" id="submitBtn" class="btn-submit">
+                <span class="spinner" id="spinner"></span>
+                <span id="btnText">Войти в аналитику</span>
+            </button>
+        </form>
+
+        <div class="footer-note">
+            Доступ строго ограничен пользователями с правами Super-Admin.
+        </div>
+    </div>
+
+    <script>
+        // Check if already authenticated
+        (async function checkExistingAuth() {
+            try {
+                const res = await fetch('/api/analytics/me');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.authenticated && data.user && data.user.is_superuser) {
+                        window.location.href = '/analytics';
+                    }
+                }
+            } catch (e) {}
+        })();
+
+        const form = document.getElementById('loginForm');
+        const errorBox = document.getElementById('errorBox');
+        const submitBtn = document.getElementById('submitBtn');
+        const spinner = document.getElementById('spinner');
+        const btnText = document.getElementById('btnText');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            errorBox.style.display = 'none';
+            submitBtn.disabled = true;
+            spinner.style.display = 'inline-block';
+            btnText.textContent = 'Авторизация...';
+
+            const login = document.getElementById('loginInput').value.trim();
+            const password = document.getElementById('passwordInput').value;
+
+            try {
+                // Determine API endpoint depending on current path (direct or reverse-proxied)
+                let apiEndpoint = '/api/analytics/login';
+                if (window.location.pathname.startsWith('/bugh-team/')) {
+                    apiEndpoint = '/bugh-team/api/analytics-service/api/analytics/login';
+                }
+
+                const res = await fetch(apiEndpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ login, password })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok || !data.success) {
+                    errorBox.textContent = data.error || 'Ошибка авторизации. Проверьте логин и пароль.';
+                    errorBox.style.display = 'block';
+                    submitBtn.disabled = false;
+                    spinner.style.display = 'none';
+                    btnText.textContent = 'Войти в аналитику';
+                    return;
+                }
+
+                btnText.textContent = 'Успешно! Переход...';
+                const redirectTarget = window.location.pathname.startsWith('/bugh-team/') 
+                    ? '/bugh-team/analytics' 
+                    : '/analytics';
+                window.location.href = redirectTarget;
+
+            } catch (err) {
+                errorBox.textContent = 'Сетевая ошибка при подключении к серверу аутентификации';
+                errorBox.style.display = 'block';
+                submitBtn.disabled = false;
+                spinner.style.display = 'none';
+                btnText.textContent = 'Войти в аналитику';
+            }
+        });
+    </script>
+</body>
+</html>

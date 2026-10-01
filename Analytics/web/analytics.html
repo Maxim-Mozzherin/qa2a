@@ -1,0 +1,2693 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full bg-[#0B0F19]">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QA2A Analytics | Внутренний Аудит Закупок и Радар Рынка HoReCa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        brand: {
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #090d16; }
+        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 9999px; }
+        .shimmer-card {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(17, 24, 39, 0.95) 100%);
+        }
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            #report-modal {
+                position: static !important;
+                background: transparent !important;
+                padding: 0 !important;
+                overflow: visible !important;
+                display: block !important;
+            }
+            #report-modal > div {
+                max-width: 100% !important;
+                max-height: none !important;
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                overflow: visible !important;
+            }
+            #report-modal-controls,
+            #report-modal-header,
+            #report-modal-footer {
+                display: none !important;
+            }
+            #report-document-sheet, #report-document-sheet * {
+                visibility: visible;
+            }
+            #report-document-sheet {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 8mm !important;
+                box-shadow: none !important;
+                border: none !important;
+                background: white !important;
+                color: #0f172a !important;
+            }
+            .avoid-break {
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
+            .position-card {
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+            }
+        }
+        .position-card {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+        }
+        .report-blur-text {
+            filter: blur(5px);
+            opacity: 0.65;
+            user-select: none;
+            -webkit-user-select: none;
+            pointer-events: none;
+        }
+        .report-blur-block {
+            display: inline-block;
+            filter: blur(4.5px);
+            opacity: 0.75;
+            user-select: none;
+            -webkit-user-select: none;
+            pointer-events: none;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body class="h-full text-slate-200 antialiased flex flex-col font-sans selection:bg-brand-500/30 selection:text-white">
+
+    <!-- ХЕДЕР -->
+    <header class="bg-[#111827]/80 border-b border-slate-800/80 sticky top-0 z-40 backdrop-blur-md">
+        <div class="max-w-[1750px] mx-auto px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <span class="text-xs font-black tracking-widest text-brand-400 bg-brand-500/10 border border-brand-500/20 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5">
+                    QA2A
+                    <span class="text-[9px] text-brand-500 bg-brand-500/20 px-1 py-0.2 rounded font-bold">ANALYTICS</span>
+                </span>
+                <div>
+                    <h1 class="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+                        Аудит Закупок и Ценовой Радар HoReCa
+                        <span class="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">Управленческий анализ</span>
+                    </h1>
+                </div>
+            </div>
+
+            <!-- Контролы: Заведение, Период, Синхронизация -->
+            <div class="flex flex-wrap items-center gap-3">
+                <!-- Выбор заведения -->
+                <div class="flex items-center gap-2 bg-[#090d16] border border-slate-800 rounded-xl px-3 py-1.5">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Заведение:</span>
+                    <select id="restaurant-select" onchange="loadAudit()" class="bg-transparent text-xs font-semibold text-white outline-none cursor-pointer">
+                        <option value="">Загрузка заведений...</option>
+                    </select>
+                </div>
+
+                <!-- Кнопка Добавить заведение -->
+                <button onclick="openAddRestaurantModal()" class="bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-semibold px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-sm shadow-emerald-900/30" title="Подключить новое заведение через iiko RMS">
+                    <span>➕</span>
+                    <span>Добавить заведение</span>
+                </button>
+
+                <!-- Выбор периода -->
+                <div class="flex items-center gap-2 bg-[#090d16] border border-slate-800 rounded-xl px-3 py-1.5">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Период:</span>
+                    <select id="period-select" onchange="loadAudit()" class="bg-transparent text-xs font-semibold text-white outline-none cursor-pointer">
+                        <option value="30">30 дней</option>
+                        <option value="60" selected>60 дней</option>
+                        <option value="90">90 дней</option>
+                    </select>
+                </div>
+
+                <!-- Кнопка Синхронизации из iiko -->
+                <button id="btn-sync" onclick="syncIiko()" class="bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-white text-xs font-semibold px-4 py-2 rounded-xl border border-slate-700/80 transition-all flex items-center gap-2 shadow-sm">
+                    <span id="sync-icon">🔄</span>
+                    <span id="sync-text">Синхронизировать из iiko</span>
+                </button>
+
+                <!-- Кнопка Сформировать PDF-отчет -->
+                <button id="btn-open-report" onclick="openReportModal()" class="bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 active:from-brand-700 active:to-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-indigo-950/40 cursor-pointer" title="Сформировать управленческий PDF-отчет для руководителя / клиента">
+                    <span>📄</span>
+                    <span>Сформировать отчет (PDF)</span>
+                </button>
+
+                <!-- Freemium Режим: Демо vs Полный -->
+                <div class="flex items-center gap-1 bg-[#090d16] p-1 rounded-xl border border-slate-800 text-xs">
+                    <button id="btn-mode-demo" onclick="setAuditMode('demo')" class="px-2.5 py-1 rounded-lg text-xs font-bold transition-all bg-amber-500/20 text-amber-300 border border-amber-500/40 cursor-pointer" title="Демонстрационный режим: Top-3 позиции открыты, остальные скрыты">
+                        🔒 Демо (Топ-3)
+                    </button>
+                    <button id="btn-mode-full" onclick="setAuditMode('full')" class="px-2.5 py-1 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-white cursor-pointer" title="Полный аудит всех позиций">
+                        🔓 Полный аудит
+                    </button>
+                </div>
+
+                <!-- Профиль Супер-администратора и выход -->
+                <div id="user-badge-container" class="flex items-center gap-2 bg-[#090d16] border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs">
+                    <span class="text-indigo-400 font-bold" id="user-login-name">admin</span>
+                    <span class="text-[9px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded font-extrabold">SUPERADMIN</span>
+                    <button onclick="logout()" class="text-slate-400 hover:text-rose-400 ml-1 font-bold cursor-pointer transition-colors" title="Выйти из системы">🚪</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ОСНОВНОЙ КОНТЕНТ -->
+    <main class="flex-1 max-w-[1750px] w-full mx-auto p-6 space-y-6 overflow-y-auto">
+
+        <!-- 1. СВОДНЫЙ БАННЕР ФИНАНСОВЫХ ПОКАЗАТЕЛЕЙ (ТОЛЬКО РЕАЛЬНЫЕ ДАННЫЕ) -->
+        <section id="executive-banner" class="shimmer-card border border-rose-500/30 rounded-3xl p-6 sm:p-8 shadow-[0_10px_35px_rgba(225,29,72,0.15)] relative overflow-hidden">
+            <div class="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                <div class="space-y-2">
+                    <div id="banner-tag" class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-widest bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                        ⚠️ Выявлен перерасход бюджета закупки
+                    </div>
+                    <h2 class="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                        Расчетная переплата поставщикам: 
+                        <span id="total-loss-rub" class="text-rose-400 underline decoration-rose-500/50 underline-offset-8">0 ₽</span> 
+                        <span class="text-sm font-semibold text-slate-400">/ месяц</span>
+                    </h2>
+                    <p id="banner-subtitle" class="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                        Прямая разница между фактическими ценами закупки заведения и рыночной медианой цен других заведений по сопоставимым объемам из реальных накладных iiko.
+                    </p>
+                </div>
+
+                <!-- Карточки управленческих показателей -->
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-center">
+                    <div class="bg-[#0B0F19]/80 border border-slate-800 rounded-2xl p-3.5 space-y-1">
+                        <div class="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">Годовой перерасход</div>
+                        <div id="metric-yearly-loss" class="text-sm sm:text-base font-black text-rose-400">0 ₽</div>
+                        <div class="text-[8.5px] text-slate-500">Потенциал возврата прибыли</div>
+                    </div>
+                    <div class="bg-[#0B0F19]/80 border border-slate-800 rounded-2xl p-3.5 space-y-1">
+                        <div class="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">Доля в закупках</div>
+                        <div id="metric-overpay-pct" class="text-sm sm:text-base font-black text-amber-400">0.0%</div>
+                        <div class="text-[8.5px] text-slate-500">% от бюджета закупа</div>
+                    </div>
+                    <div class="bg-[#0B0F19]/80 border border-slate-800 rounded-2xl p-3.5 space-y-1">
+                        <div class="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">Объем закупок</div>
+                        <div id="metric-purchases-rub" class="text-sm sm:text-base font-black text-slate-200">0 ₽</div>
+                        <div class="text-[8.5px] text-slate-500">Среднемесячный закуп</div>
+                    </div>
+                    <div class="bg-[#0B0F19]/80 border border-slate-800 rounded-2xl p-3.5 space-y-1">
+                        <div class="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">Концентрация HHI</div>
+                        <div id="metric-hhi" class="text-sm sm:text-base font-black text-indigo-400">0</div>
+                        <div id="metric-hhi-status" class="text-[8.5px] text-slate-400 leading-tight">Расчет...</div>
+                    </div>
+                    <div class="bg-[#0B0F19]/80 border border-slate-800 rounded-2xl p-3.5 space-y-1">
+                        <div class="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">Ценовой спред</div>
+                        <div id="metric-supplier-spread" class="text-sm sm:text-base font-black text-purple-400">0 ₽</div>
+                        <div class="text-[8.5px] text-slate-500">Внутрипоставочный резерв</div>
+                    </div>
+                    <div class="bg-[#0B0F19]/80 border border-slate-800 rounded-2xl p-3.5 space-y-1">
+                        <div class="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">Розница / Чеки</div>
+                        <div id="metric-off-contract" class="text-sm sm:text-base font-black text-amber-300">0 ₽</div>
+                        <div id="metric-off-contract-sub" class="text-[8.5px] text-slate-500">Оперативные издержки</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-4 pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-400">
+                <div class="flex items-center gap-4">
+                    <span>📦 Обработано накладных: <b id="stat-invoices" class="text-white">0</b></span>
+                    <span>🏷️ Проанализировано позиций: <b id="stat-items" class="text-white">0</b></span>
+                </div>
+                <div class="text-[11px] text-slate-500">
+                    Данные получены напрямую из выгрузок приходных накладных iiko RMS
+                </div>
+            </div>
+        </section>
+
+        <!-- 1.1 AI ЭКСПЕРТИЗА: ЗАКЛЮЧЕНИЕ УПРАВЛЕНЧЕСКОГО АУДИТОРА -->
+        <section id="ai-auditor-section" class="bg-[#111827] border border-indigo-500/30 rounded-2xl p-6 space-y-4 shadow-xl relative overflow-hidden">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+                            ЗАКЛЮЧЕНИЕ УПРАВЛЕНЧЕСКОГО АУДИТОРА
+                        </h3>
+                        <p class="text-[11px] text-slate-400">Экспертный аналитический отчет на основе детерминированных финансовых метрик закупок</p>
+                    </div>
+                </div>
+                <button onclick="copyAuditorSummary()" class="text-[11px] text-slate-400 hover:text-white px-2.5 py-1 bg-slate-800/80 hover:bg-slate-700 rounded-lg border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer" title="Скопировать заключение в буфер обмена">
+                    <span id="copy-summary-text">Копировать</span>
+                </button>
+            </div>
+
+            <div id="ai-auditor-content" class="bg-[#090d16] border border-slate-800/90 rounded-xl p-5 text-xs text-slate-200 leading-relaxed font-sans whitespace-pre-line space-y-3">
+                <div class="text-slate-500 italic">Формирование управленческого заключения...</div>
+            </div>
+        </section>
+
+        <!-- 2. ИНТЕРАКТИВНЫЕ КОГОРТЫ ОБЪЕМА (ПЛАВАЮЩИЕ ПОЛЗУНКИ) -->
+        <section class="bg-[#111827] border border-slate-800 rounded-2xl p-6 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                <div>
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <span>⚖️ Настройка весовых когорт (Сравнение «Яблоко с Яблоком»)</span>
+                    </h3>
+                    <p class="text-xs text-slate-400">Цены сравниваются только внутри одного объема закупки. Двигайте ползунки для гибкой калибровки порогов.</p>
+                </div>
+                <button onclick="resetCohorts()" class="text-[11px] font-semibold text-slate-400 hover:text-white underline">
+                    Сбросить по умолчанию
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-1">
+                <!-- Когорта Small -->
+                <div class="bg-[#090d16] border border-slate-800/80 rounded-xl p-4 space-y-3">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-bold text-slate-300">Когорта Small (Малый объем)</span>
+                        <span id="label-small-tier" class="text-xs font-extrabold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">до 50 кг/мес</span>
+                    </div>
+                    <input type="range" id="slider-small" min="10" max="150" value="50" step="5" oninput="updateCohortSliders()" class="w-full accent-indigo-500 cursor-pointer">
+                    <div class="text-[10px] text-slate-500">Кофейни, бары, небольшие объемы закупки</div>
+                </div>
+
+                <!-- Когорта Medium -->
+                <div class="bg-[#090d16] border border-slate-800/80 rounded-xl p-4 space-y-3">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-bold text-slate-300">Когорта Medium (Средний объем)</span>
+                        <span id="label-medium-tier" class="text-xs font-extrabold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">50 - 200 кг/мес</span>
+                    </div>
+                    <input type="range" id="slider-medium" min="60" max="500" value="200" step="10" oninput="updateCohortSliders()" class="w-full accent-indigo-500 cursor-pointer">
+                    <div class="text-[10px] text-slate-500">Одиночные рестораны, стандартная HoReCa</div>
+                </div>
+
+                <!-- Когорта Large -->
+                <div class="bg-[#090d16] border border-slate-800/80 rounded-xl p-4 space-y-3">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-bold text-slate-300">Когорта Large (Крупный опт)</span>
+                        <span id="label-large-tier" class="text-xs font-extrabold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">свыше 200 кг/мес</span>
+                    </div>
+                    <div class="h-6 flex items-center text-[11px] font-semibold text-slate-400">
+                        ⚡ Сетевой опт и максимальные скидки от объема
+                    </div>
+                    <div class="text-[10px] text-slate-500">Сетевые заведения, фабрики-кухни</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. SPOTLIGHT: ТОП-3 КЛЮЧЕВЫЕ ПОЗИЦИИ ПЕРЕПЛАТ -->
+        <section class="space-y-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+                        <span>🔥 Топ-3 позиции с наибольшей суммой переплаты</span>
+                    </h3>
+                    <p class="text-xs text-slate-400">Товары, на которых заведение несет наибольшие финансовые потери в месяц</p>
+                </div>
+            </div>
+
+            <div id="top3-cards-container" class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                <div class="bg-[#111827] border border-slate-800 rounded-2xl p-6 text-center text-slate-500 text-xs">
+                    Загрузка аудита...
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. РЕЕСТР ПЕРЕПЛАТ И ЗАКУПОЧНЫХ ЦЕН -->
+        <section class="bg-[#111827] border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div>
+                    <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                        <span>📋 Реестр закупочных цен и переплат</span>
+                        <span id="table-total-badge" class="text-[10px] font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full">0 позиций</span>
+                        <span id="freemium-badge-mode" class="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full">DEMO: Топ-3</span>
+                    </h3>
+                    <p class="text-xs text-slate-400">Сравнение ваших закупочных цен с независимыми ресторанами рынка (срез рассчитан строго без текущего заведения)</p>
+                </div>
+
+                <!-- Фильтр-вкладки и поиск -->
+                <div class="flex flex-wrap items-center gap-2.5">
+                    <div class="bg-[#090d16] p-1 rounded-xl border border-slate-800 flex items-center gap-1 text-[11px] font-bold">
+                        <button id="tab-overpay" onclick="setFilterTab('overpay')" class="px-3 py-1 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-all flex items-center gap-1.5">
+                            <span>🔥 Переплаты</span>
+                            <span id="pill-overpay-cnt" class="text-[10px] bg-rose-500/30 px-1.5 py-0.2 rounded-full">0</span>
+                        </button>
+                        <button id="tab-all" onclick="setFilterTab('all')" class="px-3 py-1 rounded-lg text-slate-400 hover:text-white transition-all flex items-center gap-1.5">
+                            <span>🌐 Все товары</span>
+                            <span id="pill-all-cnt" class="text-[10px] bg-slate-800 px-1.5 py-0.2 rounded-full">0</span>
+                        </button>
+                        <button id="tab-under" onclick="setFilterTab('under')" class="px-3 py-1 rounded-lg text-slate-400 hover:text-emerald-400 transition-all flex items-center gap-1.5">
+                            <span>✓ Выгоднее рынка</span>
+                            <span id="pill-under-cnt" class="text-[10px] bg-slate-800 px-1.5 py-0.2 rounded-full">0</span>
+                        </button>
+                    </div>
+
+                    <div class="relative">
+                        <input type="text" id="search-input" oninput="filterTable()" placeholder="Поиск по товару, категории или поставщику..." class="w-64 sm:w-72 bg-[#090d16] border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:border-brand-500 transition-all">
+                        <span class="absolute right-3 top-2 text-slate-500 text-xs">🔍</span>
+                    </div>
+
+                    <button type="button" onclick="openReportModal()" class="px-3 py-1.5 bg-brand-500/10 hover:bg-brand-500/20 text-brand-300 border border-brand-500/30 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs" title="Сформировать отчет в PDF">
+                        <span>📄</span>
+                        <span class="hidden sm:inline">Экспорт отчета</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Freemium Teaser Card (активен в demo-режиме) -->
+            <div id="freemium-teaser-banner" class="hidden bg-gradient-to-r from-amber-500/15 via-brand-500/10 to-indigo-500/15 border border-amber-500/35 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-lg shrink-0">🔒</div>
+                    <div>
+                        <div class="font-bold text-white text-xs sm:text-sm flex items-center gap-2">
+                            <span>Демо-версия: раскрыты Топ-3 переплаты</span>
+                            <span id="freemium-revealed-sum" class="text-emerald-400 font-extrabold">0 ₽/мес</span>
+                        </div>
+                        <div class="text-[11px] text-slate-300 mt-1 flex items-center gap-2 flex-wrap">
+                            <span>В остальных <b id="freemium-hidden-cnt" class="text-amber-300">0</b> скрытых строках переплата:</span>
+                            <span class="text-rose-400 font-bold bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded text-[10.5px]">к средней: <span id="freemium-hidden-sum">0 ₽/мес</span></span>
+                            <span class="text-amber-300 font-bold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded text-[10.5px]">к минимуму (макс): <span id="freemium-hidden-min-sum">0 ₽/мес</span></span>
+                        </div>
+                    </div>
+                </div>
+                <button onclick="setAuditMode('full')" class="whitespace-nowrap px-4 py-2 bg-gradient-to-r from-amber-500 to-brand-500 hover:from-amber-400 hover:to-brand-400 text-black font-extrabold text-xs rounded-xl shadow-lg transition-all cursor-pointer">
+                    🔓 Открыть полный отчет
+                </button>
+            </div>
+
+            <!-- Таблица данных -->
+            <div class="overflow-x-auto rounded-xl border border-slate-800/80">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-[#090d16] text-[10px] font-bold uppercase text-slate-400 tracking-wider border-b border-slate-800">
+                        <tr>
+                            <th class="py-3 px-3">#</th>
+                            <th class="py-3 px-4">Товар в iiko</th>
+                            <th class="py-3 px-3">Категория сырья</th>
+                            <th class="py-3 px-3">Текущий поставщик</th>
+                            <th class="py-3 px-3 text-right">Объем / мес</th>
+                            <th class="py-3 px-3 text-center">Когорта</th>
+                            <th class="py-3 px-3 text-right">Ваша ср. цена</th>
+                            <th class="py-3 px-4 text-right">Рынок (Медиана / Ср / Мин)</th>
+                            <th class="py-3 px-3 text-center">Диапазон рынка</th>
+                            <th class="py-3 px-3 text-right">Разница</th>
+                            <th class="py-3 px-3 text-right">Переплата / мес</th>
+                            <th class="py-3 px-3 text-center">Заведения</th>
+                        </tr>
+                    </thead>
+                    <tbody id="items-table-body" class="divide-y divide-slate-800/60 bg-[#111827]">
+                        <tr>
+                            <td colspan="12" class="py-8 text-center text-slate-500 text-xs">
+                                Загрузка позиций реестра...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- МОДАЛЬНОЕ ОКНО СИНХРОНИЗАЦИИ IIKO -->
+    <div id="sync-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm hidden">
+        <div class="bg-[#111827] border border-slate-800 rounded-2xl p-6 max-w-md w-full mx-4 space-y-4 shadow-2xl">
+            <h4 class="text-sm font-bold text-white flex items-center gap-2">
+                <span>🔄 Синхронизация накладных iiko RMS</span>
+            </h4>
+            <div class="space-y-3 text-xs text-slate-300">
+                <p>
+                    Система сделает прямой экспорт всех приходных накладных через API iiko за выбранный период и рассчитает медианы цен рынка.
+                </p>
+                <div class="bg-[#090d16] border border-slate-800 rounded-xl p-3 space-y-2">
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Период выгрузки:</span>
+                        <span id="sync-period-label" class="font-bold text-white">60 дней</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Статус:</span>
+                        <span id="sync-status-msg" class="font-bold text-indigo-400">Готов к запуску</span>
+                    </div>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 pt-2">
+                <button onclick="closeSyncModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold">
+                    Отмена
+                </button>
+                <button id="btn-run-sync" onclick="runIikoSync()" class="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg">
+                    Запустить выгрузку
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ ЗАВЕДЕНИЯ -->
+    <div id="add-restaurant-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm hidden">
+        <div class="bg-[#111827] border border-slate-800 rounded-2xl p-6 max-w-lg w-full mx-4 space-y-5 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h4 class="text-sm font-bold text-white flex items-center gap-2">
+                    <span>➕ Подключение нового заведения (iiko RMS)</span>
+                </h4>
+                <button onclick="closeAddRestaurantModal()" class="text-slate-500 hover:text-white text-sm">✕</button>
+            </div>
+
+            <div class="space-y-4 text-xs">
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Название заведения *</label>
+                    <input type="text" id="add-rest-name" placeholder="например: Гастробар Лес или Пиццерия Марио" class="w-full bg-[#090d16] border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 outline-none focus:border-brand-500">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Город</label>
+                        <input type="text" id="add-rest-city" value="Пермь" class="w-full bg-[#090d16] border border-slate-800 rounded-xl px-3 py-2 text-white outline-none focus:border-brand-500">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Концепция / Кухня</label>
+                        <select id="add-rest-cuisine" class="w-full bg-[#090d16] border border-slate-800 rounded-xl px-3 py-2 text-white outline-none focus:border-brand-500 cursor-pointer">
+                            <option value="Паназиатская">Паназиатская / Суши</option>
+                            <option value="Итальянская">Итальянская / Пицца</option>
+                            <option value="Европейская" selected>Европейская / Смешанная</option>
+                            <option value="Русская">Русская / Традиционная</option>
+                            <option value="Кофейня">Кофейня / Десерты</option>
+                            <option value="Фастфуд / Бургеры">Фастфуд / Бургеры</option>
+                            <option value="Бар / Паб">Бар / Паб</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Адрес сервера iiko RMS (API Host) *</label>
+                    <input type="text" id="add-rest-host" placeholder="https://название-сети.iiko.it" class="w-full bg-[#090d16] border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 outline-none focus:border-brand-500">
+                    <span class="text-[10px] text-slate-500">URL облачного сервера iiko RMS (например, https://my-rest.iiko.it)</span>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Логин в iiko RMS *</label>
+                        <input type="text" id="add-rest-login" placeholder="buh" class="w-full bg-[#090d16] border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 outline-none focus:border-brand-500">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Пароль в iiko RMS *</label>
+                        <input type="password" id="add-rest-pass" placeholder="••••••••" class="w-full bg-[#090d16] border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 outline-none focus:border-brand-500">
+                    </div>
+                </div>
+
+                <div id="add-rest-msg" class="hidden p-3 rounded-xl text-xs font-semibold"></div>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-2 border-t border-slate-800">
+                <button onclick="closeAddRestaurantModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold">
+                    Отмена
+                </button>
+                <button id="btn-submit-add-rest" onclick="submitAddRestaurant()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-emerald-900/30 flex items-center gap-1.5">
+                    <span>Подключить и загрузить</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО СРЕЗА ПО ДРУГИМ ЗАВЕДЕНИЯМ (БУРГЕР-МЕНЮ) -->
+    <div id="peers-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm hidden p-4">
+        <div class="bg-[#111827] border border-slate-800 rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <!-- Шапка модалки -->
+            <div class="p-6 border-b border-slate-800 flex justify-between items-start bg-[#0d121f]">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2.5 py-0.5 rounded-full border border-indigo-500/20">Рыночный срез</span>
+                        <span id="pm-brand" class="text-xs font-bold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded hidden"></span>
+                        <span id="pm-tier" class="text-[10px] font-semibold text-slate-400 bg-slate-800 px-2 py-0.5 rounded"></span>
+                    </div>
+                    <h3 id="pm-product-name" class="text-lg font-black text-white mt-1.5">Название товара</h3>
+                    <p id="pm-category" class="text-xs text-slate-400 mt-0.5">Категория сырья</p>
+                </div>
+                <button onclick="closePeersModal()" class="text-slate-400 hover:text-white text-2xl font-bold px-2 py-1 transition-colors">✕</button>
+            </div>
+
+            <!-- Тело модалки -->
+            <div class="p-6 overflow-y-auto space-y-6 text-xs">
+                <!-- Карточки текущей цены и рыночных ориентиров -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <!-- Текущее заведение -->
+                    <div class="bg-[#090d16] border border-slate-800 rounded-xl p-4 space-y-1.5">
+                        <div class="text-[10px] uppercase font-bold text-slate-400 flex items-center justify-between">
+                            <span>Ваше заведение</span>
+                            <span class="w-2 h-2 rounded-full bg-rose-400"></span>
+                        </div>
+                        <div id="pm-my-price" class="text-lg font-black text-rose-400">0.00 ₽</div>
+                        <div id="pm-my-supplier" class="text-[11px] text-slate-300 font-medium truncate">Поставщик: —</div>
+                        <div id="pm-my-vol" class="text-[10px] text-slate-500">0 кг / мес</div>
+                    </div>
+
+                    <!-- Средняя по рынку (БЕЗ текущего заведения) -->
+                    <div class="bg-[#090d16] border border-indigo-500/30 rounded-xl p-4 space-y-1.5">
+                        <div class="text-[10px] uppercase font-bold text-indigo-400 flex items-center justify-between">
+                            <span>Средняя рынка</span>
+                            <span class="text-[9px] text-slate-400 font-medium">без текущего</span>
+                        </div>
+                        <div id="pm-market-avg" class="text-lg font-black text-white">0.00 ₽</div>
+                        <div class="text-[10px] text-slate-400 leading-snug">Средняя цена всех остальных ресторанов</div>
+                    </div>
+
+                    <!-- Самая низкая в когорте -->
+                    <div class="bg-[#090d16] border border-emerald-500/30 rounded-xl p-4 space-y-1.5">
+                        <div class="text-[10px] uppercase font-bold text-emerald-400 flex items-center justify-between">
+                            <span>Лучшая цена</span>
+                            <span class="text-[9px] text-emerald-500/80 font-medium">в когорте</span>
+                        </div>
+                        <div id="pm-market-min" class="text-lg font-black text-emerald-400">0.00 ₽</div>
+                        <div id="pm-min-diff" class="text-[10px] text-emerald-400 font-semibold leading-snug">Потенциал экономии: —</div>
+                    </div>
+
+                    <!-- Медиана рынка -->
+                    <div class="bg-[#090d16] border border-slate-800 rounded-xl p-4 space-y-1.5">
+                        <div class="text-[10px] uppercase font-bold text-slate-400 flex items-center justify-between">
+                            <span>Медиана рынка</span>
+                            <span class="text-[9px] text-slate-500 font-medium">50% рынка</span>
+                        </div>
+                        <div id="pm-market-median" class="text-lg font-black text-slate-200">0.00 ₽</div>
+                        <div id="pm-market-p2575" class="text-[10px] text-slate-500 leading-snug">Диапазон нормы: —</div>
+                    </div>
+                </div>
+
+                <!-- Таблица других заведений -->
+                <div class="space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <h4 class="text-xs font-bold text-white flex items-center gap-2">
+                            <span>🏛️ Независимые заведения с этим товаром в базе</span>
+                            <span id="pm-peers-count" class="text-[10px] text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-full font-bold">0</span>
+                        </h4>
+                        <span class="text-[11px] text-slate-500">Отсортировано по лучшей цене</span>
+                    </div>
+
+                    <div class="overflow-x-auto rounded-xl border border-slate-800/80">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-[#090d16] text-[10px] font-bold uppercase text-slate-400 tracking-wider border-b border-slate-800">
+                                <tr>
+                                    <th class="py-2.5 px-3">Заведение</th>
+                                    <th class="py-2.5 px-3">Город</th>
+                                    <th class="py-2.5 px-3">Поставщик в накладных</th>
+                                    <th class="py-2.5 px-3 text-right">Цена закупки</th>
+                                    <th class="py-2.5 px-3 text-right">Разница с вами</th>
+                                    <th class="py-2.5 px-3 text-right">Объем / мес</th>
+                                    <th class="py-2.5 px-3 text-center">Когорта</th>
+                                    <th class="py-2.5 px-3 text-center">Посл. дата</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pm-peers-tbody" class="divide-y divide-slate-800/60 bg-[#111827]">
+                                <!-- Строки заведений -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Подвал модалки -->
+            <div class="p-4 border-t border-slate-800 bg-[#090d16] flex justify-between items-center text-[11px] text-slate-500">
+                <span>* Данные агрегируются автоматически из реальных приходных накладных iiko RMS</span>
+                <button onclick="closePeersModal()" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all">
+                    Закрыть
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ФОРМИРОВАНИЯ И ПРЕДПРОСМОТРА PDF-ОТЧЕТА -->
+    <div id="report-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm hidden p-2 sm:p-4 overflow-y-auto">
+        <div class="bg-[#111827] border border-slate-800 rounded-2xl max-w-5xl w-full max-h-[96vh] flex flex-col shadow-2xl overflow-hidden my-auto">
+            
+            <!-- Шапка модалки управления отчетом (скрывается при печати) -->
+            <div id="report-modal-header" class="p-5 border-b border-slate-800 flex flex-wrap justify-between items-center gap-3 bg-[#0d121f]">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-black tracking-widest text-brand-400 bg-brand-500/10 px-2.5 py-0.5 rounded-full border border-brand-500/20">PDF EXPORT</span>
+                        <h3 class="text-base font-bold text-white">Генератор управленческого аудита закупок</h3>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-0.5">Выберите тариф/тип отчета и параметры визуализации для печати или сохранения</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="downloadReportPdf()" id="btn-download-pdf" class="px-4 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer">
+                        <span>Скачать PDF</span>
+                    </button>
+                    <button onclick="printReport()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer" title="Открыть диалог печати браузера (Печать / Сохранить в PDF)">
+                        <span>Печать / Сохранить</span>
+                    </button>
+                    <button onclick="closeReportModal()" class="text-slate-400 hover:text-white text-2xl font-bold px-2 py-1 transition-colors leading-none cursor-pointer">✕</button>
+                </div>
+            </div>
+
+            <!-- Панель настроек типа отчета (скрывается при печати) -->
+            <div id="report-modal-controls" class="px-5 py-3.5 bg-[#090d16] border-b border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs">
+                <!-- Селектор тарифа/типа отчета -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Тип отчета:</span>
+                    
+                    <button type="button" id="rep-type-demo" onclick="setReportType('demo')" class="px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm cursor-pointer">
+                        <span>Демо</span>
+                        <span class="text-[9px] font-normal text-amber-200/80">(3 поз. + блюр)</span>
+                    </button>
+
+                    <button type="button" id="rep-type-full" onclick="setReportType('full')" class="px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 text-slate-400 hover:text-white border border-transparent hover:border-slate-700 cursor-pointer">
+                        <span>Полный</span>
+                        <span class="text-[9px] font-normal text-slate-400">(Топ-10 без блюра)</span>
+                    </button>
+
+                    <button type="button" id="rep-type-premium" onclick="setReportType('premium')" class="px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 text-slate-400 hover:text-white border border-transparent hover:border-slate-700 cursor-pointer">
+                        <span>Премиум</span>
+                        <span class="text-[9px] font-normal text-slate-400">(Все переплаты)</span>
+                    </button>
+                </div>
+
+                <!-- Селектор формата отображения -->
+                <div class="flex items-center gap-1.5 bg-slate-900 border border-slate-800 p-1 rounded-xl">
+                    <button type="button" id="rep-mode-cards" onclick="setReportMode('cards')" class="px-3 py-1 rounded-lg text-xs font-bold transition-all bg-indigo-600 text-white shadow-xs cursor-pointer flex items-center gap-1.5">
+                        <span>Карточки с поставщиками</span>
+                    </button>
+                    <button type="button" id="rep-mode-table" onclick="setReportMode('table')" class="px-3 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition-all cursor-pointer flex items-center gap-1.5">
+                        <span>Сводная таблица</span>
+                    </button>
+                </div>
+
+                <!-- Чекбоксы компонентов -->
+                <div class="flex items-center gap-4 text-[11px] text-slate-300">
+                    <label class="flex items-center gap-1.5 cursor-pointer select-none">
+                        <input type="checkbox" id="rep-opt-market-chart" checked onchange="toggleReportOption('marketChart')" class="rounded border-slate-700 bg-slate-800 text-brand-500 focus:ring-0">
+                        <span>Кривая цен рынка</span>
+                    </label>
+                    <label class="flex items-center gap-1.5 cursor-pointer select-none">
+                        <input type="checkbox" id="rep-opt-category-chart" checked onchange="toggleReportOption('categoryChart')" class="rounded border-slate-700 bg-slate-800 text-brand-500 focus:ring-0">
+                        <span>Пайчарт по категориям</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Область предпросмотра листа отчета A4 -->
+            <div class="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-950/60 flex justify-center items-start">
+                
+                <!-- САМ ПЕЧАТНЫЙ ДОКУМЕНТ A4 (БЕЛЫЙ ФОН, ЧЕТКИЙ ТЕКСТ) -->
+                <div id="report-document-sheet" class="w-[750px] max-w-[750px] bg-white text-slate-900 rounded-xl shadow-2xl p-5 space-y-4 text-left border border-slate-200 shrink-0 h-auto box-border">
+                    
+                    <!-- Шапка листа -->
+                    <div class="flex justify-between items-start border-b border-slate-200 pb-3">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs font-black tracking-widest text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded font-mono">QA2A ANALYTICS</span>
+                                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Аудит Закупок и Ценовой Радар HoReCa</span>
+                            </div>
+                            <h1 class="text-lg font-black text-slate-900 tracking-tight mt-1">ОТЧЕТ ПО АУДИТУ ЗАКУПОЧНЫХ ЦЕН И РЕЗЕРВАМ ЭКОНОМИИ</h1>
+                            <div class="text-[11px] text-slate-600 mt-0.5 flex flex-wrap items-center gap-2.5">
+                                <span>Заведение: <strong id="rep-sheet-rest" class="text-slate-900">—</strong></span>
+                                <span>•</span>
+                                <span>Город: <strong id="rep-sheet-city" class="text-slate-900">Пермь</strong></span>
+                                <span>•</span>
+                                <span>Период анализа: <strong id="rep-sheet-period" class="text-slate-900">60 дней</strong></span>
+                            </div>
+                        </div>
+                        <div class="text-right space-y-1">
+                            <div id="rep-sheet-badge" class="inline-block px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300">
+                                ДЕМО-ОТЧЕТ (3 ПОЗИЦИИ)
+                            </div>
+                            <div class="text-[9.5px] text-slate-400 font-medium" id="rep-sheet-date">Дата: 01.10.2026</div>
+                        </div>
+                    </div>
+
+                    <!-- 4 Ключевые управленческие метрики -->
+                    <div class="grid grid-cols-4 gap-2.5 text-center avoid-break">
+                        <div class="bg-rose-50 border border-rose-200 rounded-xl p-2.5 space-y-0.5">
+                            <div class="text-[8.5px] font-bold text-rose-700 uppercase tracking-wider">Перерасход к средней рынка</div>
+                            <div id="rep-sheet-monthly" class="text-base font-black text-rose-600">-0 ₽</div>
+                            <div id="rep-sheet-yearly" class="text-[7.5px] text-rose-500 font-medium">-0 ₽ / год</div>
+                        </div>
+                        <div class="bg-amber-50 border border-amber-200 rounded-xl p-2.5 space-y-0.5">
+                            <div class="text-[8.5px] font-bold text-amber-800 uppercase tracking-wider">Потенциал к минимуму когорты</div>
+                            <div id="rep-sheet-min-monthly" class="text-base font-black text-amber-700">-0 ₽</div>
+                            <div id="rep-sheet-min-yearly" class="text-[7.5px] text-amber-600 font-medium">-0 ₽ / год (макс. резерв)</div>
+                        </div>
+                        <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-2.5 space-y-0.5">
+                            <div class="text-[8.5px] font-bold text-indigo-700 uppercase tracking-wider">Доля потерь в закупках</div>
+                            <div id="rep-sheet-pct" class="text-base font-black text-indigo-700">0.0%</div>
+                            <div id="rep-sheet-pct-sub" class="text-[7.5px] text-indigo-500 font-medium">% от бюджета закупок</div>
+                        </div>
+                        <div class="bg-slate-50 border border-slate-200 rounded-xl p-2.5 space-y-0.5">
+                            <div class="text-[8.5px] font-bold text-slate-600 uppercase tracking-wider">Концентрация HHI</div>
+                            <div id="rep-sheet-hhi" class="text-base font-black text-slate-800">0</div>
+                            <div id="rep-sheet-hhi-sub" class="text-[7.5px] text-slate-500 font-medium leading-tight">Риск поставок</div>
+                        </div>
+                    </div>
+
+                    <!-- Заключение управленческого аудитора в PDF отчете -->
+                    <div id="rep-sheet-ai-auditor-box" class="border border-indigo-200 bg-indigo-50/40 rounded-xl p-3.5 space-y-1.5 avoid-break">
+                        <div class="flex items-center justify-between border-b border-indigo-100 pb-1.5">
+                            <span class="text-[10px] font-black uppercase tracking-wider text-indigo-900">
+                                Экспертное заключение управленческого аудитора
+                            </span>
+                        </div>
+                        <div id="rep-sheet-ai-text" class="text-[9.5px] text-slate-800 leading-relaxed font-sans whitespace-pre-line space-y-1">
+                        </div>
+                    </div>
+
+                    <!-- Блок графиков (Кривая рынка и Пайчарт) -->
+                    <div id="rep-charts-wrapper" class="grid grid-cols-1 md:grid-cols-2 gap-3.5 avoid-break">
+                        <!-- График сравнения с рынком -->
+                        <div id="rep-market-chart-box" class="border border-slate-200 rounded-xl p-3 bg-slate-50/50">
+                            <div class="flex justify-between items-center mb-1">
+                                <h4 class="text-[10.5px] font-bold text-slate-800">Кривая цен закупки относительно рынка</h4>
+                                <span class="text-[8.5px] text-slate-500 font-medium">Топ переплат</span>
+                            </div>
+                            <div class="relative h-44 w-full">
+                                <canvas id="rep-chart-market"></canvas>
+                            </div>
+                            <div class="flex items-center justify-center gap-3 mt-1.5 text-[8.5px] font-bold text-slate-600">
+                                <span class="flex items-center gap-1"><span class="w-2.5 h-1.5 rounded-xs bg-rose-500 inline-block"></span> Ваша цена</span>
+                                <span class="flex items-center gap-1"><span class="w-2.5 h-1.5 rounded-xs bg-indigo-500 inline-block"></span> Средняя рынка</span>
+                                <span class="flex items-center gap-1"><span class="w-2.5 h-1.5 rounded-xs bg-emerald-500 inline-block"></span> Лучшая в когорте</span>
+                            </div>
+                        </div>
+
+                        <!-- Пайчарт распределения по категориям -->
+                        <div id="rep-category-chart-box" class="border border-slate-200 rounded-xl p-3 bg-slate-50/50">
+                            <div class="flex justify-between items-center mb-1">
+                                <h4 class="text-[10.5px] font-bold text-slate-800">Доли потерь по категориям продуктов</h4>
+                                <span class="text-[8.5px] text-slate-500 font-medium">Суммы переплат (₽)</span>
+                            </div>
+                            <div class="relative h-44 w-full">
+                                <canvas id="rep-chart-category"></canvas>
+                            </div>
+                            <div id="rep-category-legend-badges" class="flex flex-wrap items-center justify-center gap-1 mt-1 text-[8.5px] font-semibold text-slate-600">
+                                <!-- Заполняется динамически -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Детализация закупочных позиций -->
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-center border-b border-slate-200 pb-2">
+                            <div>
+                                <h4 class="text-xs font-black text-slate-900 uppercase tracking-wider">Детализация позиций и анализ поставщиков</h4>
+                                <p class="text-[9.5px] text-slate-500">Позиционный срез с разбивкой по всем поставщикам, актуальным ценам и резервам снижения фудкоста</p>
+                            </div>
+                            <span id="rep-sheet-count-label" class="text-[10px] text-indigo-700 font-bold bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg"></span>
+                        </div>
+
+                        <!-- Контейнер карточек позиций (Премиум вид) -->
+                        <div id="rep-sheet-cards-container" class="space-y-3.5">
+                            <!-- Заполняется динамически -->
+                        </div>
+
+                        <!-- Сводная таблица (если выбран табличный вид) -->
+                        <div id="rep-sheet-table-container" class="hidden rounded-lg border border-slate-200 overflow-hidden">
+                            <table class="w-full text-left text-[10px]">
+                                <thead class="bg-slate-100 text-[8.5px] font-bold uppercase text-slate-600 border-b border-slate-200">
+                                    <tr>
+                                        <th class="py-2 px-1.5 text-left w-[24px]">#</th>
+                                        <th class="py-2 px-2 text-left">Наименование</th>
+                                        <th class="py-2 px-2 text-left">Категория</th>
+                                        <th class="py-2 px-2 text-left">Поставщик</th>
+                                        <th class="py-2 px-2 text-right">Объем</th>
+                                        <th class="py-2 px-2 text-right">Ср. цена</th>
+                                        <th class="py-2 px-2 text-right">Рынок</th>
+                                        <th class="py-2 px-2 text-right">Мин.</th>
+                                        <th class="py-2 px-2 text-right">Разница</th>
+                                        <th class="py-2 px-2.5 text-right">Переплата</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="rep-sheet-tbody" class="divide-y divide-slate-100 text-[10px]">
+                                    <!-- Заполняется динамически -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Демо апселл-баннер -->
+                    <div id="rep-sheet-upsell-banner" class="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-3 text-center space-y-1.5 avoid-break">
+                        <div class="text-[11px] font-extrabold text-amber-900 flex items-center justify-center gap-1.5">
+                            <span>Позиции с 4 по <span id="rep-upsell-end-num">10</span> скрыты в Демо-версии отчета</span>
+                        </div>
+                        <div class="text-[10px] text-amber-900/90 max-w-lg mx-auto flex items-center justify-center gap-2 flex-wrap">
+                            <span>В скрытых строках выявлено переплат:</span>
+                            <span class="bg-amber-100 text-amber-950 border border-amber-300 font-bold px-2 py-0.5 rounded">к средней: <strong id="rep-upsell-hidden-sum">0 ₽</strong>/мес</span>
+                            <span class="bg-orange-100 text-orange-950 border border-orange-300 font-bold px-2 py-0.5 rounded">к минимуму (макс): <strong id="rep-upsell-hidden-min-sum">0 ₽</strong>/мес</span>
+                        </div>
+                        <p class="text-[9.5px] text-amber-800/80 max-w-lg mx-auto">
+                            В полном тарифе открываются точные наименования, артикулы, поставщики и готовый план переговоров.
+                        </p>
+                    </div>
+
+                    <!-- Блок «Методология и правила формирования финансового среза» -->
+                    <div id="rep-sheet-methodology" class="pt-3 border-t border-slate-200 space-y-2 text-slate-600 avoid-break">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[9.5px] font-black uppercase tracking-wider text-slate-800">
+                                Методология и правила формирования финансового среза
+                            </span>
+                            <span class="text-[8px] font-bold text-slate-400 font-mono tracking-wider">СТАНДАРТ АУДИТА QA2A</span>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-[8px] leading-relaxed bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+                            <div class="space-y-1.5">
+                                <div>
+                                    <strong class="text-slate-800 font-bold">1. Первичные данные:</strong> 
+                                    Анализ строится на фактических электронных приходных накладных iiko RMS за выбранный период. Хозяйственные, инвентарные и непрофильные расходы автоматически исключены.
+                                </div>
+                                <div>
+                                    <strong class="text-slate-800 font-bold">2. Принцип весовых когорт:</strong> 
+                                    Сравнение цен производится строго внутри сопоставимых объемов потребления (Small до 50 кг, Medium 50–200 кг, Large свыше 200 кг/мес), что исключает некорректное сравнение с оптом федеральных сетей.
+                                </div>
+                                <div>
+                                    <strong class="text-slate-800 font-bold">3. Изоляция базы сравнения:</strong> 
+                                    Рыночные показатели (средняя, медиана, минимум) рассчитываются по пулу независимых заведений города строго без учета текущего ресторана.
+                                </div>
+                            </div>
+                            <div class="space-y-1.5">
+                                <div>
+                                    <strong class="text-slate-800 font-bold">4. Двойная планка переплаты:</strong> 
+                                    <span class="text-rose-700 font-semibold">К средней рынка</span> — обоснованный перерасход относительно рыночной нормы; 
+                                    <span class="text-amber-800 font-semibold">К минимуму когорты</span> — максимальный потенциал экономии при лучших контрактах города.
+                                </div>
+                                <div>
+                                    <strong class="text-slate-800 font-bold">5. Индекс HHI (концентрация):</strong> 
+                                    Оценка риска монопольной зависимости от ключевых поставщиков по стандарту антимонопольного анализа (шкала 0–10 000). Значение выше 2 500 — критическая зависимость.
+                                </div>
+                                <div>
+                                    <strong class="text-slate-800 font-bold">6. Внеконтрактные закупки:</strong> 
+                                    Выявление розничных закупок и покупок по чекам с оценкой потерь на розничной наценке относительно оптовых контрактов.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="text-[7.5px] text-slate-400 flex justify-between items-center px-0.5">
+                            <span>* Сформировано платформой QA2A Analytics. Конфиденциальный аналитический отчет для руководства заведения.</span>
+                            <span class="font-mono">QA2A RMS PROCUREMENT AUDIT</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Подвал модалки (скрывается при печати) -->
+            <div id="report-modal-footer" class="p-4 border-t border-slate-800 bg-[#090d16] flex justify-between items-center text-xs">
+                <span class="text-slate-500 text-[11px]">Готово к экспорту в A4 / PDF</span>
+                <div class="flex items-center gap-3">
+                    <button onclick="closeReportModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold">
+                        Закрыть
+                    </button>
+                    <button onclick="downloadReportPdf()" class="px-5 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white rounded-xl font-bold shadow-lg shadow-indigo-950/40 flex items-center gap-1.5">
+                        <span>Скачать PDF файл</span>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Скрипт логики дашборда -->
+    <script>
+        let currentAudit = null;
+        let allItems = [];
+        let currentAuditMode = 'demo'; // 'demo' | 'full'
+
+        function getApiEndpoint(path) {
+            if (window.location.pathname.startsWith('/bugh-team/')) {
+                return '/bugh-team/api/analytics-service' + path;
+            }
+            return path;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initAuthAndLoad();
+        });
+
+        async function initAuthAndLoad() {
+            try {
+                const res = await fetch(getApiEndpoint('/api/analytics/me'));
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.authenticated && data.user && data.user.is_superuser) {
+                        const nameEl = document.getElementById('user-login-name');
+                        if (nameEl) nameEl.textContent = data.user.login || data.user.email;
+                        const authModal = document.getElementById('auth-modal');
+                        if (authModal) authModal.classList.add('hidden');
+                        loadRestaurants();
+                        return;
+                    }
+                }
+                showAuthModal();
+            } catch (e) {
+                showAuthModal();
+            }
+        }
+
+        function showAuthModal() {
+            const authModal = document.getElementById('auth-modal');
+            if (authModal) authModal.classList.remove('hidden');
+        }
+
+        async function submitLoginModal(e) {
+            e.preventDefault();
+            const login = document.getElementById('auth-login-input').value.trim();
+            const password = document.getElementById('auth-pass-input').value;
+            const errBox = document.getElementById('auth-error-box');
+            const submitBtn = document.getElementById('auth-submit-btn');
+
+            errBox.classList.add('hidden');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Вход...';
+
+            try {
+                const res = await fetch(getApiEndpoint('/api/analytics/login'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ login, password })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    errBox.textContent = data.error || 'Неверный логин или пароль';
+                    errBox.classList.remove('hidden');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Войти';
+                    return;
+                }
+
+                const nameEl = document.getElementById('user-login-name');
+                if (nameEl) nameEl.textContent = data.user.login || data.user.email;
+                const authModal = document.getElementById('auth-modal');
+                if (authModal) authModal.classList.add('hidden');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Войти';
+                loadRestaurants();
+            } catch (err) {
+                errBox.textContent = 'Ошибка соединения с сервером аутентификации';
+                errBox.classList.remove('hidden');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Войти';
+            }
+        }
+
+        async function logout() {
+            try {
+                await fetch(getApiEndpoint('/api/analytics/logout'), { method: 'POST' });
+            } catch (e) {}
+            window.location.reload();
+        }
+
+        function setAuditMode(mode) {
+            currentAuditMode = mode;
+            const btnDemo = document.getElementById('btn-mode-demo');
+            const btnFull = document.getElementById('btn-mode-full');
+            if (mode === 'demo') {
+                if (btnDemo) btnDemo.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition-all bg-amber-500/20 text-amber-300 border border-amber-500/40 cursor-pointer";
+                if (btnFull) btnFull.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-white cursor-pointer";
+            } else {
+                if (btnFull) btnFull.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition-all bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-pointer";
+                if (btnDemo) btnDemo.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-white cursor-pointer";
+            }
+            loadAudit();
+        }
+
+        function copyAuditorSummary() {
+            if (!currentAudit || !currentAudit.auditor_summary) return;
+            navigator.clipboard.writeText(currentAudit.auditor_summary).then(() => {
+                const icon = document.getElementById('copy-summary-icon');
+                const text = document.getElementById('copy-summary-text');
+                if (icon) icon.textContent = '✓';
+                if (text) text.textContent = 'Скопировано!';
+                setTimeout(() => {
+                    if (icon) icon.textContent = '📋';
+                    if (text) text.textContent = 'Копировать';
+                }, 2000);
+            });
+        }
+
+        async function loadRestaurants() {
+            try {
+                const res = await fetch(getApiEndpoint('/api/analytics/restaurants'));
+                if (res.status === 401 || res.status === 403) {
+                    showAuthModal();
+                    return;
+                }
+                if (!res.ok) throw new Error('Ошибка загрузки заведений');
+                const list = await res.json();
+                const sel = document.getElementById('restaurant-select');
+                sel.innerHTML = '';
+                list.forEach(r => {
+                    const opt = document.createElement('option');
+                    opt.value = r.id;
+                    opt.textContent = `${r.name} (${r.city})`;
+                    sel.appendChild(opt);
+                });
+                if (list.length > 0) {
+                    sel.value = list[0].id;
+                    loadAudit();
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function loadAudit() {
+            const restId = document.getElementById('restaurant-select').value;
+            if (!restId) return;
+
+            const days = document.getElementById('period-select').value || 60;
+            const sVal = document.getElementById('slider-small').value;
+            const mVal = document.getElementById('slider-medium').value;
+
+            try {
+                const url = getApiEndpoint(`/api/analytics/audit?restaurant_id=${restId}&days=${days}&small_threshold=${sVal}&medium_threshold=${mVal}&mode=${currentAuditMode}`);
+                const res = await fetch(url);
+                if (res.status === 401 || res.status === 403) {
+                    showAuthModal();
+                    return;
+                }
+                if (!res.ok) throw new Error('Ошибка API аудита');
+                currentAudit = await res.json();
+                renderAudit(currentAudit);
+            } catch (e) {
+                console.error('Сбой загрузки аудита:', e);
+            }
+        }
+
+        function renderAudit(data) {
+            if (!data) return;
+
+            // 1. Хедер-баннер (Реальные цифры)
+            if (data.other_restaurants_count === 0) {
+                document.getElementById('banner-tag').textContent = "ℹ️ Ожидание пула рынка";
+                document.getElementById('banner-tag').className = "inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-widest bg-blue-500/20 text-blue-300 border border-blue-500/40";
+                document.getElementById('total-loss-rub').textContent = "0 ₽";
+                document.getElementById('metric-yearly-loss').textContent = "0 ₽";
+                document.getElementById('metric-overpay-pct').textContent = "0.0%";
+                document.getElementById('banner-subtitle').textContent = "Сравнение заведения с самим собой отключено. Для объективного расчета переплат необходимо минимум 2 независимых заведения в системе.";
+            } else {
+                document.getElementById('banner-tag').textContent = "⚠️ Выявлен перерасход бюджета закупки";
+                document.getElementById('banner-tag').className = "inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-widest bg-rose-500/20 text-rose-300 border border-rose-500/40";
+                document.getElementById('total-loss-rub').textContent = formatRub(data.total_monthly_overpay_rub);
+                document.getElementById('metric-yearly-loss').textContent = formatRub(data.total_yearly_overpay_rub);
+                document.getElementById('metric-overpay-pct').textContent = `${data.overpay_budget_percent.toFixed(1)}%`;
+                document.getElementById('banner-subtitle').textContent = "Прямая разница между фактическими ценами закупки заведения и рыночной медианой цен других заведений по сопоставимым объемам.";
+            }
+
+            document.getElementById('metric-purchases-rub').textContent = formatRub(data.monthly_purchases_rub);
+            document.getElementById('metric-hhi').textContent = data.supplier_hhi;
+            document.getElementById('metric-hhi-status').textContent = data.supplier_hhi_status;
+
+            // 1.2 Дипломатические финансовые метрики (спреды и розница)
+            const spreadEl = document.getElementById('metric-supplier-spread');
+            if (spreadEl) spreadEl.textContent = formatRub(data.total_supplier_price_spread_rub || 0) + ' ₽';
+
+            const offContEl = document.getElementById('metric-off-contract');
+            if (offContEl) offContEl.textContent = formatRub(data.off_contract_spend_monthly_rub || 0) + ' ₽';
+            const offContSub = document.getElementById('metric-off-contract-sub');
+            if (offContSub) offContSub.textContent = `${(data.off_contract_spend_share_pct || 0).toFixed(1)}% от бюджета`;
+
+            // 1.3 AI Заключение управленческого аудитора
+            const aiContainer = document.getElementById('ai-auditor-content');
+            if (aiContainer) {
+                if (data.auditor_summary) {
+                    let formattedSummary = escapeHtml(data.auditor_summary)
+                        .replace(/1\. РЕЗЮМЕ АУДИТА:/g, '<strong class="text-indigo-300 block text-xs tracking-wide uppercase font-extrabold mb-1">1. Резюме аудита:</strong>')
+                        .replace(/2\. ФАКТОРЫ ФОРМИРОВАНИЯ РАЗРЫВА:/g, '<strong class="text-amber-300 block text-xs tracking-wide uppercase font-extrabold mt-3 mb-1">2. Факторы формирования разрыва:</strong>')
+                        .replace(/3\. РЕКОМЕНДАЦИИ ПО ОПТИМИЗАЦИИ:/g, '<strong class="text-emerald-300 block text-xs tracking-wide uppercase font-extrabold mt-3 mb-1">3. Рекомендации по оптимизации:</strong>');
+                    aiContainer.innerHTML = formattedSummary;
+                } else {
+                    aiContainer.innerHTML = '<span class="text-slate-500 italic">Сводное заключение аудитора формируется...</span>';
+                }
+            }
+
+            // 1.4 Freemium плашка и бейдж
+            const teaserBanner = document.getElementById('freemium-teaser-banner');
+            const badgeMode = document.getElementById('freemium-badge-mode');
+            if (data.audit_mode === 'demo') {
+                if (teaserBanner) teaserBanner.classList.remove('hidden');
+                if (badgeMode) {
+                    badgeMode.textContent = 'DEMO: Топ-3';
+                    badgeMode.className = 'text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full';
+                }
+                const revEl = document.getElementById('freemium-revealed-sum');
+                if (revEl) revEl.textContent = formatRub(data.revealed_items_overpay_rub || 0) + ' ₽/мес';
+                const hidEl = document.getElementById('freemium-hidden-sum');
+                if (hidEl) hidEl.textContent = formatRub(data.hidden_items_overpay_rub || 0) + ' ₽/мес';
+                const hidMinEl = document.getElementById('freemium-hidden-min-sum');
+                if (hidMinEl) hidMinEl.textContent = formatRub(data.hidden_items_overpay_vs_min_rub || 0) + ' ₽/мес';
+                const hidCntEl = document.getElementById('freemium-hidden-cnt');
+                if (hidCntEl) hidCntEl.textContent = data.hidden_positions_count || 0;
+            } else {
+                if (teaserBanner) teaserBanner.classList.add('hidden');
+                if (badgeMode) {
+                    badgeMode.textContent = 'ПОЛНЫЙ АУДИТ';
+                    badgeMode.className = 'text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full';
+                }
+            }
+
+            document.getElementById('stat-invoices').textContent = data.total_invoices_count || 0;
+            document.getElementById('stat-items').textContent = data.total_analyzed_positions || 0;
+
+            allItems = data.items_audit || [];
+
+            // 1.5 Обновляем счетчики на вкладках фильтрации
+            const overCnt = allItems.filter(it => it.is_overpay).length;
+            const allCnt = allItems.length;
+            const underCnt = allItems.filter(it => !it.is_overpay).length;
+            document.getElementById('pill-overpay-cnt').textContent = overCnt;
+            document.getElementById('pill-all-cnt').textContent = allCnt;
+            document.getElementById('pill-under-cnt').textContent = underCnt;
+
+            // 2. Рендер Топ-3 открытых карточек переплат
+            const top3Container = document.getElementById('top3-cards-container');
+            top3Container.innerHTML = '';
+
+            if (data.other_restaurants_count === 0) {
+                top3Container.innerHTML = `
+                    <div class="col-span-3 bg-[#111827] border border-indigo-500/30 rounded-2xl p-8 text-center space-y-3 shadow-lg">
+                        <div class="w-12 h-12 mx-auto rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-xl">🌐</div>
+                        <h4 class="text-sm font-bold text-white">Для расчета рыночных переплат требуется от 2-х независимых заведений</h4>
+                        <p class="text-xs text-slate-300 max-w-xl mx-auto leading-relaxed">
+                            В базе пока есть накладные только одного заведения (<b class="text-white">${escapeHtml(data.restaurant_name)}</b>). 
+                            Сравнение заведения с самим собой <b>отключено</b>. 
+                            Как только вы подключите второе и последующие заведения, здесь автоматически появится объективная рыночная медиана цен и расчет переплат.
+                        </p>
+                    </div>`;
+            } else {
+                const top3 = allItems.filter(it => it.is_overpay).slice(0, 3);
+                if (top3.length === 0) {
+                    top3Container.innerHTML = `
+                        <div class="col-span-3 bg-[#111827] border border-slate-800 rounded-2xl p-8 text-center text-slate-400 text-xs">
+                            <div class="font-bold text-emerald-400 mb-1">✓ Позиций с переплатой выше медианы рынка не обнаружено</div>
+                            <div>Цены закупки заведения находятся на уровне или ниже медианы рынка. Переключитесь на вкладку «Все товары» ниже, чтобы изучить все сопоставленные позиции.</div>
+                        </div>`;
+                } else {
+                    top3.forEach(it => {
+                        const card = document.createElement('div');
+                        card.className = "bg-[#111827] border border-slate-800/90 hover:border-slate-700/80 rounded-2xl p-5 shadow-lg flex flex-col justify-between space-y-4 transition-all";
+                        
+                        const badgeClass = it.is_commodity 
+                            ? "bg-blue-500/10 text-blue-400 border-blue-500/20" 
+                            : "bg-purple-500/10 text-purple-400 border-purple-500/20";
+                        const badgeText = it.is_commodity ? "Коммодити" : `Бренд: ${it.detected_brand || 'Премиум'}`;
+                        const peersCount = (it.market_peers && it.market_peers.length) || 0;
+
+                        card.innerHTML = `
+                            <div class="space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border ${badgeClass}">${badgeText}</span>
+                                    <span class="text-[10px] font-bold text-slate-500">${it.cohort_tier}</span>
+                                </div>
+                                <h4 class="text-sm font-bold text-white tracking-tight">${escapeHtml(it.product_name)}</h4>
+                                <div class="text-[10px] text-slate-400">
+                                    Категория: <span class="text-slate-300 font-semibold">${escapeHtml(it.canonical_category)}</span>
+                                    ${it.suppliers_count > 1 
+                                        ? ` · Поставщики: <span class="text-indigo-400 font-semibold">${escapeHtml(it.main_supplier || it.supplier_name)} (${Math.round(it.main_supplier_share || 0)}%) +${it.suppliers_count - 1}</span>` 
+                                        : (it.supplier_name ? ` · Поставщик: <span class="text-indigo-400 font-semibold">${escapeHtml(it.supplier_name)}</span>` : '')}
+                                </div>
+                            </div>
+
+                            <!-- Сравнение цен -->
+                            <div class="bg-[#090d16] border border-slate-800/80 rounded-xl p-3 grid grid-cols-2 gap-3 text-center">
+                                <div>
+                                    <div class="text-[9px] font-bold text-slate-500 uppercase">Ваша ср. цена</div>
+                                    <div class="text-sm font-black text-rose-400">${it.restaurant_price.toFixed(2)} ₽</div>
+                                    <div class="text-[9px] text-slate-500">${it.last_price > 0 ? `посл: ${it.last_price.toFixed(2)} ₽` : `за ${escapeHtml(it.unit)}`}</div>
+                                </div>
+                                <div>
+                                    <div class="text-[9px] font-bold text-slate-500 uppercase">Медиана рынка</div>
+                                    <div class="text-sm font-black text-emerald-400">${it.market_median_price.toFixed(2)} ₽</div>
+                                    <div class="text-[9px] text-slate-500">Диапазон: ${it.market_p25_price.toFixed(0)} – ${it.market_p75_price.toFixed(0)} ₽</div>
+                                </div>
+                            </div>
+
+                            <!-- Дополнительные рыночные ориентиры -->
+                            <div class="space-y-1.5 bg-[#090d16]/50 rounded-xl p-2.5 border border-slate-800/60 text-[11px]">
+                                <div class="flex justify-between items-center text-slate-400">
+                                    <span title="Средняя цена всех остальных ресторанов (без текущего заведения)">Средняя рынка (без вас):</span>
+                                    <div class="text-right">
+                                        <span class="font-bold text-indigo-300">${it.market_avg_price.toFixed(2)} ₽</span>
+                                        ${(it.restaurant_price - it.market_avg_price) > 0 ? `<span class="text-[9.5px] font-bold text-rose-400 ml-1.5">(+${(it.restaurant_price - it.market_avg_price).toFixed(2)} ₽ / +${(it.price_diff_percent_vs_avg || 0).toFixed(1)}%)</span>` : ''}
+                                    </div>
+                                </div>
+                                <div class="flex justify-between items-center text-slate-400">
+                                    <span title="Самая низкая зафиксированная цена в данной когорте">Лучшая цена в когорте:</span>
+                                    <div class="text-right">
+                                        <span class="font-bold text-emerald-400">${it.market_min_price.toFixed(2)} ₽</span>
+                                        ${(it.restaurant_price - it.market_min_price) > 0 ? `<span class="text-[9.5px] font-bold text-amber-400 ml-1.5">(+${(it.restaurant_price - it.market_min_price).toFixed(2)} ₽ / +${(it.price_diff_percent_vs_min || 0).toFixed(1)}%)</span>` : ''}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Финансовый эффект -->
+                            <div class="space-y-1.5 border-t border-slate-800/80 pt-3">
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-slate-400">Объем закупки:</span>
+                                    <span class="font-bold text-white">${formatVol(it.monthly_volume)} ${escapeHtml(it.unit)} / мес</span>
+                                </div>
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-slate-400">Переплата к средней:</span>
+                                    <span class="font-black text-rose-400">-${formatRub(it.monthly_overpay_vs_avg_rub || it.monthly_overpayment_rub)} / мес</span>
+                                </div>
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-slate-400">Резерв к минимуму:</span>
+                                    <span class="font-bold text-amber-400">-${formatRub(it.monthly_overpay_vs_min_rub || 0)} / мес</span>
+                                </div>
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-slate-400">Годовой перерасход:</span>
+                                    <span class="font-bold text-slate-300">-${formatRub(it.yearly_overpay_vs_avg_rub || it.yearly_overpayment_rub)} / год</span>
+                                </div>
+                                <button onclick="openPeersModalByRank(${it.rank})" class="w-full mt-2 py-2 px-3 bg-slate-800 hover:bg-slate-700 text-indigo-400 hover:text-white rounded-xl text-xs font-bold border border-slate-700/80 transition-all flex items-center justify-center gap-2">
+                                    <span>☰</span>
+                                    <span>Сравнить с другими заведениями (${peersCount})</span>
+                                </button>
+                            </div>
+                        `;
+                        top3Container.appendChild(card);
+                    });
+                }
+            }
+
+            // 3. Рендер реестра с учетом текущей вкладки и поиска
+            filterTable();
+        }
+
+        let currentFilterTab = 'overpay';
+
+        function setFilterTab(tab) {
+            currentFilterTab = tab;
+            const btnOver = document.getElementById('tab-overpay');
+            const btnAll = document.getElementById('tab-all');
+            const btnUnder = document.getElementById('tab-under');
+
+            [btnOver, btnAll, btnUnder].forEach(b => {
+                b.className = "px-3 py-1 rounded-lg text-slate-400 hover:text-white transition-all flex items-center gap-1.5";
+            });
+
+            if (tab === 'overpay') {
+                btnOver.className = "px-3 py-1 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-all flex items-center gap-1.5";
+            } else if (tab === 'all') {
+                btnAll.className = "px-3 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 transition-all flex items-center gap-1.5";
+            } else if (tab === 'under') {
+                btnUnder.className = "px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 transition-all flex items-center gap-1.5";
+            }
+
+            filterTable();
+        }
+
+        function renderTable(items) {
+            const tbody = document.getElementById('items-table-body');
+            tbody.innerHTML = '';
+            document.getElementById('table-total-badge').textContent = `${items.length} позиций`;
+
+            if (currentAudit && currentAudit.other_restaurants_count === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="12" class="py-12 text-center text-slate-400 text-xs">
+                            <div class="font-bold text-slate-300 mb-1">Сравнение цен отключено (в базе только 1 заведение)</div>
+                            <div>Рыночный пул формируется из независимых ресторанов. Подключите еще хотя бы одно заведение для появления аналитики переплат.</div>
+                        </td>
+                    </tr>`;
+                return;
+            }
+
+            if (items.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="12" class="py-10 text-center text-slate-400 text-xs">
+                            <div class="font-bold text-slate-300 mb-1">Позиций не найдено</div>
+                            <div class="text-slate-500">По выбранному фильтру или поисковому запросу ничего не найдено.</div>
+                        </td>
+                    </tr>`;
+                return;
+            }
+
+            items.forEach((it, idx) => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-800/40 transition-colors";
+                const origIdx = allItems.indexOf(it);
+                const isOver = it.is_overpay;
+                const diffUnit = it.restaurant_price - it.market_median_price;
+                const peersCount = (it.market_peers && it.market_peers.length) || 0;
+
+                let diffHtml = '';
+                let overpayHtml = '';
+                let myPriceClass = '';
+
+                const vsAvgRub = it.monthly_overpay_vs_avg_rub || it.monthly_overpayment_rub || 0;
+                const vsMinRub = it.monthly_overpay_vs_min_rub || 0;
+                const vsAvgDiffPct = it.price_diff_percent_vs_avg || it.price_diff_percent || 0;
+                const vsMinDiffPct = it.price_diff_percent_vs_min || 0;
+
+                if (isOver || vsAvgRub > 0 || vsMinRub > 0) {
+                    myPriceClass = 'font-black text-rose-400';
+                    diffHtml = `
+                        <div class="font-bold text-rose-400">+${vsAvgDiffPct.toFixed(1)}% <span class="text-[9px] text-slate-400">к ср</span></div>
+                        <div class="text-[10px] text-amber-400 font-semibold">+${vsMinDiffPct.toFixed(1)}% <span class="text-[9px] text-slate-500">к мин</span></div>`;
+                    overpayHtml = `
+                        <div class="font-black text-rose-400">-${formatRub(vsAvgRub)} ₽</div>
+                        <div class="text-[9.5px] font-bold text-amber-400">-${formatRub(vsMinRub)} ₽ (макс)</div>`;
+                } else {
+                    myPriceClass = 'font-black text-emerald-400';
+                    diffHtml = `
+                        <div class="font-bold text-emerald-400">${it.price_diff_percent.toFixed(1)}%</div>
+                        <div class="text-[10px] text-emerald-500/80 font-medium">✓ Выгоднее рынка</div>`;
+                    overpayHtml = `
+                        <span class="text-emerald-400 font-semibold text-[11px]">—</span>`;
+                }
+
+                let mainTableTrendHtml = '';
+                if (it.price_trend_note) {
+                    if (it.price_trend === 'down') {
+                        mainTableTrendHtml = `<div class="mt-0.5"><span class="text-[9px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.2 rounded font-semibold inline-block">${escapeHtml(it.price_trend_note)}</span></div>`;
+                    } else if (it.price_trend === 'up') {
+                        mainTableTrendHtml = `<div class="mt-0.5"><span class="text-[9px] text-rose-300 bg-rose-500/10 border border-rose-500/20 px-1.5 py-0.2 rounded font-semibold inline-block">${escapeHtml(it.price_trend_note)}</span></div>`;
+                    }
+                }
+
+                const supsCount = it.suppliers_count || (it.suppliers_breakdown ? it.suppliers_breakdown.length : 1);
+                const mainSup = it.main_supplier || it.supplier_name || '—';
+                let supplierHtml = '';
+
+                if (supsCount > 1) {
+                    supplierHtml = `
+                        <div>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="font-bold text-slate-200">${escapeHtml(mainSup)}</span>
+                                <span class="text-[10px] text-slate-400 font-semibold">(${Math.round(it.main_supplier_share || 0)}%)</span>
+                            </div>
+                            <button onclick="toggleSupplierAccordion(${origIdx}, event)" class="mt-1 inline-flex items-center gap-1 text-[9.5px] bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 transition-all font-semibold" title="Показать разбивку по всем ${supsCount} поставщикам">
+                                <span>мультизакуп (${supsCount} пост.)</span>
+                                <span id="chevron-${origIdx}" class="text-[8px] transition-transform">▼</span>
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    supplierHtml = `
+                        <div class="font-semibold text-slate-300">
+                            ${escapeHtml(mainSup)}
+                        </div>
+                    `;
+                }
+
+                const isObfuscated = (it.product_name === '[Скрыто в демо-версии]' || it.product_name === '[Доступно в полном отчете]');
+
+                let prodCellHtml = '';
+                let supCellHtml = '';
+                let peersBtnHtml = '';
+
+                if (isObfuscated) {
+                    prodCellHtml = `
+                        <div class="font-bold text-amber-300/90 flex items-center gap-1.5">
+                            <span>🔒</span>
+                            <span class="filter blur-[3.5px] select-none text-slate-300">Скрытый товар реестра</span>
+                            <span class="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-extrabold uppercase">Демо</span>
+                        </div>
+                        <div class="text-[9.5px] text-slate-500 mt-0.5">Товар открывается в полном отчете</div>`;
+                    supCellHtml = `
+                        <div class="font-semibold text-slate-400 flex items-center gap-1.5">
+                            <span>🔒</span>
+                            <span class="filter blur-[3.5px] select-none text-slate-400">Скрытый поставщик</span>
+                        </div>`;
+                    peersBtnHtml = `
+                        <button onclick="setAuditMode('full')" class="px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-lg text-xs font-bold border border-amber-500/30 transition-all flex items-center justify-center gap-1 mx-auto cursor-pointer" title="Разблокировать в полном отчете">
+                            <span>🔒</span>
+                        </button>`;
+                } else {
+                    prodCellHtml = `
+                        <div class="font-bold text-white">${escapeHtml(it.product_name)}</div>
+                        ${it.detected_brand ? `<div class="text-[10px] text-purple-400 font-semibold">Бренд: ${escapeHtml(it.detected_brand)}</div>` : ''}
+                        ${mainTableTrendHtml}`;
+                    supCellHtml = supplierHtml;
+                    peersBtnHtml = `
+                        <button onclick="openPeersModal(${origIdx})" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-400 hover:text-white rounded-lg text-xs font-bold border border-slate-700/80 transition-all flex items-center justify-center gap-1.5 mx-auto" title="Посмотреть другие заведения и цены">
+                            <span>☰</span>
+                            <span class="text-[11px]">${peersCount}</span>
+                        </button>`;
+                }
+
+                tr.innerHTML = `
+                    <td class="py-3 px-3 font-bold text-slate-500">#${it.rank || (idx + 1)}</td>
+                    <td class="py-3 px-4">
+                        ${prodCellHtml}
+                    </td>
+                    <td class="py-3 px-3 text-slate-300">${isObfuscated ? '—' : escapeHtml(it.canonical_category)}</td>
+                    <td class="py-3 px-3">
+                        ${supCellHtml}
+                    </td>
+                    <td class="py-3 px-3 text-right font-medium text-white">
+                        ${formatVol(it.monthly_volume)} <span class="text-slate-500 text-[10px]">${escapeHtml(it.unit)}</span>
+                    </td>
+                    <td class="py-3 px-3 text-center">
+                        <span class="text-[10px] font-semibold text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">${escapeHtml(it.cohort_tier)}</span>
+                    </td>
+                    <td class="py-3 px-3 text-right ${myPriceClass}">
+                        <div class="font-black">${it.restaurant_price.toFixed(2)} ₽</div>
+                        ${it.last_price > 0 ? `<div class="text-[9.5px] text-slate-400 font-normal" title="Последняя цена закупки от ${it.last_doc_date || ''}">посл: ${it.last_price.toFixed(2)} ₽</div>` : ''}
+                    </td>
+                    <td class="py-3 px-4 text-right">
+                        <div class="font-bold text-slate-200">${it.market_median_price.toFixed(2)} ₽ <span class="text-[9px] text-slate-500 font-normal">мед</span></div>
+                        <div class="text-[10px] text-indigo-300 font-medium" title="Средняя цена всех остальных ресторанов (без текущего)">${it.market_avg_price.toFixed(2)} ₽ <span class="text-[9px] text-slate-500 font-normal">ср</span></div>
+                        <div class="text-[10px] text-emerald-400 font-semibold" title="Самая низкая цена в когорте">${it.market_min_price.toFixed(2)} ₽ <span class="text-[9px] text-emerald-600 font-normal">мин</span></div>
+                    </td>
+                    <td class="py-3 px-3 text-center text-slate-400 text-[10px]">
+                        ${it.market_p25_price.toFixed(0)} – ${it.market_p75_price.toFixed(0)} ₽
+                    </td>
+                    <td class="py-3 px-3 text-right">
+                        ${diffHtml}
+                    </td>
+                    <td class="py-3 px-3 text-right">
+                        ${overpayHtml}
+                    </td>
+                    <td class="py-3 px-3 text-center">
+                        ${peersBtnHtml}
+                    </td>
+                `;
+                tbody.appendChild(tr);
+
+                if (supsCount > 1 && it.suppliers_breakdown && it.suppliers_breakdown.length > 0) {
+                    const expandTr = document.createElement('tr');
+                    expandTr.id = `expand-row-${origIdx}`;
+                    expandTr.className = "hidden bg-slate-900/90 border-t border-b border-slate-700/60 transition-all";
+
+                    const supRows = it.suppliers_breakdown.map(s => {
+                        const diffVsMin = s.last_price - it.market_min_price;
+                        const diffVsMinPct = it.market_min_price > 0 ? ((diffVsMin / it.market_min_price) * 100) : 0;
+
+                        let supStatusHtml = '';
+                        if (s.monthly_overpayment_rub > 0) {
+                            supStatusHtml = `<span class="font-bold text-rose-400">-${formatRub(s.monthly_overpayment_rub)} ₽/мес</span>`;
+                        } else {
+                            supStatusHtml = `<span class="text-emerald-400 font-semibold text-[11px]">✓ В рынке</span>`;
+                        }
+
+                        let sameSupAlert = '';
+                        if (s.same_supplier_market_min > 0 && s.same_supplier_market_min < s.last_price) {
+                            const spreadInfo = s.supplier_price_spread_rub > 0 ? ` · Спред: ${formatRub(s.supplier_price_spread_rub)} ₽/мес (+${s.supplier_price_spread_pct.toFixed(1)}%)` : '';
+                            sameSupAlert = `
+                                <div class="mt-0.5 text-[9px] text-amber-300 flex items-center gap-1 font-normal">
+                                    <span>⚠️</span>
+                                    <span>Внутрипоставочный спред: отгружает в «${escapeHtml(s.same_supplier_peer_name)}» по <strong class="text-amber-200">${s.same_supplier_market_min.toFixed(2)} ₽</strong> (-${Math.round((s.last_price - s.same_supplier_market_min)/s.last_price*100)}%)${spreadInfo}</span>
+                                </div>
+                            `;
+                        }
+
+                        return `
+                            <tr class="hover:bg-slate-800/50 transition-colors">
+                                <td class="py-2 px-3 font-semibold text-slate-200">
+                                    <div>${escapeHtml(s.supplier_name)}</div>
+                                    ${sameSupAlert}
+                                </td>
+                                <td class="py-2 px-3 text-center">
+                                    <span class="inline-block bg-slate-800 text-slate-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-slate-700">
+                                        ${s.share_pct.toFixed(0)}%
+                                    </span>
+                                </td>
+                                <td class="py-2 px-3 text-right text-slate-300 font-medium">
+                                    ${formatVol(s.monthly_volume)} <span class="text-slate-500 text-[9px]">${escapeHtml(it.unit)}</span>
+                                </td>
+                                <td class="py-2 px-3 text-right font-medium text-slate-300">
+                                    ${s.avg_price.toFixed(2)} ₽
+                                </td>
+                                <td class="py-2 px-3 text-right">
+                                    <span class="font-bold text-white">${s.last_price.toFixed(2)} ₽</span>
+                                    ${s.last_doc_date ? `<div class="text-[9px] text-slate-500">${s.last_doc_date}</div>` : ''}
+                                </td>
+                                <td class="py-2 px-3 text-right font-semibold">
+                                    ${diffVsMin > 0 
+                                        ? `<span class="text-rose-400">+${diffVsMinPct.toFixed(1)}% (+${diffVsMin.toFixed(2)} ₽)</span>`
+                                        : `<span class="text-emerald-400">Лучшая цена</span>`
+                                    }
+                                </td>
+                                <td class="py-2 px-3 text-right">
+                                    ${supStatusHtml}
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+
+                    expandTr.innerHTML = `
+                        <td colspan="12" class="p-3 pl-8 pr-6">
+                            <div class="rounded-xl border border-amber-500/20 bg-slate-950/70 p-3 shadow-inner">
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs font-bold text-amber-400">📦 Структура закупок по поставщикам:</span>
+                                        <span class="text-[11px] text-slate-300 font-semibold">${escapeHtml(it.product_name)}</span>
+                                    </div>
+                                    <div class="text-[10px] text-slate-400">
+                                        Рын. минимум в когорте: <span class="font-bold text-emerald-400">${it.market_min_price.toFixed(2)} ₽</span> 
+                                        | Медиана: <span class="font-bold text-slate-300">${it.market_median_price.toFixed(2)} ₽</span>
+                                    </div>
+                                </div>
+                                <div class="overflow-x-auto rounded-lg border border-slate-800">
+                                    <table class="w-full text-xs text-left">
+                                        <thead class="text-[9.5px] uppercase text-slate-400 border-b border-slate-800 bg-slate-900/60 font-bold">
+                                            <tr>
+                                                <th class="py-1.5 px-3">Поставщик</th>
+                                                <th class="py-1.5 px-3 text-center">Доля</th>
+                                                <th class="py-1.5 px-3 text-right">Мес. объем</th>
+                                                <th class="py-1.5 px-3 text-right">Ср. цена</th>
+                                                <th class="py-1.5 px-3 text-right">Посл. цена (дата)</th>
+                                                <th class="py-1.5 px-3 text-right">Разница с мин.</th>
+                                                <th class="py-1.5 px-3 text-right">Статус / Переплата</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-800/60 bg-slate-900/30">
+                                            ${supRows}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </td>
+                    `;
+                    tbody.appendChild(expandTr);
+                }
+            });
+        }
+
+        function filterTable() {
+            const query = (document.getElementById('search-input').value || '').trim().toLowerCase();
+            let filtered = allItems;
+
+            if (currentFilterTab === 'overpay') {
+                filtered = filtered.filter(it => it.is_overpay);
+            } else if (currentFilterTab === 'under') {
+                filtered = filtered.filter(it => !it.is_overpay);
+            }
+
+            if (query) {
+                filtered = filtered.filter(it => 
+                    (it.product_name && it.product_name.toLowerCase().includes(query)) ||
+                    (it.canonical_category && it.canonical_category.toLowerCase().includes(query)) ||
+                    (it.supplier_name && it.supplier_name.toLowerCase().includes(query)) ||
+                    (it.detected_brand && it.detected_brand.toLowerCase().includes(query))
+                );
+            }
+            renderTable(filtered);
+        }
+
+        function openPeersModal(idx) {
+            if (idx < 0 || idx >= allItems.length) return;
+            const it = allItems[idx];
+            populatePeersModal(it);
+        }
+
+        function openPeersModalByRank(rank) {
+            const it = allItems.find(x => x.rank === rank);
+            if (it) populatePeersModal(it);
+        }
+
+        function populatePeersModal(it) {
+            document.getElementById('pm-product-name').textContent = it.product_name;
+            document.getElementById('pm-category').textContent = `Категория: ${it.canonical_category} · Единица: ${it.unit}`;
+            
+            const brandEl = document.getElementById('pm-brand');
+            if (it.detected_brand) {
+                brandEl.textContent = `Бренд: ${it.detected_brand}`;
+                brandEl.classList.remove('hidden');
+            } else {
+                brandEl.classList.add('hidden');
+            }
+            document.getElementById('pm-tier').textContent = it.cohort_tier;
+            
+            // Текущее заведение
+            document.getElementById('pm-my-price').textContent = `${it.restaurant_price.toFixed(2)} ₽ / ${it.unit}`;
+            const supsCount = it.suppliers_count || (it.suppliers_breakdown ? it.suppliers_breakdown.length : 1);
+            if (supsCount > 1) {
+                document.getElementById('pm-my-supplier').textContent = `Поставщики: ${it.main_supplier || it.supplier_name} (${Math.round(it.main_supplier_share || 0)}%) + еще ${supsCount - 1}`;
+            } else {
+                document.getElementById('pm-my-supplier').textContent = `Поставщик: ${it.main_supplier || it.supplier_name || 'Не указан'}`;
+            }
+            document.getElementById('pm-my-vol').textContent = `${formatVol(it.monthly_volume)} ${it.unit} / мес`;
+            
+            // Рыночные бенчмарки (строго без текущего заведения)
+            document.getElementById('pm-market-avg').textContent = `${it.market_avg_price.toFixed(2)} ₽`;
+            document.getElementById('pm-market-min').textContent = `${it.market_min_price.toFixed(2)} ₽`;
+            
+            const maxSaving = Math.max(0, it.restaurant_price - it.market_min_price);
+            if (maxSaving > 0) {
+                document.getElementById('pm-min-diff').textContent = `Потенциал экономии: до -${maxSaving.toFixed(2)} ₽ / ${it.unit}`;
+                document.getElementById('pm-min-diff').className = "text-[10px] text-emerald-400 font-semibold leading-snug";
+            } else {
+                document.getElementById('pm-min-diff').textContent = `У вас лучшая цена на рынке!`;
+                document.getElementById('pm-min-diff').className = "text-[10px] text-indigo-400 font-semibold leading-snug";
+            }
+            
+            document.getElementById('pm-market-median').textContent = `${it.market_median_price.toFixed(2)} ₽`;
+            document.getElementById('pm-market-p2575').textContent = `Диапазон рынка: ${it.market_p25_price.toFixed(0)} – ${it.market_p75_price.toFixed(0)} ₽`;
+            
+            // Таблица других заведений
+            const tbody = document.getElementById('pm-peers-tbody');
+            tbody.innerHTML = '';
+            const peers = it.market_peers || [];
+            document.getElementById('pm-peers-count').textContent = peers.length;
+            
+            if (peers.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="py-6 text-center text-slate-500 text-xs">
+                            Другие независимые заведения пока не закупали данный товар за выбранный период.
+                        </td>
+                    </tr>`;
+            } else {
+                peers.forEach(p => {
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-slate-800/40 transition-colors";
+                    
+                    const diff = it.restaurant_price - p.price_per_unit;
+                    let diffHtml = '';
+                    if (diff > 0) {
+                        const pct = (diff / it.restaurant_price) * 100;
+                        diffHtml = `<span class="text-emerald-400 font-bold">-${diff.toFixed(2)} ₽ (-${pct.toFixed(0)}%)</span>`;
+                    } else if (diff < 0) {
+                        diffHtml = `<span class="text-rose-400 font-bold">+${Math.abs(diff).toFixed(2)} ₽</span>`;
+                    } else {
+                        diffHtml = `<span class="text-slate-400">Такая же цена</span>`;
+                    }
+                    
+                    tr.innerHTML = `
+                        <td class="py-2.5 px-3 font-bold text-white">${escapeHtml(p.restaurant_name)}</td>
+                        <td class="py-2.5 px-3 text-slate-400">${escapeHtml(p.city)}</td>
+                        <td class="py-2.5 px-3 font-semibold text-slate-300">${escapeHtml(p.supplier_name)}</td>
+                        <td class="py-2.5 px-3 text-right font-black text-indigo-300">${p.price_per_unit.toFixed(2)} ₽ / ${escapeHtml(it.unit)}</td>
+                        <td class="py-2.5 px-3 text-right">${diffHtml}</td>
+                        <td class="py-2.5 px-3 text-right text-slate-300 font-medium">${formatVol(p.monthly_volume)} ${escapeHtml(it.unit)}</td>
+                        <td class="py-2.5 px-3 text-center"><span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-semibold">${escapeHtml(p.cohort_tier)}</span></td>
+                        <td class="py-2.5 px-3 text-center text-slate-500 font-mono text-[10px]">${escapeHtml(p.last_doc_date)}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+            
+            document.getElementById('peers-modal').classList.remove('hidden');
+        }
+
+        function closePeersModal() {
+            document.getElementById('peers-modal').classList.add('hidden');
+        }
+
+        function updateCohortSliders() {
+            const sVal = parseInt(document.getElementById('slider-small').value);
+            let mVal = parseInt(document.getElementById('slider-medium').value);
+
+            if (mVal <= sVal) {
+                mVal = sVal + 10;
+                document.getElementById('slider-medium').value = mVal;
+            }
+
+            document.getElementById('label-small-tier').textContent = `до ${sVal} кг/мес`;
+            document.getElementById('label-medium-tier').textContent = `${sVal} - ${mVal} кг/мес`;
+            document.getElementById('label-large-tier').textContent = `свыше ${mVal} кг/мес`;
+
+            loadAudit();
+        }
+
+        function resetCohorts() {
+            document.getElementById('slider-small').value = 50;
+            document.getElementById('slider-medium').value = 200;
+            updateCohortSliders();
+        }
+
+        function formatRub(val) {
+            if (!val || isNaN(val)) return "0";
+            return Math.round(val).toLocaleString('ru-RU');
+        }
+
+        function formatVol(val) {
+            if (val === undefined || val === null || isNaN(val)) return '0';
+            const num = Math.round(Number(val) * 100) / 100;
+            if (num % 1 === 0) return num.toString();
+            if ((num * 10) % 1 === 0) return num.toFixed(1);
+            return num.toFixed(2);
+        }
+
+        function formatDateShort(dateStr) {
+            if (!dateStr || dateStr.length < 10) return dateStr || '';
+            const parts = dateStr.slice(0, 10).split('-');
+            if (parts.length === 3) {
+                return `${parts[2]}.${parts[1]}`;
+            }
+            return dateStr;
+        }
+
+        function toggleSupplierAccordion(idx, event) {
+            if (event) event.stopPropagation();
+            const row = document.getElementById(`expand-row-${idx}`);
+            const chev = document.getElementById(`chevron-${idx}`);
+            if (!row) return;
+            if (row.classList.contains('hidden')) {
+                row.classList.remove('hidden');
+                if (chev) chev.textContent = '▲';
+            } else {
+                row.classList.add('hidden');
+                if (chev) chev.textContent = '▼';
+            }
+        }
+
+        function escapeHtml(text) {
+            if (!text) return "";
+            return String(text)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // Синхронизация iiko
+        function syncIiko() {
+            const days = document.getElementById('period-select').value || 60;
+            document.getElementById('sync-period-label').textContent = `${days} дней`;
+            document.getElementById('sync-status-msg').textContent = 'Готов к запуску';
+            document.getElementById('sync-status-msg').className = 'font-bold text-indigo-400';
+            document.getElementById('sync-modal').classList.remove('hidden');
+        }
+
+        function closeSyncModal() {
+            document.getElementById('sync-modal').classList.add('hidden');
+        }
+
+        async function runIikoSync() {
+            const restId = document.getElementById('restaurant-select').value;
+            const days = document.getElementById('period-select').value || 60;
+            const btn = document.getElementById('btn-run-sync');
+            const statusMsg = document.getElementById('sync-status-msg');
+
+            btn.disabled = true;
+            btn.textContent = 'Идет выгрузка...';
+            statusMsg.textContent = 'Экспорт приходных накладных из iiko RMS...';
+            statusMsg.className = 'font-bold text-amber-400 animate-pulse';
+
+            try {
+                const res = await fetch(getApiEndpoint(`/api/analytics/sync?restaurant_id=${restId}&days=${days}`), {
+                    method: 'POST'
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    statusMsg.textContent = `Успешно: импортировано ${data.imported_invoices} накладных, ${data.imported_items} позиций!`;
+                    statusMsg.className = 'font-bold text-emerald-400';
+                    setTimeout(() => {
+                        closeSyncModal();
+                        loadAudit();
+                        btn.disabled = false;
+                        btn.textContent = 'Запустить выгрузку';
+                    }, 1200);
+                } else {
+                    throw new Error(data.error || 'Сбой синхронизации');
+                }
+            } catch (e) {
+                statusMsg.textContent = `Ошибка: ${e.message}`;
+                statusMsg.className = 'font-bold text-rose-400';
+                btn.disabled = false;
+                btn.textContent = 'Повторить';
+            }
+        }
+
+        function openAddRestaurantModal() {
+            document.getElementById('add-restaurant-modal').classList.remove('hidden');
+            document.getElementById('add-rest-msg').classList.add('hidden');
+            document.getElementById('add-rest-name').value = '';
+            document.getElementById('add-rest-host').value = '';
+            document.getElementById('add-rest-login').value = '';
+            document.getElementById('add-rest-pass').value = '';
+        }
+
+        function closeAddRestaurantModal() {
+            document.getElementById('add-restaurant-modal').classList.add('hidden');
+        }
+
+        async function submitAddRestaurant() {
+            const name = document.getElementById('add-rest-name').value.trim();
+            const city = document.getElementById('add-rest-city').value.trim() || 'Пермь';
+            const cuisine = document.getElementById('add-rest-cuisine').value;
+            const host = document.getElementById('add-rest-host').value.trim();
+            const login = document.getElementById('add-rest-login').value.trim();
+            const pass = document.getElementById('add-rest-pass').value;
+            const msgEl = document.getElementById('add-rest-msg');
+            const btn = document.getElementById('btn-submit-add-rest');
+
+            if (!name || !host || !login || !pass) {
+                msgEl.textContent = 'Пожалуйста, заполните все обязательные поля (*)';
+                msgEl.className = 'p-3 rounded-xl text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40 block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span>Проверка iiko и подключение...</span>';
+            msgEl.textContent = 'Подключение к серверу iiko RMS и валидация ключей...';
+            msgEl.className = 'p-3 rounded-xl text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 block animate-pulse';
+
+            try {
+                const res = await fetch(getApiEndpoint('/api/analytics/restaurants'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        city: city,
+                        cuisine_type: cuisine,
+                        iiko_host: host,
+                        iiko_login: login,
+                        iiko_password: pass
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok || data.status !== 'ok') {
+                    throw new Error(data.message || data.error || 'Ошибка при добавлении заведения');
+                }
+
+                msgEl.textContent = 'Заведение успешно подключено! Выгружаем накладные...';
+                msgEl.className = 'p-3 rounded-xl text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 block';
+
+                setTimeout(async () => {
+                    closeAddRestaurantModal();
+                    await loadRestaurants();
+                    const sel = document.getElementById('restaurant-select');
+                    if (data.restaurant_id) {
+                        sel.value = data.restaurant_id;
+                        loadAudit();
+                    }
+                    btn.disabled = false;
+                    btn.innerHTML = '<span>Подключить и загрузить</span>';
+                }, 1500);
+
+            } catch (err) {
+                msgEl.textContent = 'Ошибка: ' + err.message;
+                msgEl.className = 'p-3 rounded-xl text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40 block';
+                btn.disabled = false;
+                btn.innerHTML = '<span>Подключить и загрузить</span>';
+            }
+        }
+
+        // ==========================================
+        // МОДУЛЬ ГЕНЕРАЦИИ УПРАВЛЕНЧЕСКОГО PDF-ОТЧЕТА
+        // ==========================================
+        let currentReportType = 'demo'; // 'demo' | 'full' | 'premium'
+        let currentReportMode = 'cards'; // 'cards' | 'table'
+        window.repMarketChart = null;
+        window.repCatChart = null;
+
+        function openReportModal() {
+            if (!currentAudit || !allItems || allItems.length === 0) {
+                alert('Сначала выберите заведение с загруженными данными аналитики.');
+                return;
+            }
+            document.getElementById('report-modal').classList.remove('hidden');
+            const sheet = document.getElementById('report-document-sheet');
+            if (sheet && sheet.parentElement) {
+                sheet.parentElement.scrollTop = 0;
+            }
+            renderReportSheet();
+        }
+
+        function closeReportModal() {
+            document.getElementById('report-modal').classList.add('hidden');
+        }
+
+        function setReportType(type) {
+            currentReportType = type;
+            updateReportTypeButtons();
+            renderReportSheet();
+        }
+
+        function setReportMode(mode) {
+            currentReportMode = mode;
+            const btnCards = document.getElementById('rep-mode-cards');
+            const btnTable = document.getElementById('rep-mode-table');
+            const cardsCont = document.getElementById('rep-sheet-cards-container');
+            const tableCont = document.getElementById('rep-sheet-table-container');
+
+            if (mode === 'cards') {
+                if (btnCards) btnCards.className = "px-3 py-1 rounded-lg text-xs font-bold transition-all bg-indigo-600 text-white shadow-xs cursor-pointer flex items-center gap-1.5";
+                if (btnTable) btnTable.className = "px-3 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition-all cursor-pointer flex items-center gap-1.5";
+                if (cardsCont) cardsCont.classList.remove('hidden');
+                if (tableCont) tableCont.classList.add('hidden');
+            } else {
+                if (btnTable) btnTable.className = "px-3 py-1 rounded-lg text-xs font-bold transition-all bg-indigo-600 text-white shadow-xs cursor-pointer flex items-center gap-1.5";
+                if (btnCards) btnCards.className = "px-3 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition-all cursor-pointer flex items-center gap-1.5";
+                if (cardsCont) cardsCont.classList.add('hidden');
+                if (tableCont) tableCont.classList.remove('hidden');
+            }
+        }
+
+        function updateReportTypeButtons() {
+            const btnDemo = document.getElementById('rep-type-demo');
+            const btnFull = document.getElementById('rep-type-full');
+            const btnPrem = document.getElementById('rep-type-premium');
+
+            const inactiveClass = "px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 text-slate-400 hover:text-white border border-transparent hover:border-slate-700 cursor-pointer";
+            [btnDemo, btnFull, btnPrem].forEach(b => { if (b) b.className = inactiveClass; });
+
+            if (currentReportType === 'demo' && btnDemo) {
+                btnDemo.className = "px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm cursor-pointer";
+            } else if (currentReportType === 'full' && btnFull) {
+                btnFull.className = "px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm cursor-pointer";
+            } else if (currentReportType === 'premium' && btnPrem) {
+                btnPrem.className = "px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm cursor-pointer";
+            }
+        }
+
+        function toggleReportOption(opt) {
+            const showMarket = document.getElementById('rep-opt-market-chart').checked;
+            const showCat = document.getElementById('rep-opt-category-chart').checked;
+
+            const boxMarket = document.getElementById('rep-market-chart-box');
+            const boxCat = document.getElementById('rep-category-chart-box');
+            const wrapper = document.getElementById('rep-charts-wrapper');
+
+            boxMarket.style.display = showMarket ? 'block' : 'none';
+            boxCat.style.display = showCat ? 'block' : 'none';
+
+            if (!showMarket && !showCat) {
+                wrapper.style.display = 'none';
+            } else {
+                wrapper.style.display = 'grid';
+                if (showMarket && showCat) {
+                    wrapper.className = "grid grid-cols-1 md:grid-cols-2 gap-4 avoid-break";
+                } else {
+                    wrapper.className = "grid grid-cols-1 gap-4 avoid-break";
+                }
+            }
+
+            if (opt === 'marketChart' && showMarket) renderReportMarketChart();
+            if (opt === 'categoryChart' && showCat) renderReportCategoryChart();
+        }
+
+        function renderReportSheet() {
+            if (!currentAudit) return;
+
+            // 1. Метаданные шапки
+            document.getElementById('rep-sheet-rest').textContent = currentAudit.restaurant_name || 'Не указано';
+            document.getElementById('rep-sheet-city').textContent = currentAudit.city || 'Пермь';
+            
+            const perSel = document.getElementById('period-select');
+            const periodLabel = perSel ? perSel.options[perSel.selectedIndex].text : '60 дней';
+            document.getElementById('rep-sheet-period').textContent = periodLabel;
+
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            document.getElementById('rep-sheet-date').textContent = `Дата: ${dateStr}`;
+
+            // Бейдж типа отчета
+            const badgeEl = document.getElementById('rep-sheet-badge');
+            if (currentReportType === 'demo') {
+                badgeEl.textContent = 'ДЕМО-ОТЧЕТ (3 ПОЗИЦИИ)';
+                badgeEl.className = 'inline-block px-3 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300';
+            } else if (currentReportType === 'full') {
+                badgeEl.textContent = 'ПОЛНЫЙ АУДИТ (ТОП-10 ПЕРЕПЛАТ)';
+                badgeEl.className = 'inline-block px-3 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-800 border border-indigo-300';
+            } else {
+                badgeEl.textContent = 'ПРЕМИУМ-АУДИТ (ВСЕ ПЕРЕПЛАТЫ)';
+                badgeEl.className = 'inline-block px-3 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-300';
+            }
+
+            // 2. 4 Ключевые управленческие метрики
+            const vsAvgMonth = currentAudit.total_monthly_overpay_vs_avg_rub || currentAudit.total_monthly_overpay_rub || 0;
+            const vsAvgYear = currentAudit.total_yearly_overpay_vs_avg_rub || currentAudit.total_yearly_overpay_rub || 0;
+            const vsMinMonth = currentAudit.total_monthly_overpay_vs_min_rub || 0;
+            const vsMinYear = currentAudit.total_yearly_overpay_vs_min_rub || 0;
+            const vsMinBudgetPct = currentAudit.overpay_vs_min_budget_percent || 0;
+
+            document.getElementById('rep-sheet-monthly').textContent = `-${formatRub(vsAvgMonth)} ₽`;
+            document.getElementById('rep-sheet-yearly').textContent = `-${formatRub(vsAvgYear)} ₽ / год`;
+
+            const minMonthEl = document.getElementById('rep-sheet-min-monthly');
+            if (minMonthEl) minMonthEl.textContent = `-${formatRub(vsMinMonth)} ₽`;
+            const minYearEl = document.getElementById('rep-sheet-min-yearly');
+            if (minYearEl) minYearEl.textContent = `-${formatRub(vsMinYear)} ₽ / год (макс. резерв)`;
+
+            document.getElementById('rep-sheet-pct').textContent = `${(currentAudit.overpay_budget_percent || 0).toFixed(1)}%`;
+            const pctSub = document.getElementById('rep-sheet-pct-sub');
+            if (pctSub) {
+                pctSub.textContent = vsMinBudgetPct > 0 ? `до ${vsMinBudgetPct.toFixed(1)}% к минимуму` : '% от бюджета закупок';
+            }
+
+            document.getElementById('rep-sheet-hhi').textContent = `${Math.round(currentAudit.supplier_hhi || 0)}`;
+            document.getElementById('rep-sheet-hhi-sub').textContent = currentAudit.supplier_hhi_status || 'Риск поставок';
+
+            // 2.1 AI Заключение управленческого аудитора в отчете
+            const repAiBox = document.getElementById('rep-sheet-ai-auditor-box');
+            const repAiText = document.getElementById('rep-sheet-ai-text');
+            if (repAiText) {
+                if (currentAudit.auditor_summary) {
+                    if (repAiBox) repAiBox.classList.remove('hidden');
+                    let formattedSummary = escapeHtml(currentAudit.auditor_summary)
+                        .replace(/1\. РЕЗЮМЕ АУДИТА:/g, '<strong class="text-indigo-900 block text-[9.5px] tracking-wide uppercase font-extrabold mb-0.5">1. Резюме аудита:</strong>')
+                        .replace(/2\. ФАКТОРЫ ФОРМИРОВАНИЯ РАЗРЫВА:/g, '<strong class="text-amber-900 block text-[9.5px] tracking-wide uppercase font-extrabold mt-1.5 mb-0.5">2. Факторы формирования разрыва:</strong>')
+                        .replace(/3\. РЕКОМЕНДАЦИИ ПО ОПТИМИЗАЦИИ:/g, '<strong class="text-emerald-900 block text-[9.5px] tracking-wide uppercase font-extrabold mt-1.5 mb-0.5">3. Рекомендации по оптимизации:</strong>');
+                    repAiText.innerHTML = formattedSummary;
+                } else {
+                    if (repAiBox) repAiBox.classList.add('hidden');
+                }
+            }
+
+            // 3. Формирование списка позиций
+            const overpayItems = allItems.filter(it => it.is_overpay);
+            let displayItems = [];
+            const bannerEl = document.getElementById('rep-sheet-upsell-banner');
+
+            if (currentReportType === 'demo') {
+                // В демо показываем до 10 позиций (первые 3 открыты, 4-10 надежно заблюрены: названия, категории, поставщики и объемы)
+                displayItems = overpayItems.slice(0, 10);
+                bannerEl.classList.remove('hidden');
+
+                const hiddenSum = overpayItems.slice(3).reduce((acc, it) => acc + (it.monthly_overpayment_rub || 0), 0);
+                const hiddenMinSum = overpayItems.slice(3).reduce((acc, it) => acc + (it.monthly_overpay_vs_min_rub || 0), 0);
+                document.getElementById('rep-upsell-hidden-sum').textContent = `${formatRub(hiddenSum)} ₽`;
+                const repUpsellMinEl = document.getElementById('rep-upsell-hidden-min-sum');
+                if (repUpsellMinEl) repUpsellMinEl.textContent = `${formatRub(hiddenMinSum)} ₽`;
+                document.getElementById('rep-upsell-end-num').textContent = overpayItems.length;
+                document.getElementById('rep-sheet-count-label').textContent = `Показано 3 открытых + ${Math.max(0, displayItems.length - 3)} скрытых позиций (всего ${overpayItems.length})`;
+            } else if (currentReportType === 'full') {
+                displayItems = overpayItems.slice(0, 10);
+                bannerEl.classList.add('hidden');
+                document.getElementById('rep-sheet-count-label').textContent = `Показан Топ-${displayItems.length} позиций с максимальным перерасходом (объемы скрыты)`;
+            } else {
+                // premium
+                displayItems = overpayItems;
+                bannerEl.classList.add('hidden');
+                document.getElementById('rep-sheet-count-label').textContent = `Полный срез: все ${displayItems.length} позиций с выявленными переплатами`;
+            }
+
+            const isPremium = (currentReportType === 'premium');
+
+            const cardsContainer = document.getElementById('rep-sheet-cards-container');
+            const tbody = document.getElementById('rep-sheet-tbody');
+            if (cardsContainer) cardsContainer.innerHTML = '';
+            if (tbody) tbody.innerHTML = '';
+
+            displayItems.forEach((it, idx) => {
+                let isItemHidden = false;
+                if (currentReportType === 'demo') {
+                    isItemHidden = (idx >= 3);
+                } else if (currentReportType === 'full') {
+                    isItemHidden = (idx >= 10);
+                }
+
+                const nameHtml = isItemHidden 
+                    ? `<span class="report-blur-block select-none font-bold" style="filter: blur(5px); background: #e2e8f0; color: #94a3b8; padding: 2px 10px; border-radius: 4px; display: inline-block; letter-spacing: 2px;">██████████████</span>`
+                    : `<span class="font-black text-slate-900">${escapeHtml(it.product_name)}</span>`;
+
+                const catHtml = isItemHidden
+                    ? `<span class="report-blur-block select-none" style="filter: blur(4px); background: #e2e8f0; color: #94a3b8; padding: 1px 8px; border-radius: 4px; display: inline-block; letter-spacing: 1px;">████████</span>`
+                    : `<span class="text-slate-700 font-semibold">${escapeHtml(it.canonical_category)}</span>`;
+
+                const supsCount = it.suppliers_count || (it.suppliers_breakdown ? it.suppliers_breakdown.length : 1);
+                const mainSup = it.main_supplier || it.supplier_name || '—';
+
+                const volHtml = isItemHidden
+                    ? `<span class="report-blur-block select-none" style="filter: blur(5px); background: #e2e8f0; color: #94a3b8; padding: 2px 8px; border-radius: 4px; display: inline-block; letter-spacing: 1px;">████</span>`
+                    : `<span class="font-bold text-slate-900 whitespace-nowrap">${formatVol(it.monthly_volume)} <span class="text-[9px] text-slate-500">${escapeHtml(it.unit)}</span></span>`;
+
+                const brandBadge = (!isItemHidden && it.detected_brand)
+                    ? `<span class="text-[9px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">Бренд: ${escapeHtml(it.detected_brand)}</span>`
+                    : '';
+                const isCommBadge = (!isItemHidden && it.is_commodity)
+                    ? `<span class="text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">Коммодити</span>`
+                    : '';
+
+                // 1. Построение таблицы поставщиков для карточки
+                let suppliersTableHtml = '';
+                if (isItemHidden) {
+                    suppliersTableHtml = `
+                        <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg text-center">
+                            <span class="report-blur-block select-none" style="filter: blur(4px); background: #e2e8f0; color: #94a3b8; padding: 4px 16px; border-radius: 4px; display: inline-block;">
+                                ████████████████████████████████████████████████
+                            </span>
+                        </div>
+                    `;
+                } else if (it.suppliers_breakdown && it.suppliers_breakdown.length > 0) {
+                    const rows = it.suppliers_breakdown.map(s => {
+                        const diffVsMin = s.last_price - it.market_min_price;
+                        const diffVsMinPct = it.market_min_price > 0 ? ((diffVsMin / it.market_min_price) * 100) : 0;
+
+                        let supStatusHtml = '';
+                        if (s.monthly_overpayment_rub > 0) {
+                            supStatusHtml = `<span class="font-black text-rose-600 whitespace-nowrap">-${formatRub(s.monthly_overpayment_rub)} ₽/мес</span>`;
+                        } else {
+                            supStatusHtml = `<span class="text-emerald-700 font-bold text-[9px] whitespace-nowrap">✓ В рынке</span>`;
+                        }
+
+                        let sameSupAlert = '';
+                        if (s.same_supplier_market_min > 0 && s.same_supplier_market_min < s.last_price) {
+                            sameSupAlert = `
+                                <div class="text-[8px] text-amber-800 font-semibold mt-0.5 flex items-center gap-1">
+                                    <span>Этот же поставщик отгружает в «${escapeHtml(s.same_supplier_peer_name)}» по <strong>${s.same_supplier_market_min.toFixed(2)} ₽</strong> (-${Math.round((s.last_price - s.same_supplier_market_min)/s.last_price*100)}%)</span>
+                                </div>
+                            `;
+                        }
+
+                        return `
+                            <tr class="hover:bg-slate-50/80">
+                                <td class="py-1.5 px-2 font-bold text-slate-800 text-left">
+                                    <div>${escapeHtml(s.supplier_name)}</div>
+                                    ${sameSupAlert}
+                                </td>
+                                <td class="py-1.5 px-1.5 text-center whitespace-nowrap">
+                                    <span class="inline-block bg-slate-100 text-slate-700 text-[9px] font-bold px-1.5 py-0.5 rounded border border-slate-200">
+                                        ${s.share_pct.toFixed(0)}%
+                                    </span>
+                                </td>
+                                <td class="py-1.5 px-2 text-right text-slate-700 font-medium whitespace-nowrap">
+                                    ${formatVol(s.monthly_volume)} ${escapeHtml(it.unit)}
+                                </td>
+                                <td class="py-1.5 px-2 text-right text-slate-700 font-medium whitespace-nowrap">
+                                    ${s.avg_price.toFixed(2)} ₽
+                                </td>
+                                <td class="py-1.5 px-2 text-right whitespace-nowrap">
+                                    <span class="font-black text-slate-900">${s.last_price.toFixed(2)} ₽</span>
+                                    ${s.last_doc_date ? `<div class="text-[8px] text-slate-400 font-medium">${s.last_doc_date}</div>` : ''}
+                                </td>
+                                <td class="py-1.5 px-2 text-right whitespace-nowrap font-bold">
+                                    ${diffVsMin > 0 
+                                        ? `<span class="text-rose-600">+${diffVsMinPct.toFixed(1)}% (+${diffVsMin.toFixed(2)} ₽)</span>`
+                                        : `<span class="text-emerald-700">Лучшая цена</span>`
+                                    }
+                                </td>
+                                <td class="py-1.5 px-2.5 text-right font-black">
+                                    ${supStatusHtml}
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+
+                    suppliersTableHtml = `
+                        <div class="rounded-lg border border-slate-200 overflow-hidden mt-1">
+                            <table class="w-full text-left text-[9.5px]">
+                                <thead class="bg-slate-100 text-[8px] uppercase font-bold text-slate-600 border-b border-slate-200">
+                                    <tr>
+                                        <th class="py-1 px-2 text-left">Поставщик</th>
+                                        <th class="py-1 px-1.5 text-center">Доля</th>
+                                        <th class="py-1 px-2 text-right">Мес. объем</th>
+                                        <th class="py-1 px-2 text-right">Ср. цена</th>
+                                        <th class="py-1 px-2 text-right">Посл. цена (дата)</th>
+                                        <th class="py-1 px-2 text-right">Разница с мин.</th>
+                                        <th class="py-1 px-2.5 text-right">Влияние / Переплата</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                } else {
+                    const supName = it.main_supplier || it.supplier_name || 'Не указан';
+                    const lastP = (it.last_price > 0 ? it.last_price : it.restaurant_price);
+                    const diffVsMin = lastP - it.market_min_price;
+                    const diffVsMinPct = it.price_diff_percent || 0;
+                    suppliersTableHtml = `
+                        <div class="rounded-lg border border-slate-200 overflow-hidden mt-1">
+                            <table class="w-full text-left text-[9.5px]">
+                                <thead class="bg-slate-100 text-[8px] uppercase font-bold text-slate-600 border-b border-slate-200">
+                                    <tr>
+                                        <th class="py-1 px-2 text-left">Поставщик</th>
+                                        <th class="py-1 px-1.5 text-center">Доля</th>
+                                        <th class="py-1 px-2 text-right">Мес. объем</th>
+                                        <th class="py-1 px-2 text-right">Ср. цена</th>
+                                        <th class="py-1 px-2 text-right">Посл. цена (дата)</th>
+                                        <th class="py-1 px-2 text-right">Разница с мин.</th>
+                                        <th class="py-1 px-2.5 text-right">Влияние / Переплата</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="hover:bg-slate-50/80">
+                                        <td class="py-1.5 px-2 font-bold text-slate-800 text-left">${escapeHtml(supName)}</td>
+                                        <td class="py-1.5 px-1.5 text-center"><span class="inline-block bg-slate-100 text-slate-700 text-[9px] font-bold px-1.5 py-0.5 rounded border border-slate-200">100%</span></td>
+                                        <td class="py-1.5 px-2 text-right text-slate-700 font-medium whitespace-nowrap">${formatVol(it.monthly_volume)} ${escapeHtml(it.unit)}</td>
+                                        <td class="py-1.5 px-2 text-right text-slate-700 font-medium whitespace-nowrap">${it.restaurant_price.toFixed(2)} ₽</td>
+                                        <td class="py-1.5 px-2 text-right whitespace-nowrap font-black text-slate-900">${lastP.toFixed(2)} ₽</td>
+                                        <td class="py-1.5 px-2 text-right whitespace-nowrap font-bold text-rose-600">+${diffVsMinPct.toFixed(1)}%</td>
+                                        <td class="py-1.5 px-2.5 text-right font-black text-rose-600 whitespace-nowrap">-${formatRub(it.monthly_overpayment_rub)} ₽/мес</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                }
+
+                // 2. Добавление карточки в cardsContainer
+                if (cardsContainer) {
+                    let trendBadgeHtml = '';
+                    if (!isItemHidden && it.price_trend_note) {
+                        if (it.price_trend === 'down') {
+                            trendBadgeHtml = `<span class="text-[9px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded inline-flex items-center gap-1">${escapeHtml(it.price_trend_note)}</span>`;
+                        } else if (it.price_trend === 'up') {
+                            trendBadgeHtml = `<span class="text-[9px] font-bold text-rose-800 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded inline-flex items-center gap-1">${escapeHtml(it.price_trend_note)}</span>`;
+                        } else if (it.price_trend_note.includes('✓')) {
+                            trendBadgeHtml = `<span class="text-[9px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded inline-flex items-center gap-1">${escapeHtml(it.price_trend_note)}</span>`;
+                        }
+                    }
+
+                    const diffVsAvgRub = it.restaurant_price - it.market_avg_price;
+                    const diffVsAvgPct = it.price_diff_percent_vs_avg || (it.market_avg_price > 0 ? ((diffVsAvgRub / it.market_avg_price) * 100) : 0);
+
+                    const diffVsMedRub = it.restaurant_price - it.market_median_price;
+                    const diffVsMedPct = it.market_median_price > 0 ? ((diffVsMedRub / it.market_median_price) * 100) : 0;
+
+                    const diffVsMinRub = it.restaurant_price - it.market_min_price;
+                    const diffVsMinPct = it.price_diff_percent_vs_min || (it.market_min_price > 0 ? ((diffVsMinRub / it.market_min_price) * 100) : 0);
+
+                    const vsAvgRub = it.monthly_overpay_vs_avg_rub || it.monthly_overpayment_rub || 0;
+                    const vsMinRub = it.monthly_overpay_vs_min_rub || 0;
+                    const vsAvgDiffPct = it.price_diff_percent_vs_avg || it.price_diff_percent || 0;
+                    const vsMinDiffPct = it.price_diff_percent_vs_min || 0;
+
+                    let overpayCardHtml = '';
+                    if (isItemHidden) {
+                        overpayCardHtml = `
+                            <div class="text-right shrink-0 leading-tight space-y-1">
+                                <div>
+                                    <span class="text-[8px] uppercase font-bold text-slate-400">К средней рынка: </span>
+                                    <span class="report-blur-block select-none text-xs font-black text-rose-600" style="filter: blur(4px);">-${formatRub(vsAvgRub)} ₽/мес</span>
+                                </div>
+                                <div>
+                                    <span class="text-[8px] uppercase font-bold text-amber-700">К минимуму когорты: </span>
+                                    <span class="report-blur-block select-none text-xs font-black text-amber-800" style="filter: blur(4px);">-${formatRub(vsMinRub)} ₽/мес</span>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        overpayCardHtml = `
+                            <div class="text-right shrink-0 leading-tight space-y-1">
+                                <div>
+                                    <span class="text-[8px] uppercase font-bold text-slate-400">К средней рынка: </span>
+                                    ${vsAvgRub > 0 
+                                        ? `<span class="text-xs font-black text-rose-600">-${formatRub(vsAvgRub)} ₽/мес <span class="text-[8.5px] font-bold text-rose-500">(+${vsAvgDiffPct.toFixed(1)}%)</span></span>`
+                                        : `<span class="text-[10px] font-bold text-emerald-700">✓ В рынке</span>`
+                                    }
+                                </div>
+                                <div>
+                                    <span class="text-[8px] uppercase font-bold text-amber-700">К минимуму когорты: </span>
+                                    ${vsMinRub > 0
+                                        ? `<span class="text-xs font-black text-amber-800">-${formatRub(vsMinRub)} ₽/мес <span class="text-[8.5px] font-bold text-amber-700">(+${vsMinDiffPct.toFixed(1)}%)</span></span>`
+                                        : `<span class="text-[10px] font-bold text-emerald-700">✓ Лучшая цена</span>`
+                                    }
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    const card = document.createElement('div');
+                    card.className = "position-card avoid-break border border-slate-200 rounded-xl p-3 bg-white shadow-xs space-y-2";
+                    card.innerHTML = `
+                        <div class="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
+                            <div>
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="text-[10px] font-black px-2 py-0.5 rounded bg-slate-900 text-white font-mono">#${idx + 1}</span>
+                                    <span class="text-xs font-black text-slate-900 tracking-tight">${nameHtml}</span>
+                                    ${brandBadge}
+                                    ${isCommBadge}
+                                    ${trendBadgeHtml}
+                                </div>
+                                <div class="text-[10px] text-slate-500 mt-1 flex items-center gap-2.5 flex-wrap">
+                                    <span>Категория: <strong class="text-slate-700">${catHtml}</strong></span>
+                                    <span>•</span>
+                                    <span>Месячный объем: <strong class="text-slate-900">${volHtml}</strong> <span class="text-[8.5px] text-slate-400">(${it.cohort_tier})</span></span>
+                                    ${supsCount > 1 ? `<span>•</span><span class="text-[9.5px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded">Мультизакуп (${supsCount} пост.)</span>` : ''}
+                                </div>
+                            </div>
+
+                            ${overpayCardHtml}
+                        </div>
+
+                        <div class="grid grid-cols-4 gap-2 bg-slate-50 rounded-lg p-2 text-center text-xs border border-slate-100">
+                            <div>
+                                <div class="text-[8px] uppercase font-bold text-slate-400">Ваша ср. цена</div>
+                                <div class="text-xs font-black text-rose-600">${it.restaurant_price.toFixed(2)} ₽</div>
+                                <div class="text-[7.5px] text-slate-400 font-medium">${it.last_price > 0 ? `посл: ${it.last_price.toFixed(2)} ₽` : `за ${escapeHtml(it.unit)}`}</div>
+                            </div>
+                            <div>
+                                <div class="text-[8px] uppercase font-bold text-slate-400">Средняя рынка</div>
+                                <div class="text-xs font-bold text-indigo-700">${it.market_avg_price.toFixed(2)} ₽</div>
+                                <div class="text-[7.5px] font-bold ${diffVsAvgRub > 0 ? 'text-rose-600' : 'text-emerald-600'}">
+                                    ${diffVsAvgRub > 0 ? `разница: +${diffVsAvgRub.toFixed(2)} ₽ (+${diffVsAvgPct.toFixed(0)}%)` : `дельта: ${diffVsAvgRub.toFixed(2)} ₽`}
+                                </div>
+                            </div>
+                            <div>
+                                <div class="text-[8px] uppercase font-bold text-slate-400">Медиана рынка</div>
+                                <div class="text-xs font-bold text-slate-700">${it.market_median_price.toFixed(2)} ₽</div>
+                                <div class="text-[7.5px] font-bold ${diffVsMedRub > 0 ? 'text-rose-600' : 'text-emerald-600'}">
+                                    ${diffVsMedRub > 0 ? `разница: +${diffVsMedRub.toFixed(2)} ₽ (+${diffVsMedPct.toFixed(0)}%)` : `дельта: ${diffVsMedRub.toFixed(2)} ₽`}
+                                </div>
+                                <div class="text-[7px] text-slate-400 font-medium">Рынок: ${it.market_p25_price.toFixed(0)} – ${it.market_p75_price.toFixed(0)} ₽</div>
+                            </div>
+                            <div>
+                                <div class="text-[8px] uppercase font-bold text-slate-400">Мин. в когорте</div>
+                                <div class="text-xs font-bold text-emerald-600">${it.market_min_price.toFixed(2)} ₽</div>
+                                <div class="text-[7.5px] font-bold ${diffVsMinRub > 0 ? 'text-amber-700' : 'text-emerald-600'}">
+                                    ${diffVsMinRub > 0 ? `разница: +${diffVsMinRub.toFixed(2)} ₽ (+${diffVsMinPct.toFixed(0)}%)` : `лучшая цена`}
+                                </div>
+                            </div>
+                        </div>
+
+                        ${suppliersTableHtml}
+                    `;
+                    cardsContainer.appendChild(card);
+                }
+
+                // 3. Добавление строки в сводную таблицу (если нужен табличный вид)
+                if (tbody) {
+                    let supSummaryHtml = '';
+                    if (isItemHidden) {
+                        supSummaryHtml = `<span class="report-blur-block select-none" style="filter: blur(4px); background: #e2e8f0; color: #94a3b8; padding: 1px 8px; border-radius: 4px; display: inline-block;">████████</span>`;
+                    } else if (supsCount > 1 && it.suppliers_breakdown) {
+                        const breakdownPills = it.suppliers_breakdown.map(s => `${escapeHtml(s.supplier_name)}: ${s.last_price.toFixed(0)} ₽ (${s.share_pct.toFixed(0)}%)`).join(' • ');
+                        supSummaryHtml = `
+                            <div class="leading-tight">
+                                <span class="text-slate-800 font-bold">${escapeHtml(mainSup)}</span>
+                                <span class="text-[8px] text-slate-400 font-semibold">(${Math.round(it.main_supplier_share || 0)}%)</span>
+                                <div class="text-[7.5px] text-amber-700 font-medium">${breakdownPills}</div>
+                            </div>
+                        `;
+                    } else {
+                        supSummaryHtml = `<span class="text-slate-700 font-medium">${escapeHtml(mainSup)}</span>`;
+                    }
+
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-slate-50/80 transition-colors";
+                    tr.innerHTML = `
+                        <td class="py-2 px-1.5 text-left font-bold text-slate-400">#${idx + 1}</td>
+                        <td class="py-2 px-2 text-left">
+                            <div class="font-bold text-slate-900">${nameHtml}</div>
+                            ${(!isItemHidden && it.detected_brand) ? `<div class="text-[8.5px] text-purple-600 font-semibold">Бренд: ${escapeHtml(it.detected_brand)}</div>` : ''}
+                        </td>
+                        <td class="py-2 px-2 text-left">${catHtml}</td>
+                        <td class="py-2 px-2 text-left">${supSummaryHtml}</td>
+                        <td class="py-2 px-2 text-right whitespace-nowrap">${volHtml}</td>
+                        <td class="py-2 px-2 text-right font-black text-rose-600 whitespace-nowrap leading-tight">
+                            <div>${it.restaurant_price.toFixed(2)} ₽</div>
+                            ${!isItemHidden && it.last_price > 0 ? `<div class="text-[7.5px] text-slate-400 font-normal">посл: ${it.last_price.toFixed(2)} ₽</div>` : ''}
+                        </td>
+                        <td class="py-2 px-2 text-right font-semibold text-indigo-700 whitespace-nowrap">${it.market_avg_price.toFixed(2)} ₽</td>
+                        <td class="py-2 px-2 text-right whitespace-nowrap leading-tight">
+                            <div class="font-bold text-rose-600">+${(it.price_diff_percent_vs_avg || it.price_diff_percent || 0).toFixed(1)}% <span class="text-[7.5px] text-slate-400">к ср</span></div>
+                            <div class="text-[8px] font-bold text-amber-700">+${(it.price_diff_percent_vs_min || 0).toFixed(1)}% <span class="text-[7px] text-slate-400">к мин</span></div>
+                        </td>
+                        <td class="py-2 px-2.5 text-right font-black whitespace-nowrap leading-tight">
+                            <div class="text-rose-600">-${formatRub(it.monthly_overpay_vs_avg_rub || it.monthly_overpayment_rub)} ₽</div>
+                            <div class="text-[8px] font-bold text-amber-700">-${formatRub(it.monthly_overpay_vs_min_rub || 0)} ₽ (макс)</div>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+            });
+
+            // Применяем текущий режим (карточки или таблица)
+            setReportMode(currentReportMode);
+
+            // 4. Построение графиков
+            renderReportMarketChart();
+            renderReportCategoryChart();
+        }
+
+        // Построение кривой рынка
+        function renderReportMarketChart() {
+            const canvas = document.getElementById('rep-chart-market');
+            if (!canvas) return;
+
+            const overpayItems = allItems.filter(it => it.is_overpay);
+            const chartItems = overpayItems.slice(0, 6);
+
+            const labels = chartItems.map((it, idx) => {
+                if (currentReportType === 'demo' && idx >= 3) {
+                    return `Поз. #${idx + 1} (Демо)`;
+                }
+                const name = it.product_name || `Поз #${idx + 1}`;
+                return name.length > 14 ? name.substring(0, 13) + '…' : name;
+            });
+
+            const myPrices = chartItems.map(it => it.restaurant_price);
+            const avgPrices = chartItems.map(it => it.market_avg_price);
+            const minPrices = chartItems.map(it => it.market_min_price);
+
+            if (window.repMarketChart) {
+                window.repMarketChart.destroy();
+            }
+
+            const ctx = canvas.getContext('2d');
+            window.repMarketChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Ваша цена',
+                            data: myPrices,
+                            borderColor: '#e11d48',
+                            backgroundColor: 'rgba(225, 29, 72, 0.1)',
+                            borderWidth: 2.5,
+                            pointBackgroundColor: '#e11d48',
+                            pointRadius: 4.5,
+                            tension: 0.25
+                        },
+                        {
+                            label: 'Средняя рынка',
+                            data: avgPrices,
+                            borderColor: '#4f46e5',
+                            backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                            borderWidth: 2,
+                            borderDash: [4, 4],
+                            pointBackgroundColor: '#4f46e5',
+                            pointRadius: 4,
+                            tension: 0.25
+                        },
+                        {
+                            label: 'Лучшая в когорте',
+                            data: minPrices,
+                            borderColor: '#059669',
+                            backgroundColor: 'rgba(5, 150, 105, 0.1)',
+                            borderWidth: 2,
+                            pointBackgroundColor: '#059669',
+                            pointRadius: 4,
+                            tension: 0.25
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(2)} ₽`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: {
+                                font: { size: 9, weight: 'bold' },
+                                color: '#475569'
+                            }
+                        },
+                        y: {
+                            grid: { color: '#f1f5f9' },
+                            ticks: {
+                                font: { size: 9 },
+                                color: '#64748b',
+                                callback: function(value) {
+                                    return value + ' ₽';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Построение пайчарта потерь по категориям
+        function renderReportCategoryChart() {
+            const canvas = document.getElementById('rep-chart-category');
+            if (!canvas) return;
+
+            const overpayItems = allItems.filter(it => it.is_overpay);
+            const catMap = {};
+
+            overpayItems.forEach((it, idx) => {
+                let cat = it.canonical_category || 'Прочее';
+                if (currentReportType === 'demo' && idx >= 3) {
+                    cat = 'Скрытые категории (Демо)';
+                } else if (currentReportType === 'full' && idx >= 10) {
+                    cat = 'Остальные категории';
+                }
+                catMap[cat] = (catMap[cat] || 0) + (it.monthly_overpayment_rub || 0);
+            });
+
+            // Сортировка: сначала открытые категории по сумме потерь, скрытые в конце
+            const sortedCats = Object.entries(catMap).sort((a, b) => {
+                const aHidden = a[0].includes('Скрытые') || a[0].includes('Остальные');
+                const bHidden = b[0].includes('Скрытые') || b[0].includes('Остальные');
+                if (aHidden && !bHidden) return 1;
+                if (!aHidden && bHidden) return -1;
+                return b[1] - a[1];
+            });
+
+            const topCats = sortedCats.slice(0, 5);
+            const othersSum = sortedCats.slice(5).reduce((acc, curr) => acc + curr[1], 0);
+            if (othersSum > 0) {
+                topCats.push(['Прочие категории', othersSum]);
+            }
+
+            const catLabels = topCats.map(c => c[0]);
+            const catValues = topCats.map(c => Math.round(c[1]));
+
+            const colors = ['#f43f5e', '#f97316', '#eab308', '#6366f1', '#8b5cf6', '#10b981', '#94a3b8'];
+
+            if (window.repCatChart) {
+                window.repCatChart.destroy();
+            }
+
+            const ctx = canvas.getContext('2d');
+            window.repCatChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: catLabels,
+                    datasets: [{
+                        data: catValues,
+                        backgroundColor: colors.slice(0, catValues.length),
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    cutout: '55%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.label}: ${formatRub(context.parsed)} ₽`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Заполнение бейджей легенды под пайчартом
+            const legendContainer = document.getElementById('rep-category-legend-badges');
+            if (legendContainer) {
+                legendContainer.innerHTML = topCats.map((cat, i) => `
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 text-[8.5px]">
+                        <span class="w-2 h-2 rounded-full inline-block" style="background-color: ${colors[i % colors.length]}"></span>
+                        <span>${escapeHtml(cat[0])}: <strong>${formatRub(cat[1])} ₽</strong></span>
+                    </span>
+                `).join('');
+            }
+        }
+
+        // Скачивание PDF документа через html2pdf
+        function downloadReportPdf() {
+            const element = document.getElementById('report-document-sheet');
+            if (!element) return;
+
+            const btn = document.getElementById('btn-download-pdf');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span>⏳ Формирование...</span>';
+            }
+
+            const restName = (currentAudit && currentAudit.restaurant_name) ? currentAudit.restaurant_name.replace(/[^a-zA-Zа-яА-Я0-9_-]/g, '_') : 'Ресторан';
+            const filename = `Аудит_закупок_${restName}_${currentReportType}.pdf`;
+
+            const scrollParent = element.parentElement;
+            const prevScrollTop = scrollParent ? scrollParent.scrollTop : 0;
+            if (scrollParent) scrollParent.scrollTop = 0;
+
+            const opt = {
+                margin: [6, 6, 6, 6],
+                filename: filename,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true, logging: false, scrollX: 0, scrollY: 0 },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                pagebreak: { mode: ['css', 'legacy'] }
+            };
+
+            if (window.html2pdf) {
+                html2pdf().set(opt).from(element).save().then(() => {
+                    if (scrollParent) scrollParent.scrollTop = prevScrollTop;
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<span>📥 Скачать PDF</span>';
+                    }
+                }).catch(err => {
+                    if (scrollParent) scrollParent.scrollTop = prevScrollTop;
+                    console.error('Ошибка генерации html2pdf:', err);
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<span>📥 Скачать PDF</span>';
+                    }
+                    alert('Не удалось собрать PDF в браузере. Нажмите "Печать / Сохранить" для сохранения через системный диалог.');
+                });
+            } else {
+                window.print();
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span>📥 Скачать PDF</span>';
+                }
+            }
+        }
+
+        // Печать / Сохранение через системный диалог
+        function printReport() {
+            window.print();
+        }
+    </script>
+
+    <!-- МОДАЛЬНОЕ ОКНО АВТОРИЗАЦИИ СУПЕР-АДМИНИСТРАТОРА -->
+    <div id="auth-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md hidden">
+        <div class="bg-[#111827] border border-slate-800 rounded-2xl p-7 max-w-sm w-full mx-4 space-y-5 shadow-2xl">
+            <div class="text-center space-y-1">
+                <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                    🔒 Super-Admin RBAC
+                </div>
+                <h3 class="text-base font-bold text-white">Вход в QA2A Analytics</h3>
+                <p class="text-xs text-slate-400">Требуются права супер-администратора</p>
+            </div>
+
+            <div id="auth-error-box" class="hidden p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300"></div>
+
+            <form id="analytics-login-form" onsubmit="submitLoginModal(event)" class="space-y-3.5">
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Логин или Email</label>
+                    <input type="text" id="auth-login-input" required placeholder="admin или email@domain.ru" class="w-full bg-[#090d16] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-brand-500">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Пароль</label>
+                    <input type="password" id="auth-pass-input" required placeholder="••••••••" class="w-full bg-[#090d16] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-brand-500">
+                </div>
+                <button type="submit" id="auth-submit-btn" class="w-full py-2.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg cursor-pointer">
+                    Войти
+                </button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
