@@ -21,6 +21,7 @@ type AiResponse struct {
 	Consignee          string   `json:"consignee"`
 	ConsigneeINN       string   `json:"consignee_inn"`
 	Shipper            string   `json:"shipper"`
+	Comment            string   `json:"comment"`
 	DocPrintedTotalSum float64  `json:"doc_printed_total_sum"`
 	Items              []AiItem `json:"items"`
 	UsedModel          string   `json:"used_model"`
@@ -63,6 +64,7 @@ type XMLProducts struct {
 		Name        string `xml:"name"`
 		ProductType string `xml:"productType"`
 		Type        string `xml:"type"`
+		MainUnit    string `xml:"mainUnit"`
 	} `xml:"productDto"`
 }
 
@@ -70,6 +72,7 @@ type IikoProduct struct {
 	UUID string `json:"uuid"`
 	Name string `json:"name"`
 	Type string `json:"type"`
+	Unit string `json:"unit"`
 }
 
 type IikoStore struct {

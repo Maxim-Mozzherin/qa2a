@@ -40,14 +40,17 @@ func ValidateInitDataWithMaxAge(initData, token string, maxAge time.Duration) bo
 	// Проверка срока жизни initData (защита от replay attack)
 	if maxAge > 0 {
 		authDateStr := params.Get("auth_date")
-		if authDateStr != "" {
-			if authTimestamp, err := strconv.ParseInt(authDateStr, 10, 64); err == nil {
-				authTime := time.Unix(authTimestamp, 0)
-				// Если время в будущем с запасом > 5 мин или старше maxAge
-				if time.Since(authTime) > maxAge || time.Until(authTime) > 5*time.Minute {
-					return false
-				}
-			}
+		if authDateStr == "" {
+			return false
+		}
+		authTimestamp, err := strconv.ParseInt(authDateStr, 10, 64)
+		if err != nil || authTimestamp <= 0 {
+			return false
+		}
+		authTime := time.Unix(authTimestamp, 0)
+		// Если время в будущем с запасом > 5 мин или старше maxAge
+		if time.Since(authTime) > maxAge || time.Until(authTime) > 5*time.Minute {
+			return false
 		}
 	}
 

@@ -337,6 +337,7 @@ function executeAddEmptyRow() {
             doc_date: new Date().toISOString().split('T')[0],
             consignee: "",
             shipper: "",
+            comment: "",
             items: []
         };
         document.getElementById('results-section').classList.remove('hidden');
@@ -391,6 +392,9 @@ function renderTable(data) {
     if (els.resShipper) {
         els.resShipper.value = data.shipper || "";
         els.resShipper.title = data.shipper || "";
+    }
+    if (els.resComment) {
+        els.resComment.value = data.comment || "";
     }
 
     const companyId = els.company ? els.company.value : "";
@@ -503,6 +507,23 @@ function renderTable(data) {
         
         let catOptionsHtml = catOptions.map(c => `<option value="${escapeHtml(c)}" ${c === aiCat ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
 
+        let displayUnit = (item.unit || '').trim();
+        if (!displayUnit || /^\d+$/.test(displayUnit) || displayUnit === 'ед.') {
+            displayUnit = 'шт';
+        }
+        let displayBaseUnit = (item.base_unit || item.unit || '').trim();
+        if (!displayBaseUnit || /^\d+$/.test(displayBaseUnit) || displayBaseUnit === 'кг/шт' || displayBaseUnit === 'ед.') {
+            displayBaseUnit = 'шт';
+        }
+        if (item.mapped_uuid && typeof iikoCatalog !== 'undefined' && Array.isArray(iikoCatalog)) {
+            const cleanMapped = (item.mapped_uuid || '').toLowerCase().trim();
+            const foundProd = iikoCatalog.find(c => (c.uuid || '').toLowerCase().trim() === cleanMapped);
+            if (foundProd && foundProd.unit && !/^\d+$/.test(foundProd.unit.trim())) {
+                displayBaseUnit = foundProd.unit.trim();
+                if (/^\d+$/.test((item.unit || '').trim())) displayUnit = displayBaseUnit;
+            }
+        }
+
         tr.innerHTML = `
             <td class="px-2 py-3 text-center text-slate-500 font-semibold border-r border-slate-800/40 align-middle">${idx + 1}</td>
             <td class="px-3 py-3 align-middle">
@@ -518,7 +539,7 @@ function renderTable(data) {
             <td class="px-2 py-3 text-center align-middle">
                 <div class="flex items-center justify-center gap-1.5">
                     <input type="text" inputmode="decimal" class="w-14 bg-[#090d16] border border-slate-800 rounded-lg p-1.5 outline-none focus:border-brand-500 text-center font-extrabold text-slate-200 text-xs transition-all ai-qty-input" value="${aiQty}" title="Количество в накладной">
-                    <input type="text" class="w-12 bg-[#090d16] border border-slate-800 rounded-lg p-1.5 outline-none focus:border-brand-500 text-center text-slate-400 text-xs transition-all ai-unit-input" value="${escapeHtml(item.unit || 'кг/шт')}" title="Единица измерения УПД">
+                    <input type="text" class="w-12 bg-[#090d16] border border-slate-800 rounded-lg p-1.5 outline-none focus:border-brand-500 text-center text-slate-400 text-xs transition-all ai-unit-input" value="${escapeHtml(displayUnit)}" title="Единица измерения УПД">
                 </div>
             </td>
             <td class="px-3 py-3 align-middle">
@@ -529,7 +550,7 @@ function renderTable(data) {
                 <div class="flex items-center justify-center gap-1.5">
                     <input type="text" inputmode="decimal" oninput="this.value = this.value.replace(/[^0-9.,]/g, '');" class="iiko-unit-capacity w-16 bg-[#090d16] border border-slate-800 rounded-lg p-1.5 text-xs outline-none focus:bg-[#111827] focus:border-brand-500 text-center font-bold text-brand-300 transition-all" 
                         value="${initMult}" title="Масса или объем 1 единицы товара (коэффициент фасовки)">
-                    <span class="text-[11px] text-slate-400 font-semibold unit-capacity-label">${escapeHtml(item.base_unit || item.unit || 'кг/шт')}</span>
+                    <span class="text-[11px] text-slate-400 font-semibold unit-capacity-label">${escapeHtml(displayBaseUnit)}</span>
                 </div>
             </td>
             <td class="px-2 py-3 text-center align-middle">
@@ -537,7 +558,7 @@ function renderTable(data) {
                     <input type="text" inputmode="decimal" oninput="this.value = this.value.replace(/[^0-9.,]/g, '');" class="iiko-final-qty w-16 bg-[#090d16] border border-slate-800 rounded-lg p-1.5 text-xs outline-none focus:bg-[#111827] focus:border-brand-500 text-center ${multClass} font-bold" 
                         value="${initFinalQty.toFixed(3)}" title="Итоговое оприходование в iiko">
                     <input type="text" class="iiko-base-unit-input w-12 bg-[#090d16] border border-slate-800 rounded-lg p-1.5 text-[11px] outline-none focus:bg-[#111827] focus:border-brand-500 text-center text-slate-400 font-semibold" 
-                        value="${escapeHtml(item.base_unit || item.unit || 'кг/шт')}" title="Базовая единица для iiko">
+                        value="${escapeHtml(displayBaseUnit)}" title="Базовая единица для iiko">
                 </div>
                 ${multBadge}
             </td>
@@ -546,7 +567,7 @@ function renderTable(data) {
                     <!-- Цена за единицу товара -->
                     <div class="flex items-center gap-1 bg-[#090d16] border border-slate-800 rounded-lg px-2.5 py-1.5 focus-within:border-brand-500 transition-all" title="Цена за единицу (с НДС)">
                         <input type="text" inputmode="decimal" class="w-16 bg-transparent outline-none text-right font-semibold text-white text-xs transition-all ai-price-input" value="${item.price.toFixed(2)}">
-                        <span class="text-[10px] text-slate-400 whitespace-nowrap price-unit-label font-medium">₽/${escapeHtml(item.unit || 'ед.')}</span>
+                        <span class="text-[10px] text-slate-400 whitespace-nowrap price-unit-label font-medium">₽/${escapeHtml(displayUnit)}</span>
                     </div>
 
                     <span class="text-slate-600 font-light select-none">|</span>
@@ -588,7 +609,7 @@ function renderTable(data) {
             if (finalQtyInput) {
                 finalQtyInput.value = (Math.round(finalQ * 1000) / 1000).toFixed(3);
             }
-            updateDataModel(q, p, cap, sWithNds);
+            updateDataModel(q, p, cap, sWithNds, finalQ);
         };
 
         // When Final Qty changes -> Recalculate Multiplier and update unitCapInput
@@ -600,9 +621,10 @@ function renderTable(data) {
             let sWithNds = parseFloat(sumInput.value.replace(',', '.')) || (q * p);
 
             if (unitCapInput) {
-                unitCapInput.value = (Math.round(m * 1000) / 1000).toString();
+                // Отображаем фасовку с точностью до 4 знаков (например 0.1125), не округляя грубо до 3 знаков
+                unitCapInput.value = parseFloat(m.toFixed(4)).toString();
             }
-            updateDataModel(q, p, m, sWithNds);
+            updateDataModel(q, p, m, sWithNds, finalQ);
         };
 
         // When Qty or Price changes -> Recalculate Sum and Final Qty
@@ -613,11 +635,12 @@ function renderTable(data) {
             
             let sWithNds = q * p;
             sumInput.value = sWithNds.toFixed(2);
+            let finalQ = q * m;
             if (finalQtyInput) {
-                finalQtyInput.value = (q * m).toFixed(3);
+                finalQtyInput.value = finalQ.toFixed(3);
             }
             
-            updateDataModel(q, p, m, sWithNds);
+            updateDataModel(q, p, m, sWithNds, finalQ);
         };
 
         // When Sum changes -> Recalculate Price
@@ -628,15 +651,21 @@ function renderTable(data) {
             
             let p = q > 0 ? sWithNds / q : 0;
             aiPriceInput.value = p.toFixed(4);
+            let finalQ = q * m;
             
-            updateDataModel(q, p, m, sWithNds);
+            updateDataModel(q, p, m, sWithNds, finalQ);
         };
 
-        const updateDataModel = (q, p, m, sum) => {
+        const updateDataModel = (q, p, m, sum, finalQ) => {
             currentDocData.items[idx].quantity = q;
             currentDocData.items[idx].price = p;
             currentDocData.items[idx].multiplier = m;
             currentDocData.items[idx].sum = sum;
+            if (typeof finalQ === 'number' && !isNaN(finalQ)) {
+                currentDocData.items[idx].final_qty = finalQ;
+            } else {
+                currentDocData.items[idx].final_qty = q * m;
+            }
             
             let nds = parseFloat(currentDocData.items[idx].nds_percent) || 0;
             currentDocData.items[idx].sum_without_nds = sum / (1 + nds/100);
@@ -678,6 +707,14 @@ function renderTable(data) {
         if (iikoSearchInput) {
             iikoSearchInput.addEventListener('input', () => {
                 iikoSearchInput.classList.remove('border-red-500/80', 'bg-red-500/10', 'ring-2', 'ring-red-500/20');
+                const val = iikoSearchInput.value.trim().toLowerCase();
+                if (val && typeof iikoCatalog !== 'undefined' && Array.isArray(iikoCatalog)) {
+                    const foundMatch = iikoCatalog.find(c => (c.name || '').toLowerCase() === val || (c.uuid || '').toLowerCase() === val);
+                    if (foundMatch && foundMatch.unit && !/^\d+$/.test(foundMatch.unit.trim())) {
+                        if (baseUnitInput) baseUnitInput.value = foundMatch.unit.trim();
+                        if (unitCapLabel) unitCapLabel.textContent = foundMatch.unit.trim();
+                    }
+                }
             });
         }
 

@@ -436,7 +436,8 @@ func handleGetReconciliationRegistry(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query(query, companyID, supplierUUID, dateFrom, dateTo)
 	if err != nil {
-		http.Error(w, "Ошибка БД: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Reconciliation] DB query error for company %d: %v", companyID, err)
+		http.Error(w, "Ошибка чтения реестра актов сверки", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()

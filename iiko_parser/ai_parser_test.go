@@ -1,7 +1,15 @@
 package main
 
 import (
+	"encoding/base64"
+	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
 	"testing"
+
+	"github.com/joho/godotenv"
 )
 
 func TestIsSubtotalRow(t *testing.T) {
@@ -29,6 +37,38 @@ func TestIsSubtotalRow(t *testing.T) {
 	for _, it := range validItems {
 		if isSubtotalRow(it) {
 			t.Errorf("Expected isSubtotalRow(%q) to be false, got true", it)
+		}
+	}
+}
+
+func TestIsHallucinatedBalancingRow(t *testing.T) {
+	hallucinated := []string{
+		"Доставка / Дополнительно",
+		"доставка / дополнительно",
+		"Доставка/Дополнительно",
+		"Дополнительно / Доставка",
+		"Дополнительно",
+		"Балансирующая строка",
+		"Корректировка суммы",
+		"Разница",
+		"Округление",
+	}
+	for _, h := range hallucinated {
+		if !isHallucinatedBalancingRow(h) {
+			t.Errorf("Expected isHallucinatedBalancingRow(%q) to be true, got false", h)
+		}
+	}
+
+	realItems := []string{
+		"Услуги по доставке товаров автомобильным транспортом",
+		"Доставка питьевой воды 19л",
+		"Кальмар тушка 1кг",
+		"Лист бамбука",
+		"Сыр Моцарелла 45%",
+	}
+	for _, r := range realItems {
+		if isHallucinatedBalancingRow(r) {
+			t.Errorf("Expected isHallucinatedBalancingRow(%q) to be false, got true", r)
 		}
 	}
 }
@@ -200,6 +240,96 @@ func TestPriceNormalizationAndVATCalculation(t *testing.T) {
 	roundedNds := float64(int(calcNds + 0.5))
 	if roundedNds != 22.0 {
 		t.Errorf("Expected recalculated VAT rate to be 22.0, got %.2f", roundedNds)
+	}
+}
+
+func TestDetectDocumentType_FastPath(t *testing.T) {
+	torg12Text := "Унифицированная форма № ТОРГ-12\nУтверждена постановлением Госкомстата России от 25.12.98 № 132\nФорма по ОКУД 0330212\nТОВАРНАЯ НАКЛАДНАЯ"
+	res := detectDocumentType(torg12Text, "", nil)
+	if res != "TORG12" {
+		t.Errorf("Expected TORG12, got %s", res)
+	}
+
+	updText := "Универсальный передаточный документ\nСтатус: 1\nСчет-фактура № 123 от 10.05.2024"
+	res2 := detectDocumentType(updText, "", nil)
+	if res2 != "UPD" {
+		t.Errorf("Expected UPD, got %s", res2)
+	}
+}
+
+func TestParseK7Pdf(t *testing.T) {
+	pdfPath := "/tmp/K7.pdf"
+	if _, err := os.Stat(pdfPath); os.IsNotExist(err) {
+		t.Skip("skipping test; /tmp/K7.pdf not found")
+	}
+	_ = godotenv.Load("/opt/iiko_parser/.env")
+	_ = godotenv.Load("/opt/qa2a-reboot/.env")
+
+	googleKey := os.Getenv("GOOGLE_API_KEYS")
+	if googleKey == "" {
+		googleKey = os.Getenv("GOOGLE_API_KEY")
+	}
+	globalKeyManager.InitKeys(googleKey)
+	aiApiKey = globalKeyManager.GetAvailableKey()
+	aiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+	aiModel = "gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.1-flash-lite-preview,gemini-3.1-flash-lite"
+
+	tmpDir, err := os.MkdirTemp("", "k7_test_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	txtPath := filepath.Join(tmpDir, "extracted.txt")
+	_ = exec.Command("pdftotext", "-layout", pdfPath, txtPath).Run()
+	textBytes, _ := os.ReadFile(txtPath)
+
+	imgPrefix := filepath.Join(tmpDir, "img")
+	cmdImg := exec.Command("pdftoppm", "-jpeg", "-jpegopt", "quality=80", "-scale-to-x", "1600", "-scale-to-y", "-1", "-f", "1", "-l", "30", pdfPath, imgPrefix)
+	if err := cmdImg.Run(); err != nil {
+		t.Fatalf("pdftoppm error: %v", err)
+	}
+
+	matches, _ := filepath.Glob(imgPrefix + "-*.jpg")
+	sort.Strings(matches)
+	var imagesBase64 []string
+	for _, m := range matches {
+		b, err := os.ReadFile(m)
+		if err == nil {
+			imagesBase64 = append(imagesBase64, base64.StdEncoding.EncodeToString(b))
+		}
+	}
+
+	t.Logf("📄 Извлечено %d страниц, %d байт текста", len(imagesBase64), len(textBytes))
+
+	reporter := func(icon, msg string, pct int) {
+		t.Logf("[%s %d%%] %s", icon, pct, msg)
+	}
+
+	resp, err := parseMultiPageChunked(string(textBytes), imagesBase64, "", reporter)
+	if err != nil {
+		t.Fatalf("parseMultiPageChunked error: %v", err)
+	}
+
+	t.Logf("📋 DocNumber: %s, DocDate: %s", resp.DocNumber, resp.DocDate)
+	t.Logf("🏢 Vendor: %s (ИНН: %s)", resp.VendorName, resp.VendorINN)
+	t.Logf("📍 Consignee: %s", resp.Consignee)
+	t.Logf("💰 DocPrintedTotalSum: %.2f", resp.DocPrintedTotalSum)
+	t.Logf("📦 Позиций распознано: %d", len(resp.Items))
+
+	calcTotal := calculateTotalSum(resp.Items)
+	t.Logf("💵 Расчетная сумма позиций: %.2f (дельта: %.2f)", calcTotal, math.Abs(calcTotal-resp.DocPrintedTotalSum))
+
+	for i, it := range resp.Items {
+		t.Logf("[%2d] %s | кол-во: %.3f %s | цена: %.2f | сумма: %.2f | кат: %s",
+			i+1, it.Name, it.Quantity, it.Unit, it.Price, it.Sum, it.CleanCategory)
+	}
+
+	if len(resp.Items) < 20 {
+		t.Errorf("Ожидалось не менее 20 позиций для K7.pdf, получено %d", len(resp.Items))
+	}
+	if resp.DocPrintedTotalSum != 17060.50 {
+		t.Errorf("Ожидалась печатная сумма 17060.50, получено %.2f", resp.DocPrintedTotalSum)
 	}
 }
 

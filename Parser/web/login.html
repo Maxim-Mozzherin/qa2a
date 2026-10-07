@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход | Leads Monster — B2B HoReCa Lead Intelligence</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <script>
+        const BASE_PATH = window.location.pathname.startsWith('/bugh-team/parser') ? '/bugh-team/parser' : '';
+        document.write('<base href="' + (BASE_PATH ? BASE_PATH + '/' : '/') + '">');
+    </script>
+    <link rel="stylesheet" href="css/style.css?v=2.3.0">
+    <style>
+        .login-page {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle at top right, rgba(6, 182, 212, 0.08), transparent 40%),
+                        radial-gradient(circle at bottom left, rgba(16, 185, 129, 0.08), transparent 40%),
+                        #0b0e17;
+            padding: 20px;
+        }
+        .login-card {
+            width: 100%;
+            max-width: 400px;
+            background: #131722;
+            border: 1px solid #282d3b;
+            border-radius: 16px;
+            padding: 32px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+        .login-header {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        .login-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(16, 185, 129, 0.12);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .form-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .form-input {
+            background: #1e222d;
+            border: 1px solid #282d3b;
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            outline: none;
+            transition: all 0.15s ease;
+        }
+        .form-input:focus {
+            border-color: #06b6d4;
+            box-shadow: 0 0 0 1px #06b6d4;
+        }
+        .btn-submit {
+            width: 100%;
+            padding: 12px;
+            font-size: 13px;
+            font-weight: 700;
+            margin-top: 8px;
+        }
+        .alert-error {
+            background: rgba(244, 63, 94, 0.12);
+            border: 1px solid rgba(244, 63, 94, 0.3);
+            color: #fb7185;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            display: none;
+        }
+    </style>
+</head>
+<body class="login-page">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="brand-icon" style="width: 48px; height: 48px; font-size: 26px; border-radius: 12px;">⚡</div>
+            <div class="brand-title" style="font-size: 20px; justify-content: center; margin-top: 6px;">
+                Leads Monster
+            </div>
+            <div class="login-badge">
+                <span class="user-dot"></span>
+                Superadmin Gateway
+            </div>
+            <p class="brand-subtitle" style="font-size: 12px; margin-top: 4px;">
+                B2B Lead Intelligence & CRM для HoReCa
+            </p>
+        </div>
+
+        <div id="error-box" class="alert-error"></div>
+
+        <form id="login-form" style="display: flex; flex-direction: column; gap: 16px;">
+            <div class="form-group">
+                <label class="form-label" for="login">Логин Superadmin</label>
+                <input class="form-input" type="text" id="login" name="login" placeholder="например, admin или bugh" required autofocus>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="password">Пароль</label>
+                <input class="form-input" type="password" id="password" name="password" placeholder="Введите пароль" required>
+            </div>
+
+            <button type="submit" id="submit-btn" class="btn btn-primary btn-submit">
+                <span>Войти в систему</span>
+                <span>→</span>
+            </button>
+        </form>
+
+        <div style="text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #1c202c; padding-top: 14px;">
+            Авторизация проверяется по базе пользователей QA2A (роль <code>superadmin</code>).
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('login-form');
+        const errBox = document.getElementById('error-box');
+        const submitBtn = document.getElementById('submit-btn');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            errBox.style.display = 'none';
+            submitBtn.disabled = true;
+            submitBtn.style.opacity = '0.7';
+
+            const login = document.getElementById('login').value.trim();
+            const password = document.getElementById('password').value;
+
+            const basePath = window.location.pathname.startsWith('/bugh-team/parser') ? '/bugh-team/parser' : '';
+            try {
+                const res = await fetch((basePath ? basePath : '') + '/api/auth/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({login, password})
+                });
+
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.error || 'Ошибка входа');
+                }
+
+                // Redirect to main dashboard
+                window.location.href = basePath ? `${basePath}/` : '/';
+            } catch (err) {
+                errBox.textContent = err.message;
+                errBox.style.display = 'block';
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.style.opacity = '1';
+            }
+        });
+    </script>
+</body>
+</html>

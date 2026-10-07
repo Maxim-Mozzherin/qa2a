@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"os"
@@ -14,13 +16,14 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"qa2a/internal/bot"
 	"qa2a/internal/config"
 	"qa2a/internal/database"
 	"qa2a/internal/handlers"
 	"qa2a/internal/middleware"
 	"qa2a/internal/repository"
 	"qa2a/internal/service"
-	"qa2a/internal/bot"
+	"qa2a/pkg/ratelimit"
 )
 
 type neuteredFileSystem struct {
@@ -75,14 +78,20 @@ func main() {
 	invSvc := service.NewInventoryService(repo, iikoSvc)
 	mktSvc := service.NewMarketplaceService(repo)
 
+	// Инициализация очереди синхронизации номенклатуры (Concurrency: 1)
+	syncQueue := service.NewSyncQueue(iikoSvc, 100)
+	syncQueue.Start()
+
 	h := handlers.New(authSvc, invSvc, repSvc, iikoSvc, mktSvc, cfg.BotToken, cfg.AdminTgID, cfg.ExternalApiKey)
+	h.SetSyncQueue(syncQueue)
 
 	// Admin Telegram Bot
 	tgBot := bot.New(cfg.BotToken, cfg.AdminTgID, repo)
 	tgBot.Start()
 
-	// 4. Запуск фонового регламентного планировщика (выгрузка в iiko в 06:30 МСК)
-	scheduler := service.NewScheduler(repo, iikoSvc)
+	// 4. Запуск фонового регламентного планировщика (выгрузка в iiko в 06:30 МСК + синхронизация номенклатуры строго ПОСЛЕ)
+	scheduler := service.NewScheduler(repo, iikoSvc, syncQueue)
+	scheduler.SetAlerter(tgBot)
 	scheduler.OnExportComplete = func() {
 		tgBot.SendFullBackup()
 	}
@@ -92,6 +101,8 @@ func main() {
 	r := mux.NewRouter()
 
 	allowedOrigins := []string{
+		"https://qa2a.ru",
+		"https://www.qa2a.ru",
 		"https://web.telegram.org",
 		"https://webk.telegram.org",
 		"https://webz.telegram.org",
@@ -104,9 +115,12 @@ func main() {
 		}
 	}
 
-	// Глобальное логирование входящих запросов и строгие CORS заголовки
+	// Глобальное логирование входящих запросов, строгие CORS и защитные заголовки
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
 			origin := req.Header.Get("Origin")
 			if origin != "" {
 				isAllowed := false
@@ -141,10 +155,21 @@ func main() {
 		})
 	})
 
-	// Статический фронтенд Mini App
-	r.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+	// Статический фронтенд Mini App (/app, /app/ и редирект с /)
+	r.HandleFunc("/app", func(w http.ResponseWriter, req *http.Request) {
 		http.ServeFile(w, req, "web/templates/index.html")
-	}).Methods("GET")
+	}).Methods("GET", "HEAD")
+	r.HandleFunc("/app/", func(w http.ResponseWriter, req *http.Request) {
+		http.ServeFile(w, req, "web/templates/index.html")
+	}).Methods("GET", "HEAD")
+	// Корневой лендинг / сайт-визитка
+	r.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/" {
+			http.NotFound(w, req)
+			return
+		}
+		http.ServeFile(w, req, "web/templates/landing.html")
+	}).Methods("GET", "HEAD")
 
 	// Раздача статики Mini App с защитой от листинга директорий (neuteredFileSystem)
 	staticDir := http.Dir("web/static")
@@ -174,6 +199,107 @@ func main() {
 	api.HandleFunc("/companies", h.CreateCompanyHandler).Methods("POST", "OPTIONS")
 	api.HandleFunc("/iiko/webhook", h.IikoWebhookHandler).Methods("POST")
 	api.HandleFunc("/external/inventory-templates", h.CreateExternalTemplateHandler).Methods("POST", "OPTIONS")
+	api.HandleFunc("/external/export-iiko", h.ExternalForceExportHandler).Methods("POST", "OPTIONS")
+
+	leadLimiter := ratelimit.NewLimiter(5, 5*time.Minute, 15*time.Minute, 5000)
+
+	// Публичный эндпоинт отправки заявок с лендинга ботом в переписку с @qa2a_team
+	api.HandleFunc("/lead", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		clientIP := ratelimit.GetClientIP(req)
+		if allowed, remaining := leadLimiter.Allow(clientIP); !allowed {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": fmt.Sprintf("Слишком много заявок с вашего IP. Пожалуйста, повторите через %d сек.", int(remaining.Seconds())+1),
+			})
+			return
+		}
+
+		req.Body = http.MaxBytesReader(w, req.Body, 64<<10) // Лимит 64 КБ
+		var lead struct {
+			Service    string `json:"service"`
+			Period     string `json:"period"`
+			Name       string `json:"name"`
+			Contact    string `json:"contact"`
+			Restaurant string `json:"restaurant"`
+			City       string `json:"city"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&lead); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "Неверный формат данных"})
+			return
+		}
+
+		sanitize := func(val string, maxLen int) string {
+			val = strings.TrimSpace(val)
+			if len(val) > maxLen {
+				val = val[:maxLen] + "…"
+			}
+			return html.EscapeString(val)
+		}
+
+		sName := sanitize(lead.Name, 100)
+		sContact := sanitize(lead.Contact, 100)
+		if sName == "" || sContact == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "Пожалуйста, укажите имя и контактные данные"})
+			return
+		}
+
+		sService := sanitize(lead.Service, 120)
+		if sService == "" {
+			sService = "Экспресс-аудит цен"
+		}
+		sPeriod := sanitize(lead.Period, 50)
+		sRestaurant := sanitize(lead.Restaurant, 120)
+		sCity := sanitize(lead.City, 80)
+
+		periodLine := ""
+		if sPeriod != "" {
+			periodLine = fmt.Sprintf("📅 <b>Период:</b> %s\n", sPeriod)
+		}
+		restaurantLine := ""
+		if sRestaurant != "" && sRestaurant != "Не указано" {
+			restaurantLine = fmt.Sprintf("🍽 <b>Заведение:</b> %s\n", sRestaurant)
+		}
+		cityLine := ""
+		if sCity != "" && sCity != "Не указан" {
+			cityLine = fmt.Sprintf("📍 <b>Город:</b> %s\n", sCity)
+		}
+
+		msg := fmt.Sprintf("🔔 <b>Новая заявка с сайта QA2A!</b>\n\n"+
+			"💼 <b>Услуга:</b> %s\n"+
+			"%s"+
+			"👤 <b>Имя:</b> %s\n"+
+			"📱 <b>Контакт:</b> %s\n"+
+			"%s"+
+			"%s\n"+
+			"⚡ <i>Отправлено автоматически через форму на сайте</i>",
+			sService, periodLine, sName, sContact, restaurantLine, cityLine)
+
+		// Отправляем заявку ботом в чат к @qa2a_team (chat_id: 8737785102)
+		const qa2aTeamTgID = int64(8737785102)
+		if err := tgBot.SendToChat(qa2aTeamTgID, msg); err != nil {
+			log.Printf("⚠️ Ошибка отправки заявки ботом в @qa2a_team (%d): %v", qa2aTeamTgID, err)
+		} else {
+			log.Printf("✅ Заявка с сайта успешно доставлена ботом в @qa2a_team (%d)", qa2aTeamTgID)
+		}
+		if cfg.AdminTgID != qa2aTeamTgID && cfg.AdminTgID != 0 {
+			_ = tgBot.SendToChat(cfg.AdminTgID, msg)
+		}
+		log.Printf("📧 [LEAD] Заявка зарегистрирована (копия для info@qa2a.ru): Имя=%s, Контакт=%s, Услуга=%s, Заведение=%s, Город=%s, Период=%s",
+			sName, sContact, sService, sRestaurant, sCity, sPeriod)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}).Methods("POST", "OPTIONS")
 
 	// Публичные эндпоинты кабинета поставщика (регистрация и вход регистрируются ДО закрытого саброутера)
 	api.HandleFunc("/supplier/register", h.RegisterSupplierHandler).Methods("POST", "OPTIONS")
@@ -301,8 +427,9 @@ func main() {
 
 	log.Println("⚠️ Получен сигнал прерывания. Начало процедуры безопасного завершения...")
 
-	// Останавливаем фоновый планировщик задач
+	// Останавливаем фоновый планировщик задач и очередь синхронизации
 	scheduler.Stop()
+	syncQueue.Stop()
 
 	// Ожидаем завершения активных HTTP-запросов (таймаут 15 секунд)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

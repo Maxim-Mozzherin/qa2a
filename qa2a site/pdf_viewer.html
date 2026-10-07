@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>PDF Renderer & Inspector</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    body { background: #1e1e1e; margin: 0; padding: 20px; font-family: sans-serif; color: white; }
+    .page-container { margin-bottom: 30px; background: white; display: inline-block; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+    canvas { display: block; }
+    h2 { color: #aaa; margin: 10px 0 5px; }
+  </style>
+</head>
+<body>
+  <h1>Rendering PDF Pages...</h1>
+  <div id="pages"></div>
+
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    async function load() {
+      try {
+        // Fetch local PDF file converted to arrayBuffer
+        const response = await fetch('Аудит_закупок_Покерамен_demo (13).pdf');
+        const data = await response.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data }).promise;
+        document.querySelector('h1').textContent = `Loaded PDF: ${pdf.numPages} pages`;
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const scale = 2.0; // High resolution
+          const viewport = page.getViewport({ scale });
+
+          const container = document.createElement('div');
+          container.className = 'page-container';
+          container.id = `page-${i}`;
+
+          const title = document.createElement('h2');
+          title.textContent = `Page ${i}`;
+          document.getElementById('pages').appendChild(title);
+
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          canvas.style.width = (viewport.width / 2) + 'px';
+          canvas.style.height = (viewport.height / 2) + 'px';
+
+          const ctx = canvas.getContext('2d');
+          await page.render({ canvasContext: ctx, viewport }).promise;
+
+          container.appendChild(canvas);
+          document.getElementById('pages').appendChild(container);
+        }
+        window.pdfRenderFinished = true;
+      } catch (err) {
+        document.querySelector('h1').textContent = 'Error: ' + err.message;
+        console.error(err);
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

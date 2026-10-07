@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"log"
+	"net/http"
+
 	"iiko_parser/crypto"
 	"iiko_parser/pkg/netutil"
-	"net/http"
 )
 
 func handleCompanies(w http.ResponseWriter, r *http.Request) {
@@ -28,7 +30,8 @@ func handleCompanies(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query(query, args...)
 	if err != nil {
-		http.Error(w, "Ошибка чтения списка заведений: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Settings] Error querying companies: %v", err)
+		http.Error(w, "Ошибка чтения списка заведений", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -75,25 +78,29 @@ func handleCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := netutil.ValidateHost(host); err != nil {
-		http.Error(w, "Недопустимый адрес сервера iiko RMS (заблокировано политикой безопасности SSRF): "+err.Error(), http.StatusBadRequest)
+		log.Printf("❌ [Settings] SSRF host validation error for host '%s': %v", host, err)
+		http.Error(w, "Недопустимый адрес сервера iiko RMS (заблокировано политикой безопасности)", http.StatusBadRequest)
 		return
 	}
 
 	password, err := crypto.Decrypt(encryptedPass, encryptionKey)
 	if err != nil {
+		log.Printf("❌ [Settings] Password decryption error: %v", err)
 		http.Error(w, "Ошибка дешифрования пароля iiko RMS. Проверьте настройки в боте.", http.StatusInternalServerError)
 		return
 	}
 
 	iikoToken, err := authIiko(host, login, password)
 	if err != nil {
+		log.Printf("❌ [Settings] iiko auth error for host '%s': %v", host, err)
 		http.Error(w, "Ошибка авторизации на сервере iiko. Проверьте настройки подключения в боте.", http.StatusUnauthorized)
 		return
 	}
 
 	catalog, err := fetchIikoCatalog(host, iikoToken)
 	if err != nil {
-		http.Error(w, "Ошибка загрузки каталога iiko: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Settings] iiko catalog fetch error: %v", err)
+		http.Error(w, "Ошибка загрузки каталога iiko", http.StatusInternalServerError)
 		return
 	}
 

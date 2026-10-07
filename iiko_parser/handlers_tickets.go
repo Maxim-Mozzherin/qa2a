@@ -144,6 +144,18 @@ func handleUpdateAccountingTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	allowedStatuses := map[string]string{
+		"new":         "🟡 На рассмотрении",
+		"in_progress": "🔵 В работе у бухгалтера",
+		"resolved":    "🟢 Выполнена",
+		"rejected":    "🔴 Отклонена",
+	}
+	statusRus, ok := allowedStatuses[req.Status]
+	if !ok {
+		http.Error(w, "Некорректный статус заявки", http.StatusBadRequest)
+		return
+	}
+
 	var tgID int64
 	var companyID int
 	var companyName, category string
@@ -166,14 +178,22 @@ func handleUpdateAccountingTicket(w http.ResponseWriter, r *http.Request) {
 
 	_, err = db.Exec(`UPDATE accounting_tickets SET status = $1, accountant_comment = $2, updated_at = NOW() WHERE id = $3`, req.Status, req.Comment, req.TicketID)
 	if err != nil {
-		http.Error(w, "DB update error", 500)
+		log.Printf("❌ [Tickets] DB update error for ticket #%d: %v", req.TicketID, err)
+		http.Error(w, "Внутренняя ошибка сервера при обновлении заявки", 500)
 		return
 	}
 
-	statusRus := map[string]string{"new": "🟡 На рассмотрении", "in_progress": "🔵 В работе у бухгалтера", "resolved": "🟢 Выполнена", "rejected": "🔴 Отклонена"}[req.Status]
-	catRus := map[string]string{"ttk": "Техкарты / Меню", "invoice": "Накладная / Поставщик", "writeoff": "Списание / Склад", "inventory": "Инвентаризация", "other": "Общий вопрос"}[category]
-	if statusRus == "" { statusRus = req.Status }
-	if catRus == "" { catRus = category }
+	allowedCats := map[string]string{
+		"ttk":       "Техкарты / Меню",
+		"invoice":   "Накладная / Поставщик",
+		"writeoff":  "Списание / Склад",
+		"inventory": "Инвентаризация",
+		"other":     "Общий вопрос",
+	}
+	catRus, catOk := allowedCats[category]
+	if !catOk {
+		catRus = html.EscapeString(category)
+	}
 
 	var msg strings.Builder
 	msg.WriteString(fmt.Sprintf("🔔 <b>Обновление по заявке #%05d</b>\n🏢 Заведение: <b>%s</b>\n📁 Категория: <b>%s</b>\n📌 Статус: <b>%s</b>\n", 

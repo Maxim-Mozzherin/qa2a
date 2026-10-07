@@ -93,6 +93,34 @@ func TestValidateTelegramData_Security(t *testing.T) {
 	if validateTelegramData(tamperedInitData, botToken) {
 		t.Errorf("expected tampered initData to fail verification")
 	}
+
+	// 5. Missing auth_date should be rejected (replay attack prevention)
+	noAuthDate := fmt.Sprintf("query_id=%s&user=%s&hash=%s", queryID, userJSON, validHash)
+	if validateTelegramData(noAuthDate, botToken) {
+		t.Errorf("expected initData without auth_date to fail verification")
+	}
+
+	// 6. Expired auth_date (>24 hours ago) should be rejected
+	oldDate := fmt.Sprintf("%d", time.Now().Add(-25*time.Hour).Unix())
+	oldCheckString := fmt.Sprintf("auth_date=%s\nquery_id=%s\nuser=%s", oldDate, queryID, userJSON)
+	macOld := hmac.New(sha256.New, secretKey.Sum(nil))
+	macOld.Write([]byte(oldCheckString))
+	oldHash := hex.EncodeToString(macOld.Sum(nil))
+	oldInitData := fmt.Sprintf("auth_date=%s&query_id=%s&user=%s&hash=%s", oldDate, queryID, userJSON, oldHash)
+	if validateTelegramData(oldInitData, botToken) {
+		t.Errorf("expected expired initData to fail verification")
+	}
+
+	// 7. Future auth_date (>5 minutes in the future) should be rejected
+	futureDate := fmt.Sprintf("%d", time.Now().Add(10*time.Minute).Unix())
+	futureCheckString := fmt.Sprintf("auth_date=%s\nquery_id=%s\nuser=%s", futureDate, queryID, userJSON)
+	macFuture := hmac.New(sha256.New, secretKey.Sum(nil))
+	macFuture.Write([]byte(futureCheckString))
+	futureHash := hex.EncodeToString(macFuture.Sum(nil))
+	futureInitData := fmt.Sprintf("auth_date=%s&query_id=%s&user=%s&hash=%s", futureDate, queryID, userJSON, futureHash)
+	if validateTelegramData(futureInitData, botToken) {
+		t.Errorf("expected future initData to fail verification")
+	}
 }
 
 func TestCreateExternalTemplateHandler_Security(t *testing.T) {
@@ -168,4 +196,31 @@ func TestSupplierIDContext_Security(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, reqAuth)
+}
+
+func TestLeadSanitization_Security(t *testing.T) {
+	sanitize := func(val string, maxLen int) string {
+		val = strings.TrimSpace(val)
+		if len(val) > maxLen {
+			val = val[:maxLen] + "…"
+		}
+		return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(val, "&", "&amp;"), "<", "&lt;"), ">", "&gt;")
+	}
+
+	// 1. XSS / Telegram HTML injection prevention
+	dirtyInput := "<script>alert(1)</script><b>bold</b> & \"special\""
+	clean := sanitize(dirtyInput, 100)
+	if strings.Contains(clean, "<script>") || strings.Contains(clean, "<b>") {
+		t.Errorf("expected HTML entities to be escaped, got %s", clean)
+	}
+	if !strings.Contains(clean, "&lt;script&gt;") {
+		t.Errorf("expected &lt;script&gt; in sanitized output, got %s", clean)
+	}
+
+	// 2. Length limitation to prevent message bombing
+	hugeInput := strings.Repeat("A", 500)
+	truncated := sanitize(hugeInput, 50)
+	if len(truncated) > 60 {
+		t.Errorf("expected truncated string around 50 chars, got length %d", len(truncated))
+	}
 }

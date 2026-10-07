@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +24,7 @@ type Handler struct {
 	reportService      *service.ReportService
 	iikoService        *service.IikoService
 	marketplaceService *service.MarketplaceService
+	syncQueue          *service.SyncQueue
 	botToken           string
 	adminTgID          int64
 	externalApiKey     string
@@ -54,6 +57,11 @@ func New(
 	}
 }
 
+// SetSyncQueue устанавливает менеджер очереди синхронизации
+func (h *Handler) SetSyncQueue(sq *service.SyncQueue) {
+	h.syncQueue = sq
+}
+
 // HealthHandler выполняет проверку жизнеспособности сервера и соединения с базой данных.
 func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -70,7 +78,7 @@ func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	if err := h.inventoryService.GetRepo().GetDb().PingContext(ctx); err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"error","service":"qa2a-backend","error":%q}`, err.Error())))
+		_, _ = w.Write([]byte(`{"status":"error","service":"qa2a-backend"}`))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -136,9 +144,11 @@ func (h *Handler) getUserID(r *http.Request) int {
 			tIDStr = strings.TrimPrefix(authHeader, "Bearer ")
 		}
 	}
-	if tID := verifySignedToken(tIDStr, h.botToken); tID != 0 {
+	if tID, tokenVersion := middleware.VerifySignedTokenWithVersion(tIDStr, h.botToken); tID != 0 {
 		if user, err := h.authService.GetUserByTgID(tID); err == nil && user != nil {
-			return user.ID
+			if user.TokenVersion == tokenVersion {
+				return user.ID
+			}
 		}
 	}
 	return 0
@@ -170,18 +180,28 @@ func parseFlexibleDate(dateStr string) time.Time {
 	return time.Now()
 }
 
-// sendTelegramMessage отправляет сервисное сообщение в Telegram через HTTP API бота.
-func (h *Handler) sendTelegramMessage(tgID int64, text string) {
-	if h.botToken == "" || tgID <= 0 {
+// sendTelegramNotification отправляет системное уведомление в канал/чат @qa2a_team.
+func (h *Handler) sendTelegramNotification(text string) {
+	if h.botToken == "" {
 		return
 	}
+	target := os.Getenv("TELEGRAM_NOTIFICATION_CHAT")
+	if target == "" {
+		target = "@qa2a_team"
+	}
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", h.botToken)
-	payload := map[string]interface{}{"chat_id": tgID, "text": text, "parse_mode": "HTML"}
+	payload := map[string]interface{}{"chat_id": target, "text": text, "parse_mode": "HTML"}
 	bodyBytes, _ := json.Marshal(payload)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Post(url, "application/json", bytes.NewBuffer(bodyBytes))
 	if err == nil {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
+}
+
+// sendTelegramMessage отправляет сервисное сообщение в Telegram (по умолчанию в @qa2a_team).
+func (h *Handler) sendTelegramMessage(tgID int64, text string) {
+	h.sendTelegramNotification(text)
 }

@@ -130,10 +130,17 @@
                 <!-- Выбор заведения -->
                 <div class="flex items-center gap-2 bg-[#090d16] border border-slate-800 rounded-xl px-3 py-1.5">
                     <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Заведение:</span>
-                    <select id="restaurant-select" onchange="loadAudit()" class="bg-transparent text-xs font-semibold text-white outline-none cursor-pointer">
+                    <select id="restaurant-select" onchange="onRestaurantChanged()" class="bg-transparent text-xs font-semibold text-white outline-none cursor-pointer">
                         <option value="">Загрузка заведений...</option>
                     </select>
                 </div>
+
+                <!-- Бейдж статуса подписки выбранного заведения -->
+                <button id="btn-sub-badge" onclick="openCurrentSubModal()" class="bg-[#090d16] hover:bg-slate-800/80 active:bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer" title="Управление Telegram-подпиской заведения">
+                    <span id="sub-badge-icon">⚪</span>
+                    <span id="sub-badge-text" class="text-slate-400">Разовый доступ</span>
+                    <span class="text-[9px] text-slate-500">⚙️</span>
+                </button>
 
                 <!-- Кнопка Добавить заведение -->
                 <button onclick="openAddRestaurantModal()" class="bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-semibold px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-sm shadow-emerald-900/30" title="Подключить новое заведение через iiko RMS">
@@ -163,15 +170,7 @@
                     <span>Сформировать отчет (PDF)</span>
                 </button>
 
-                <!-- Freemium Режим: Демо vs Полный -->
-                <div class="flex items-center gap-1 bg-[#090d16] p-1 rounded-xl border border-slate-800 text-xs">
-                    <button id="btn-mode-demo" onclick="setAuditMode('demo')" class="px-2.5 py-1 rounded-lg text-xs font-bold transition-all bg-amber-500/20 text-amber-300 border border-amber-500/40 cursor-pointer" title="Демонстрационный режим: Top-3 позиции открыты, остальные скрыты">
-                        🔒 Демо (Топ-3)
-                    </button>
-                    <button id="btn-mode-full" onclick="setAuditMode('full')" class="px-2.5 py-1 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-white cursor-pointer" title="Полный аудит всех позиций">
-                        🔓 Полный аудит
-                    </button>
-                </div>
+
 
                 <!-- Профиль Супер-администратора и выход -->
                 <div id="user-badge-container" class="flex items-center gap-2 bg-[#090d16] border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs">
@@ -226,9 +225,9 @@
                         <div id="metric-hhi-status" class="text-[8.5px] text-slate-400 leading-tight">Расчет...</div>
                     </div>
                     <div class="bg-[#0B0F19]/80 border border-slate-800 rounded-2xl p-3.5 space-y-1">
-                        <div class="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">Ценовой спред</div>
-                        <div id="metric-supplier-spread" class="text-sm sm:text-base font-black text-purple-400">0 ₽</div>
-                        <div class="text-[8.5px] text-slate-500">Внутрипоставочный резерв</div>
+                        <div class="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">Товары с переплатой</div>
+                        <div id="metric-overpaid-count" class="text-sm sm:text-base font-black text-purple-400">0</div>
+                        <div class="text-[8.5px] text-slate-500">Позиций выше рынка</div>
                     </div>
                     <div class="bg-[#0B0F19]/80 border border-slate-800 rounded-2xl p-3.5 space-y-1">
                         <div class="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">Розница / Чеки</div>
@@ -347,7 +346,6 @@
                     <h3 class="text-sm font-bold text-white flex items-center gap-2">
                         <span>📋 Реестр закупочных цен и переплат</span>
                         <span id="table-total-badge" class="text-[10px] font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full">0 позиций</span>
-                        <span id="freemium-badge-mode" class="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full">DEMO: Топ-3</span>
                     </h3>
                     <p class="text-xs text-slate-400">Сравнение ваших закупочных цен с независимыми ресторанами рынка (срез рассчитан строго без текущего заведения)</p>
                 </div>
@@ -379,27 +377,6 @@
                         <span class="hidden sm:inline">Экспорт отчета</span>
                     </button>
                 </div>
-            </div>
-
-            <!-- Freemium Teaser Card (активен в demo-режиме) -->
-            <div id="freemium-teaser-banner" class="hidden bg-gradient-to-r from-amber-500/15 via-brand-500/10 to-indigo-500/15 border border-amber-500/35 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-lg shrink-0">🔒</div>
-                    <div>
-                        <div class="font-bold text-white text-xs sm:text-sm flex items-center gap-2">
-                            <span>Демо-версия: раскрыты Топ-3 переплаты</span>
-                            <span id="freemium-revealed-sum" class="text-emerald-400 font-extrabold">0 ₽/мес</span>
-                        </div>
-                        <div class="text-[11px] text-slate-300 mt-1 flex items-center gap-2 flex-wrap">
-                            <span>В остальных <b id="freemium-hidden-cnt" class="text-amber-300">0</b> скрытых строках переплата:</span>
-                            <span class="text-rose-400 font-bold bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded text-[10.5px]">к средней: <span id="freemium-hidden-sum">0 ₽/мес</span></span>
-                            <span class="text-amber-300 font-bold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded text-[10.5px]">к минимуму (макс): <span id="freemium-hidden-min-sum">0 ₽/мес</span></span>
-                        </div>
-                    </div>
-                </div>
-                <button onclick="setAuditMode('full')" class="whitespace-nowrap px-4 py-2 bg-gradient-to-r from-amber-500 to-brand-500 hover:from-amber-400 hover:to-brand-400 text-black font-extrabold text-xs rounded-xl shadow-lg transition-all cursor-pointer">
-                    🔓 Открыть полный отчет
-                </button>
             </div>
 
             <!-- Таблица данных -->
@@ -518,6 +495,27 @@
                     </div>
                 </div>
 
+                <!-- Блок подписки на Telegram-отчеты при создании заведения -->
+                <div class="p-3 bg-[#090d16] border border-slate-800 rounded-xl space-y-3">
+                    <label class="flex items-start gap-3 cursor-pointer select-none">
+                        <input type="checkbox" id="add-rest-sub" onchange="toggleAddRestSubField()" class="w-4 h-4 mt-0.5 rounded text-brand-600 bg-[#111827] border-slate-700 cursor-pointer">
+                        <div>
+                            <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                                <span>⭐ Подписка на еженедельные Telegram-отчеты</span>
+                            </div>
+                            <div class="text-[10px] text-slate-400 leading-snug mt-0.5">
+                                Топ-10 скачков цен (%) и переплат каждую неделю + полный PDF-аудит через 30 дней
+                            </div>
+                        </div>
+                    </label>
+
+                    <div id="add-rest-tg-box" class="hidden pt-2 border-t border-slate-800/80 space-y-1">
+                        <label class="block text-slate-300 font-semibold mb-1">Telegram логины или ID получателей (через запятую) *</label>
+                        <input type="text" id="add-rest-tg" placeholder="@owner, @manager, 386309614" class="w-full bg-[#111827] border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 outline-none focus:border-brand-500 text-xs">
+                        <span class="text-[10px] text-slate-500">Управляющий, владелец и шеф. Пользователи должны предварительно нажать /start в боте.</span>
+                    </div>
+                </div>
+
                 <div id="add-rest-msg" class="hidden p-3 rounded-xl text-xs font-semibold"></div>
             </div>
 
@@ -527,6 +525,73 @@
                 </button>
                 <button id="btn-submit-add-rest" onclick="submitAddRestaurant()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-emerald-900/30 flex items-center gap-1.5">
                     <span>Подключить и загрузить</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО УПРАВЛЕНИЯ ПОДПИСКОЙ И ТЕЛЕГРАМ-ОТЧЕТАМИ -->
+    <div id="subscription-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm hidden">
+        <div class="bg-[#111827] border border-slate-800 rounded-2xl p-6 max-w-lg w-full mx-4 space-y-5 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h4 class="text-sm font-bold text-white flex items-center gap-2">
+                    <span>⚙️ Управление подпиской и Telegram-отчетами</span>
+                </h4>
+                <button onclick="closeSubscriptionModal()" class="text-slate-500 hover:text-white text-sm">✕</button>
+            </div>
+
+            <div class="space-y-4 text-xs">
+                <div class="bg-[#090d16] border border-slate-800 rounded-xl p-3">
+                    <span class="text-[10px] text-slate-500 uppercase font-bold tracking-wider block mb-1">Заведение:</span>
+                    <span id="sub-modal-rest-name" class="text-sm font-bold text-white">Ресторан</span>
+                </div>
+
+                <label class="flex items-start gap-3 cursor-pointer select-none p-3 bg-[#090d16] border border-slate-800 rounded-xl">
+                    <input type="checkbox" id="sub-modal-active" onchange="toggleSubModalFields()" class="w-4 h-4 mt-0.5 rounded text-brand-600 bg-[#111827] border-slate-700 cursor-pointer">
+                    <div>
+                        <div class="text-xs font-bold text-white">Включить подписку на Telegram-отчеты</div>
+                        <div class="text-[10px] text-slate-400 leading-snug mt-0.5">
+                            Еженедельная рассылка: Топ-10 скачков цен (%) + Топ-10 переплат за неделю. Через 30 дней: управленческий PDF-отчет.
+                        </div>
+                    </div>
+                </label>
+
+                <div id="sub-modal-tg-container" class="space-y-1">
+                    <label class="block text-slate-300 font-semibold mb-1">Telegram логины или ID (через запятую):</label>
+                    <input type="text" id="sub-modal-recipients" placeholder="@owner, @manager, 386309614" class="w-full bg-[#090d16] border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 outline-none focus:border-brand-500 text-xs">
+                    <span class="text-[10px] text-slate-500 block">
+                        Подсказка: бот отправляет сообщения пользователям, которые запустили бота по ссылке или командой /start.
+                    </span>
+                </div>
+
+                <div id="sub-modal-dates-info" class="text-[11px] text-slate-400 bg-slate-800/40 p-3 rounded-xl border border-slate-800 space-y-1">
+                    <div>📅 Дата активации: <b id="sub-modal-start-date" class="text-white">—</b></div>
+                    <div>📬 Посл. еженедельный: <b id="sub-modal-last-weekly" class="text-white">—</b></div>
+                    <div>📑 Посл. месячный PDF: <b id="sub-modal-last-monthly" class="text-white">—</b></div>
+                </div>
+
+                <!-- Блок тестовой отправки -->
+                <div class="pt-2 border-t border-slate-800 space-y-2">
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Тестовая отправка прямо сейчас:</span>
+                    <div class="flex gap-2">
+                        <button id="btn-test-weekly" onclick="sendTestReport('weekly')" class="flex-1 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors border border-slate-700">
+                            <span>🧪 Тест (Неделя)</span>
+                        </button>
+                        <button id="btn-test-pdf" onclick="sendTestReport('pdf')" class="flex-1 px-3 py-2 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/40 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors">
+                            <span>📄 Тест (PDF 30 дней)</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="sub-modal-msg" class="hidden p-3 rounded-xl text-xs font-semibold"></div>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-2 border-t border-slate-800">
+                <button onclick="closeSubscriptionModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold">
+                    Закрыть
+                </button>
+                <button id="btn-save-sub" onclick="saveSubscriptionSettings()" class="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-900/30 flex items-center gap-1.5">
+                    <span>Сохранить настройки</span>
                 </button>
             </div>
         </div>
@@ -560,7 +625,7 @@
                             <span class="w-2 h-2 rounded-full bg-rose-400"></span>
                         </div>
                         <div id="pm-my-price" class="text-lg font-black text-rose-400">0.00 ₽</div>
-                        <div id="pm-my-supplier" class="text-[11px] text-slate-300 font-medium truncate">Поставщик: —</div>
+                        <div id="pm-my-supplier" class="text-[11px] text-slate-300 font-medium break-words">Поставщик: —</div>
                         <div id="pm-my-vol" class="text-[10px] text-slate-500">0 кг / мес</div>
                     </div>
 
@@ -669,7 +734,7 @@
                     
                     <button type="button" id="rep-type-demo" onclick="setReportType('demo')" class="px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm cursor-pointer">
                         <span>Демо</span>
-                        <span class="text-[9px] font-normal text-amber-200/80">(3 поз. + блюр)</span>
+                        <span id="rep-demo-sub-label" class="text-[9px] font-normal text-amber-200/80">(3 поз. + блюр)</span>
                     </button>
 
                     <button type="button" id="rep-type-full" onclick="setReportType('full')" class="px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 text-slate-400 hover:text-white border border-transparent hover:border-slate-700 cursor-pointer">
@@ -681,6 +746,13 @@
                         <span>Премиум</span>
                         <span class="text-[9px] font-normal text-slate-400">(Все переплаты)</span>
                     </button>
+
+                    <!-- Опция количества позиций без блюра для демо-отчета -->
+                    <div class="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1 text-slate-400 ml-1">
+                        <label for="rep-unblur-count-input" class="text-[10px] font-bold text-slate-400 select-none cursor-pointer" title="Сколько позиций не блюрить в Демо-отчете">Без блюра в Демо:</label>
+                        <input type="number" id="rep-unblur-count-input" min="0" max="1000" value="3" onchange="onRepUnblurCountChange(this.value)" class="w-11 bg-slate-950 border border-slate-700 text-amber-300 font-bold text-center rounded-lg py-0.5 text-xs focus:outline-none focus:border-amber-500 transition-colors" title="Введите число позиций без блюра">
+                        <span class="text-[10px] text-slate-500 font-semibold">поз.</span>
+                    </div>
                 </div>
 
                 <!-- Селектор формата отображения -->
@@ -846,7 +918,7 @@
                     <!-- Демо апселл-баннер -->
                     <div id="rep-sheet-upsell-banner" class="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-3 text-center space-y-1.5 avoid-break">
                         <div class="text-[11px] font-extrabold text-amber-900 flex items-center justify-center gap-1.5">
-                            <span>Позиции с 4 по <span id="rep-upsell-end-num">10</span> скрыты в Демо-версии отчета</span>
+                            <span>Позиции с <span id="rep-upsell-start-num">4</span> по <span id="rep-upsell-end-num">10</span> скрыты в Демо-версии отчета</span>
                         </div>
                         <div class="text-[10px] text-amber-900/90 max-w-lg mx-auto flex items-center justify-center gap-2 flex-wrap">
                             <span>В скрытых строках выявлено переплат:</span>
@@ -928,7 +1000,8 @@
     <script>
         let currentAudit = null;
         let allItems = [];
-        let currentAuditMode = 'demo'; // 'demo' | 'full'
+        let currentAuditMode = 'full'; // На дашборде всегда полный отчет
+        let currentUnblurCount = 3;
 
         function getApiEndpoint(path) {
             if (window.location.pathname.startsWith('/bugh-team/')) {
@@ -1015,17 +1088,24 @@
         }
 
         function setAuditMode(mode) {
-            currentAuditMode = mode;
-            const btnDemo = document.getElementById('btn-mode-demo');
-            const btnFull = document.getElementById('btn-mode-full');
-            if (mode === 'demo') {
-                if (btnDemo) btnDemo.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition-all bg-amber-500/20 text-amber-300 border border-amber-500/40 cursor-pointer";
-                if (btnFull) btnFull.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-white cursor-pointer";
+            // Главная страница всегда в полном режиме
+            currentAuditMode = 'full';
+        }
+
+        function onRepUnblurCountChange(val) {
+            let num = parseInt(val, 10);
+            if (isNaN(num) || num < 0) num = 0;
+            currentUnblurCount = num;
+            const repInput = document.getElementById('rep-unblur-count-input');
+            if (repInput) repInput.value = num;
+            const repDemoSub = document.getElementById('rep-demo-sub-label');
+            if (repDemoSub) repDemoSub.textContent = `(${num} поз. + блюр)`;
+
+            if (currentReportType !== 'demo') {
+                setReportType('demo');
             } else {
-                if (btnFull) btnFull.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition-all bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-pointer";
-                if (btnDemo) btnDemo.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-white cursor-pointer";
+                renderReportSheet();
             }
-            loadAudit();
         }
 
         function copyAuditorSummary() {
@@ -1042,6 +1122,8 @@
             });
         }
 
+        window.allRestaurantsList = [];
+
         async function loadRestaurants() {
             try {
                 const res = await fetch(getApiEndpoint('/api/analytics/restaurants'));
@@ -1051,20 +1133,55 @@
                 }
                 if (!res.ok) throw new Error('Ошибка загрузки заведений');
                 const list = await res.json();
+                window.allRestaurantsList = list || [];
                 const sel = document.getElementById('restaurant-select');
+                const prevVal = sel.value;
                 sel.innerHTML = '';
                 list.forEach(r => {
                     const opt = document.createElement('option');
                     opt.value = r.id;
-                    opt.textContent = `${r.name} (${r.city})`;
+                    const subMark = r.is_subscribed ? ' ⭐' : '';
+                    opt.textContent = `${r.name} (${r.city})${subMark}`;
                     sel.appendChild(opt);
                 });
                 if (list.length > 0) {
-                    sel.value = list[0].id;
+                    if (prevVal && list.some(x => x.id == prevVal)) {
+                        sel.value = prevVal;
+                    } else {
+                        sel.value = list[0].id;
+                    }
+                    updateSubBadge();
                     loadAudit();
                 }
             } catch (e) {
                 console.error(e);
+            }
+        }
+
+        function onRestaurantChanged() {
+            updateSubBadge();
+            loadAudit();
+        }
+
+        function updateSubBadge() {
+            const sel = document.getElementById('restaurant-select');
+            const rid = parseInt(sel.value);
+            const r = (window.allRestaurantsList || []).find(x => x.id === rid);
+            const icon = document.getElementById('sub-badge-icon');
+            const text = document.getElementById('sub-badge-text');
+            const btn = document.getElementById('btn-sub-badge');
+            if (!icon || !text || !btn || !r) return;
+
+            if (r.is_subscribed) {
+                icon.textContent = '⭐';
+                text.textContent = 'Подписка активна';
+                text.className = 'text-amber-300 font-bold';
+                btn.className = 'bg-amber-500/10 hover:bg-amber-500/20 active:bg-amber-500/30 border border-amber-500/30 rounded-xl px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer';
+            } else {
+                icon.textContent = '⚪';
+                text.textContent = 'Разовый доступ';
+                text.className = 'text-slate-400 font-semibold';
+                btn.className = 'bg-[#090d16] hover:bg-slate-800/80 active:bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer';
             }
         }
 
@@ -1077,7 +1194,7 @@
             const mVal = document.getElementById('slider-medium').value;
 
             try {
-                const url = getApiEndpoint(`/api/analytics/audit?restaurant_id=${restId}&days=${days}&small_threshold=${sVal}&medium_threshold=${mVal}&mode=${currentAuditMode}`);
+                const url = getApiEndpoint(`/api/analytics/audit?restaurant_id=${restId}&days=${days}&small_threshold=${sVal}&medium_threshold=${mVal}&mode=full`);
                 const res = await fetch(url);
                 if (res.status === 401 || res.status === 403) {
                     showAuthModal();
@@ -1115,9 +1232,11 @@
             document.getElementById('metric-hhi').textContent = data.supplier_hhi;
             document.getElementById('metric-hhi-status').textContent = data.supplier_hhi_status;
 
-            // 1.2 Дипломатические финансовые метрики (спреды и розница)
-            const spreadEl = document.getElementById('metric-supplier-spread');
-            if (spreadEl) spreadEl.textContent = formatRub(data.total_supplier_price_spread_rub || 0) + ' ₽';
+            const overpaidEl = document.getElementById('metric-overpaid-count');
+            if (overpaidEl) {
+                const overpaidCount = (data.items_audit || []).filter(it => it.is_overpay).length;
+                overpaidEl.textContent = overpaidCount;
+            }
 
             const offContEl = document.getElementById('metric-off-contract');
             if (offContEl) offContEl.textContent = formatRub(data.off_contract_spend_monthly_rub || 0) + ' ₽';
@@ -1138,30 +1257,11 @@
                 }
             }
 
-            // 1.4 Freemium плашка и бейдж
-            const teaserBanner = document.getElementById('freemium-teaser-banner');
-            const badgeMode = document.getElementById('freemium-badge-mode');
-            if (data.audit_mode === 'demo') {
-                if (teaserBanner) teaserBanner.classList.remove('hidden');
-                if (badgeMode) {
-                    badgeMode.textContent = 'DEMO: Топ-3';
-                    badgeMode.className = 'text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full';
-                }
-                const revEl = document.getElementById('freemium-revealed-sum');
-                if (revEl) revEl.textContent = formatRub(data.revealed_items_overpay_rub || 0) + ' ₽/мес';
-                const hidEl = document.getElementById('freemium-hidden-sum');
-                if (hidEl) hidEl.textContent = formatRub(data.hidden_items_overpay_rub || 0) + ' ₽/мес';
-                const hidMinEl = document.getElementById('freemium-hidden-min-sum');
-                if (hidMinEl) hidMinEl.textContent = formatRub(data.hidden_items_overpay_vs_min_rub || 0) + ' ₽/мес';
-                const hidCntEl = document.getElementById('freemium-hidden-cnt');
-                if (hidCntEl) hidCntEl.textContent = data.hidden_positions_count || 0;
-            } else {
-                if (teaserBanner) teaserBanner.classList.add('hidden');
-                if (badgeMode) {
-                    badgeMode.textContent = 'ПОЛНЫЙ АУДИТ';
-                    badgeMode.className = 'text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full';
-                }
-            }
+            // 1.4 Синхронизация полей для модалки отчета
+            const repInput = document.getElementById('rep-unblur-count-input');
+            if (repInput && document.activeElement !== repInput) repInput.value = currentUnblurCount;
+            const repDemoSub = document.getElementById('rep-demo-sub-label');
+            if (repDemoSub) repDemoSub.textContent = `(${currentUnblurCount} поз. + блюр)`;
 
             document.getElementById('stat-invoices').textContent = data.total_invoices_count || 0;
             document.getElementById('stat-items').textContent = data.total_analyzed_positions || 0;
@@ -1408,48 +1508,23 @@
                     `;
                 }
 
-                const isObfuscated = (it.product_name === '[Скрыто в демо-версии]' || it.product_name === '[Доступно в полном отчете]');
-
-                let prodCellHtml = '';
-                let supCellHtml = '';
-                let peersBtnHtml = '';
-
-                if (isObfuscated) {
-                    prodCellHtml = `
-                        <div class="font-bold text-amber-300/90 flex items-center gap-1.5">
-                            <span>🔒</span>
-                            <span class="filter blur-[3.5px] select-none text-slate-300">Скрытый товар реестра</span>
-                            <span class="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-extrabold uppercase">Демо</span>
-                        </div>
-                        <div class="text-[9.5px] text-slate-500 mt-0.5">Товар открывается в полном отчете</div>`;
-                    supCellHtml = `
-                        <div class="font-semibold text-slate-400 flex items-center gap-1.5">
-                            <span>🔒</span>
-                            <span class="filter blur-[3.5px] select-none text-slate-400">Скрытый поставщик</span>
-                        </div>`;
-                    peersBtnHtml = `
-                        <button onclick="setAuditMode('full')" class="px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-lg text-xs font-bold border border-amber-500/30 transition-all flex items-center justify-center gap-1 mx-auto cursor-pointer" title="Разблокировать в полном отчете">
-                            <span>🔒</span>
-                        </button>`;
-                } else {
-                    prodCellHtml = `
-                        <div class="font-bold text-white">${escapeHtml(it.product_name)}</div>
-                        ${it.detected_brand ? `<div class="text-[10px] text-purple-400 font-semibold">Бренд: ${escapeHtml(it.detected_brand)}</div>` : ''}
-                        ${mainTableTrendHtml}`;
-                    supCellHtml = supplierHtml;
-                    peersBtnHtml = `
-                        <button onclick="openPeersModal(${origIdx})" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-400 hover:text-white rounded-lg text-xs font-bold border border-slate-700/80 transition-all flex items-center justify-center gap-1.5 mx-auto" title="Посмотреть другие заведения и цены">
-                            <span>☰</span>
-                            <span class="text-[11px]">${peersCount}</span>
-                        </button>`;
-                }
+                const prodCellHtml = `
+                    <div class="font-bold text-white">${escapeHtml(it.product_name)}</div>
+                    ${it.detected_brand ? `<div class="text-[10px] text-purple-400 font-semibold">Бренд: ${escapeHtml(it.detected_brand)}</div>` : ''}
+                    ${mainTableTrendHtml}`;
+                const supCellHtml = supplierHtml;
+                const peersBtnHtml = `
+                    <button onclick="openPeersModal(${origIdx})" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-400 hover:text-white rounded-lg text-xs font-bold border border-slate-700/80 transition-all flex items-center justify-center gap-1.5 mx-auto" title="Посмотреть другие заведения и цены">
+                        <span>☰</span>
+                        <span class="text-[11px]">${peersCount}</span>
+                    </button>`;
 
                 tr.innerHTML = `
                     <td class="py-3 px-3 font-bold text-slate-500">#${it.rank || (idx + 1)}</td>
                     <td class="py-3 px-4">
                         ${prodCellHtml}
                     </td>
-                    <td class="py-3 px-3 text-slate-300">${isObfuscated ? '—' : escapeHtml(it.canonical_category)}</td>
+                    <td class="py-3 px-3 text-slate-300">${escapeHtml(it.canonical_category)}</td>
                     <td class="py-3 px-3">
                         ${supCellHtml}
                     </td>
@@ -1499,22 +1574,10 @@
                             supStatusHtml = `<span class="text-emerald-400 font-semibold text-[11px]">✓ В рынке</span>`;
                         }
 
-                        let sameSupAlert = '';
-                        if (s.same_supplier_market_min > 0 && s.same_supplier_market_min < s.last_price) {
-                            const spreadInfo = s.supplier_price_spread_rub > 0 ? ` · Спред: ${formatRub(s.supplier_price_spread_rub)} ₽/мес (+${s.supplier_price_spread_pct.toFixed(1)}%)` : '';
-                            sameSupAlert = `
-                                <div class="mt-0.5 text-[9px] text-amber-300 flex items-center gap-1 font-normal">
-                                    <span>⚠️</span>
-                                    <span>Внутрипоставочный спред: отгружает в «${escapeHtml(s.same_supplier_peer_name)}» по <strong class="text-amber-200">${s.same_supplier_market_min.toFixed(2)} ₽</strong> (-${Math.round((s.last_price - s.same_supplier_market_min)/s.last_price*100)}%)${spreadInfo}</span>
-                                </div>
-                            `;
-                        }
-
                         return `
                             <tr class="hover:bg-slate-800/50 transition-colors">
                                 <td class="py-2 px-3 font-semibold text-slate-200">
                                     <div>${escapeHtml(s.supplier_name)}</div>
-                                    ${sameSupAlert}
                                 </td>
                                 <td class="py-2 px-3 text-center">
                                     <span class="inline-block bg-slate-800 text-slate-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-slate-700">
@@ -1632,9 +1695,13 @@
             document.getElementById('pm-my-price').textContent = `${it.restaurant_price.toFixed(2)} ₽ / ${it.unit}`;
             const supsCount = it.suppliers_count || (it.suppliers_breakdown ? it.suppliers_breakdown.length : 1);
             if (supsCount > 1) {
-                document.getElementById('pm-my-supplier').textContent = `Поставщики: ${it.main_supplier || it.supplier_name} (${Math.round(it.main_supplier_share || 0)}%) + еще ${supsCount - 1}`;
+                const supText = `Поставщики: ${it.main_supplier || it.supplier_name} (${Math.round(it.main_supplier_share || 0)}%) + еще ${supsCount - 1}`;
+                document.getElementById('pm-my-supplier').textContent = supText;
+                document.getElementById('pm-my-supplier').title = supText;
             } else {
-                document.getElementById('pm-my-supplier').textContent = `Поставщик: ${it.main_supplier || it.supplier_name || 'Не указан'}`;
+                const supText = `Поставщик: ${it.main_supplier || it.supplier_name || 'Не указан'}`;
+                document.getElementById('pm-my-supplier').textContent = supText;
+                document.getElementById('pm-my-supplier').title = supText;
             }
             document.getElementById('pm-my-vol').textContent = `${formatVol(it.monthly_volume)} ${it.unit} / мес`;
             
@@ -1821,6 +1888,16 @@
             }
         }
 
+        function toggleAddRestSubField() {
+            const isSub = document.getElementById('add-rest-sub').checked;
+            const box = document.getElementById('add-rest-tg-box');
+            if (isSub) {
+                box.classList.remove('hidden');
+            } else {
+                box.classList.add('hidden');
+            }
+        }
+
         function openAddRestaurantModal() {
             document.getElementById('add-restaurant-modal').classList.remove('hidden');
             document.getElementById('add-rest-msg').classList.add('hidden');
@@ -1828,6 +1905,9 @@
             document.getElementById('add-rest-host').value = '';
             document.getElementById('add-rest-login').value = '';
             document.getElementById('add-rest-pass').value = '';
+            document.getElementById('add-rest-sub').checked = false;
+            document.getElementById('add-rest-tg').value = '';
+            document.getElementById('add-rest-tg-box').classList.add('hidden');
         }
 
         function closeAddRestaurantModal() {
@@ -1841,11 +1921,19 @@
             const host = document.getElementById('add-rest-host').value.trim();
             const login = document.getElementById('add-rest-login').value.trim();
             const pass = document.getElementById('add-rest-pass').value;
+            const isSub = document.getElementById('add-rest-sub').checked;
+            const tgRecipients = document.getElementById('add-rest-tg').value.trim();
             const msgEl = document.getElementById('add-rest-msg');
             const btn = document.getElementById('btn-submit-add-rest');
 
             if (!name || !host || !login || !pass) {
                 msgEl.textContent = 'Пожалуйста, заполните все обязательные поля (*)';
+                msgEl.className = 'p-3 rounded-xl text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40 block';
+                return;
+            }
+
+            if (isSub && !tgRecipients) {
+                msgEl.textContent = 'Для подписки укажите хотя бы один Telegram логин (@username или ID)';
                 msgEl.className = 'p-3 rounded-xl text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40 block';
                 return;
             }
@@ -1865,7 +1953,9 @@
                         cuisine_type: cuisine,
                         iiko_host: host,
                         iiko_login: login,
-                        iiko_password: pass
+                        iiko_password: pass,
+                        is_subscribed: isSub,
+                        telegram_recipients: tgRecipients
                     })
                 });
 
@@ -1883,6 +1973,7 @@
                     const sel = document.getElementById('restaurant-select');
                     if (data.restaurant_id) {
                         sel.value = data.restaurant_id;
+                        updateSubBadge();
                         loadAudit();
                     }
                     btn.disabled = false;
@@ -1894,6 +1985,129 @@
                 msgEl.className = 'p-3 rounded-xl text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40 block';
                 btn.disabled = false;
                 btn.innerHTML = '<span>Подключить и загрузить</span>';
+            }
+        }
+
+        // ========================================================
+        // МОДУЛЬ УПРАВЛЕНИЯ ПОДПИСКОЙ И ТЕЛЕГРАМ-ОТЧЕТАМИ
+        // ========================================================
+        let currentSubModalRestId = null;
+
+        function openCurrentSubModal() {
+            const sel = document.getElementById('restaurant-select');
+            const rid = parseInt(sel.value);
+            if (!rid) return;
+            openSubscriptionModal(rid);
+        }
+
+        function openSubscriptionModal(restID) {
+            currentSubModalRestId = restID;
+            const r = (window.allRestaurantsList || []).find(x => x.id === restID);
+            if (!r) return;
+
+            document.getElementById('subscription-modal').classList.remove('hidden');
+            document.getElementById('sub-modal-msg').classList.add('hidden');
+            document.getElementById('sub-modal-rest-name').textContent = `${r.name} (${r.city})`;
+            document.getElementById('sub-modal-active').checked = !!r.is_subscribed;
+            document.getElementById('sub-modal-recipients').value = r.telegram_recipients || '';
+
+            const fmtDate = (dStr) => {
+                if (!dStr) return '—';
+                const d = new Date(dStr);
+                return isNaN(d) ? dStr : d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+            };
+
+            document.getElementById('sub-modal-start-date').textContent = fmtDate(r.subscription_started_at);
+            document.getElementById('sub-modal-last-weekly').textContent = fmtDate(r.last_weekly_report_at);
+            document.getElementById('sub-modal-last-monthly').textContent = fmtDate(r.last_monthly_report_at);
+        }
+
+        function closeSubscriptionModal() {
+            document.getElementById('subscription-modal').classList.add('hidden');
+            currentSubModalRestId = null;
+        }
+
+        function toggleSubModalFields() {
+            // Оставляем поля доступными для редактирования
+        }
+
+        async function saveSubscriptionSettings() {
+            if (!currentSubModalRestId) return;
+
+            const isSub = document.getElementById('sub-modal-active').checked;
+            const recipients = document.getElementById('sub-modal-recipients').value.trim();
+            const msgEl = document.getElementById('sub-modal-msg');
+            const btn = document.getElementById('btn-save-sub');
+
+            btn.disabled = true;
+            btn.textContent = 'Сохранение...';
+            msgEl.classList.add('hidden');
+
+            try {
+                const res = await fetch(getApiEndpoint('/api/analytics/restaurants/subscription'), {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        restaurant_id: currentSubModalRestId,
+                        is_subscribed: isSub,
+                        telegram_recipients: recipients
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok || data.status !== 'ok') {
+                    throw new Error(data.message || data.error || 'Ошибка при сохранении подписки');
+                }
+
+                msgEl.textContent = '✅ Настройки подписки успешно сохранены!';
+                msgEl.className = 'p-3 rounded-xl text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 block';
+
+                await loadRestaurants();
+                updateSubBadge();
+
+                setTimeout(() => {
+                    closeSubscriptionModal();
+                    btn.disabled = false;
+                    btn.textContent = 'Сохранить настройки';
+                }, 1000);
+
+            } catch (err) {
+                msgEl.textContent = 'Ошибка: ' + err.message;
+                msgEl.className = 'p-3 rounded-xl text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40 block';
+                btn.disabled = false;
+                btn.textContent = 'Сохранить настройки';
+            }
+        }
+
+        async function sendTestReport(reportType) {
+            if (!currentSubModalRestId) return;
+            const msgEl = document.getElementById('sub-modal-msg');
+            const btnW = document.getElementById('btn-test-weekly');
+            const btnP = document.getElementById('btn-test-pdf');
+
+            btnW.disabled = true;
+            btnP.disabled = true;
+            msgEl.textContent = reportType === 'pdf' ? 'Сборка и отправка 30-дневного PDF-отчета...' : 'Формирование и отправка недельного отчета...';
+            msgEl.className = 'p-3 rounded-xl text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 block animate-pulse';
+
+            try {
+                const url = getApiEndpoint(`/api/analytics/restaurants/test-report?restaurant_id=${currentSubModalRestId}&type=${reportType}`);
+                const res = await fetch(url, { method: 'POST' });
+                const data = await res.json();
+
+                if (!res.ok || data.status !== 'ok') {
+                    throw new Error(data.message || data.error || 'Ошибка тестовой отправки');
+                }
+
+                msgEl.textContent = data.message || '✅ Отчет успешно отправлен в Telegram!';
+                msgEl.className = 'p-3 rounded-xl text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 block';
+
+            } catch (err) {
+                msgEl.textContent = 'Сбой отправки: ' + err.message;
+                msgEl.className = 'p-3 rounded-xl text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40 block';
+            } finally {
+                btnW.disabled = false;
+                btnP.disabled = false;
             }
         }
 
@@ -2009,7 +2223,7 @@
             // Бейдж типа отчета
             const badgeEl = document.getElementById('rep-sheet-badge');
             if (currentReportType === 'demo') {
-                badgeEl.textContent = 'ДЕМО-ОТЧЕТ (3 ПОЗИЦИИ)';
+                badgeEl.textContent = `ДЕМО-ОТЧЕТ (${currentUnblurCount} ПОЗ.)`;
                 badgeEl.className = 'inline-block px-3 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300';
             } else if (currentReportType === 'full') {
                 badgeEl.textContent = 'ПОЛНЫЙ АУДИТ (ТОП-10 ПЕРЕПЛАТ)';
@@ -2065,21 +2279,34 @@
             const bannerEl = document.getElementById('rep-sheet-upsell-banner');
 
             if (currentReportType === 'demo') {
-                // В демо показываем до 10 позиций (первые 3 открыты, 4-10 надежно заблюрены: названия, категории, поставщики и объемы)
-                displayItems = overpayItems.slice(0, 10);
-                bannerEl.classList.remove('hidden');
+                const unblurCount = currentUnblurCount;
+                const totalOverpay = overpayItems.length;
+                const showTotal = Math.max(10, unblurCount);
+                displayItems = overpayItems.slice(0, showTotal);
 
-                const hiddenSum = overpayItems.slice(3).reduce((acc, it) => acc + (it.monthly_overpayment_rub || 0), 0);
-                const hiddenMinSum = overpayItems.slice(3).reduce((acc, it) => acc + (it.monthly_overpay_vs_min_rub || 0), 0);
+                const startNum = unblurCount + 1;
+                const endNum = totalOverpay;
+                const startEl = document.getElementById('rep-upsell-start-num');
+                const endEl = document.getElementById('rep-upsell-end-num');
+                if (startEl) startEl.textContent = startNum;
+                if (endEl) endEl.textContent = endNum;
+
+                if (startNum > endNum) {
+                    bannerEl.classList.add('hidden');
+                } else {
+                    bannerEl.classList.remove('hidden');
+                }
+
+                const hiddenSum = overpayItems.slice(unblurCount).reduce((acc, it) => acc + (it.monthly_overpayment_rub || 0), 0);
+                const hiddenMinSum = overpayItems.slice(unblurCount).reduce((acc, it) => acc + (it.monthly_overpay_vs_min_rub || 0), 0);
                 document.getElementById('rep-upsell-hidden-sum').textContent = `${formatRub(hiddenSum)} ₽`;
                 const repUpsellMinEl = document.getElementById('rep-upsell-hidden-min-sum');
                 if (repUpsellMinEl) repUpsellMinEl.textContent = `${formatRub(hiddenMinSum)} ₽`;
-                document.getElementById('rep-upsell-end-num').textContent = overpayItems.length;
-                document.getElementById('rep-sheet-count-label').textContent = `Показано 3 открытых + ${Math.max(0, displayItems.length - 3)} скрытых позиций (всего ${overpayItems.length})`;
+                document.getElementById('rep-sheet-count-label').textContent = `Показано ${Math.min(unblurCount, displayItems.length)} открытых + ${Math.max(0, displayItems.length - unblurCount)} скрытых позиций (всего ${totalOverpay})`;
             } else if (currentReportType === 'full') {
                 displayItems = overpayItems.slice(0, 10);
                 bannerEl.classList.add('hidden');
-                document.getElementById('rep-sheet-count-label').textContent = `Показан Топ-${displayItems.length} позиций с максимальным перерасходом (объемы скрыты)`;
+                document.getElementById('rep-sheet-count-label').textContent = `Показан Топ-${displayItems.length} позиций с максимальным перерасходом`;
             } else {
                 // premium
                 displayItems = overpayItems;
@@ -2097,9 +2324,9 @@
             displayItems.forEach((it, idx) => {
                 let isItemHidden = false;
                 if (currentReportType === 'demo') {
-                    isItemHidden = (idx >= 3);
-                } else if (currentReportType === 'full') {
-                    isItemHidden = (idx >= 10);
+                    isItemHidden = (idx >= currentUnblurCount);
+                } else {
+                    isItemHidden = false;
                 }
 
                 const nameHtml = isItemHidden 
@@ -2146,20 +2373,10 @@
                             supStatusHtml = `<span class="text-emerald-700 font-bold text-[9px] whitespace-nowrap">✓ В рынке</span>`;
                         }
 
-                        let sameSupAlert = '';
-                        if (s.same_supplier_market_min > 0 && s.same_supplier_market_min < s.last_price) {
-                            sameSupAlert = `
-                                <div class="text-[8px] text-amber-800 font-semibold mt-0.5 flex items-center gap-1">
-                                    <span>Этот же поставщик отгружает в «${escapeHtml(s.same_supplier_peer_name)}» по <strong>${s.same_supplier_market_min.toFixed(2)} ₽</strong> (-${Math.round((s.last_price - s.same_supplier_market_min)/s.last_price*100)}%)</span>
-                                </div>
-                            `;
-                        }
-
                         return `
                             <tr class="hover:bg-slate-50/80">
                                 <td class="py-1.5 px-2 font-bold text-slate-800 text-left">
                                     <div>${escapeHtml(s.supplier_name)}</div>
-                                    ${sameSupAlert}
                                 </td>
                                 <td class="py-1.5 px-1.5 text-center whitespace-nowrap">
                                     <span class="inline-block bg-slate-100 text-slate-700 text-[9px] font-bold px-1.5 py-0.5 rounded border border-slate-200">
@@ -2428,7 +2645,7 @@
             const chartItems = overpayItems.slice(0, 6);
 
             const labels = chartItems.map((it, idx) => {
-                if (currentReportType === 'demo' && idx >= 3) {
+                if (currentReportType === 'demo' && idx >= currentUnblurCount) {
                     return `Поз. #${idx + 1} (Демо)`;
                 }
                 const name = it.product_name || `Поз #${idx + 1}`;
@@ -2529,7 +2746,7 @@
 
             overpayItems.forEach((it, idx) => {
                 let cat = it.canonical_category || 'Прочее';
-                if (currentReportType === 'demo' && idx >= 3) {
+                if (currentReportType === 'demo' && idx >= currentUnblurCount) {
                     cat = 'Скрытые категории (Демо)';
                 } else if (currentReportType === 'full' && idx >= 10) {
                     cat = 'Остальные категории';
@@ -2605,6 +2822,13 @@
 
         // Скачивание PDF документа через html2pdf
         function downloadReportPdf() {
+            // Если выбран полный отчет - скачиваем официальный 2-страничный векторный PDF аудита с сервера
+            if (currentRestaurantId && currentReportType === 'full') {
+                const downloadUrl = getApiEndpoint('/api/analytics/restaurants/download-pdf?restaurant_id=' + currentRestaurantId);
+                window.location.href = downloadUrl;
+                return;
+            }
+
             const element = document.getElementById('report-document-sheet');
             if (!element) return;
 

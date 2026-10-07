@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -12,11 +13,18 @@ import (
 	"qa2a/internal/repository"
 )
 
+// BotAlerter интерфейс отправки оперативных уведомлений (в Telegram @qa2a_team)
+type BotAlerter interface {
+	SendText(text string)
+}
+
 // Scheduler управляет регулярным выполнением фоновых регламентных процедур:
 // ежедневная ночная выгрузка списаний и перемещений в iiko RMS, ротация архива заявок.
 type Scheduler struct {
 	repo             *repository.Repository
 	iikoSvc          *IikoService
+	syncQueue        *SyncQueue
+	alerter          BotAlerter
 	isRunning        atomic.Bool
 	isExporting      sync.Mutex
 	quitChan         chan struct{}
@@ -25,12 +33,23 @@ type Scheduler struct {
 }
 
 // NewScheduler создает новый экземпляр планировщика фоновых задач.
-func NewScheduler(repo *repository.Repository, iikoSvc *IikoService) *Scheduler {
+func NewScheduler(repo *repository.Repository, iikoSvc *IikoService, syncQueue *SyncQueue) *Scheduler {
 	return &Scheduler{
-		repo:     repo,
-		iikoSvc:  iikoSvc,
-		quitChan: make(chan struct{}),
+		repo:      repo,
+		iikoSvc:   iikoSvc,
+		syncQueue: syncQueue,
+		quitChan:  make(chan struct{}),
 	}
+}
+
+// SetAlerter устанавливает компонент отправки уведомлений в Telegram
+func (s *Scheduler) SetAlerter(a BotAlerter) {
+	s.alerter = a
+}
+
+// SetSyncQueue устанавливает менеджер очереди синхронизации
+func (s *Scheduler) SetSyncQueue(sq *SyncQueue) {
+	s.syncQueue = sq
 }
 
 // Start запускает цикл фонового планировщика в отдельной горутине.
@@ -209,6 +228,9 @@ func (s *Scheduler) RunDailyExport() {
 		if err := s.iikoSvc.ExportDailyOperations(cid, true); err != nil {
 			log.Printf("[scheduler] ⚠️ Сбой выгрузки для заведения #%d: %v", cid, err)
 			failedCount++
+			if s.alerter != nil {
+				go s.alerter.SendText(fmt.Sprintf("⚠️ <b>Сбой регламентной выгрузки в iiko (06:30 YEKT)</b>\nЗаведение ID: <code>#%d</code>\nОшибка: <code>%s</code>", cid, err.Error()))
+			}
 		} else {
 			successCount++
 		}
@@ -220,5 +242,41 @@ func (s *Scheduler) RunDailyExport() {
 	elapsed := time.Since(startTime).Round(time.Second)
 	log.Printf("[scheduler] 🏁 Регламентная выгрузка завершена за %v. Успешно: %d, ошибок: %d (всего: %d)",
 		elapsed, successCount, failedCount, total)
+
+	if s.alerter != nil {
+		statusEmoji := "✅"
+		if failedCount > 0 {
+			statusEmoji = "⚠️"
+		}
+		go s.alerter.SendText(fmt.Sprintf("%s <b>Регламентная выгрузка в iiko (06:30 YEKT) завершена</b>\n⏱ Время: %v\n✅ Успешно заведений: %d\n❌ Ошибок: %d\n📊 Всего: %d",
+			statusEmoji, elapsed, successCount, failedCount, total))
+	}
+
+	// 3. СТРОГО ПОСЛЕ завершения ночной выгрузки списаний — запускаем синхронизацию номенклатуры через безопасную очередь
+	if s.syncQueue != nil {
+		log.Println("[scheduler] 🔄 Выгрузка списаний завершена. Запуск регламентной синхронизации номенклатуры по заведениям...")
+		s.RunDailyNomenclatureSync()
+	}
+}
+
+// RunDailyNomenclatureSync ставит все активные заведения в очередь синхронизации номенклатуры.
+// Выполняется строго ПОСЛЕ завершения ночной выгрузки списаний.
+func (s *Scheduler) RunDailyNomenclatureSync() {
+	if s.syncQueue == nil {
+		return
+	}
+	companyIDs, err := s.repo.GetAllActiveCompanyIDs()
+	if err != nil {
+		log.Printf("[scheduler] ❌ Ошибка выборки активных заведений для синхронизации номенклатуры: %v", err)
+		return
+	}
+	log.Printf("[scheduler] 📋 Постановка %d активных заведений в очередь синхронизации номенклатуры...", len(companyIDs))
+	queued := 0
+	for _, cid := range companyIDs {
+		if s.syncQueue.Enqueue(cid, 0) {
+			queued++
+		}
+	}
+	log.Printf("[scheduler] 📥 Успешно поставлено в очередь: %d из %d заведений", queued, len(companyIDs))
 }
 

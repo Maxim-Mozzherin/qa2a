@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -43,7 +44,8 @@ func (h *Handler) GetSuppliersHandler(w http.ResponseWriter, r *http.Request) {
 
 	list, err := h.inventoryService.GetAllSuppliersWithContacts(companyID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Ошибка получения списка поставщиков: "+err.Error())
+		log.Printf("❌ [Suppliers] Error fetching suppliers for company %d: %v", companyID, err)
+		respondError(w, http.StatusInternalServerError, "Ошибка получения списка поставщиков")
 		return
 	}
 
@@ -87,7 +89,8 @@ func (h *Handler) SaveSupplierContactHandler(w http.ResponseWriter, r *http.Requ
 
 	err = h.inventoryService.SaveSupplierContact(companyID, req.SupplierUUID, req.TgUsername)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Не удалось сохранить контакт: "+err.Error())
+		log.Printf("❌ [Suppliers] Error saving contact for company %d: %v", companyID, err)
+		respondError(w, http.StatusInternalServerError, "Не удалось сохранить контакт поставщика")
 		return
 	}
 
@@ -115,7 +118,8 @@ func (h *Handler) GetPositionSuppliersHandler(w http.ResponseWriter, r *http.Req
 
 	res, err := h.inventoryService.GetPositionSuppliers(companyID, productUUID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Ошибка подбора поставщиков: "+err.Error())
+		log.Printf("❌ [Suppliers] Error matching suppliers for company %d, product %s: %v", companyID, productUUID, err)
+		respondError(w, http.StatusInternalServerError, "Ошибка подбора поставщиков")
 		return
 	}
 
@@ -148,7 +152,8 @@ func (h *Handler) GetProcurementSuppliersHandler(w http.ResponseWriter, r *http.
 
 	list, err := h.inventoryService.GetProcurementItemsWithSuppliers(companyID, reqID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Ошибка формирования строк заявки: "+err.Error())
+		log.Printf("❌ [Suppliers] Error fetching procurement items for company %d, req %d: %v", companyID, reqID, err)
+		respondError(w, http.StatusInternalServerError, "Ошибка формирования строк заявки")
 		return
 	}
 

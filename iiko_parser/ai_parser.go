@@ -53,6 +53,101 @@ func (m *ModelHealthManager) markHealthy(model string) {
 	}
 }
 
+// APIKeyManager управляет пулом Google API ключей с автоматической ротацией и кулдауном при 429/403
+type APIKeyManager struct {
+	sync.RWMutex
+	keys      []string
+	cooldowns map[string]time.Time
+	cursor    int
+}
+
+var globalKeyManager = &APIKeyManager{
+	cooldowns: make(map[string]time.Time),
+}
+
+func (km *APIKeyManager) InitKeys(raw string) {
+	km.Lock()
+	defer km.Unlock()
+	km.keys = nil
+	km.cooldowns = make(map[string]time.Time)
+	km.cursor = 0
+
+	for _, k := range strings.Split(raw, ",") {
+		trimmed := strings.TrimSpace(k)
+		if trimmed != "" {
+			km.keys = append(km.keys, trimmed)
+		}
+	}
+	if len(km.keys) > 0 {
+		log.Printf("🔑 [KeyManager] Загружен пул из %d Google API ключей для автоматической ротации", len(km.keys))
+	}
+}
+
+func (km *APIKeyManager) GetAvailableKey() string {
+	km.Lock()
+	defer km.Unlock()
+
+	if len(km.keys) == 0 {
+		return aiApiKey
+	}
+
+	n := len(km.keys)
+	now := time.Now()
+
+	for i := 0; i < n; i++ {
+		idx := (km.cursor + i) % n
+		k := km.keys[idx]
+		until, inCooldown := km.cooldowns[k]
+		if !inCooldown || now.After(until) {
+			if inCooldown {
+				delete(km.cooldowns, k)
+				log.Printf("🎉 [KeyManager] Ключ ...%s вышел из кулдауна и готов к работе", maskKey(k))
+			}
+			km.cursor = (idx + 1) % n
+			return k
+		}
+	}
+
+	var earliestKey string
+	var earliestTime time.Time
+	for _, k := range km.keys {
+		t := km.cooldowns[k]
+		if earliestKey == "" || t.Before(earliestTime) {
+			earliestKey = k
+			earliestTime = t
+		}
+	}
+	log.Printf("⚠️ [KeyManager] Все %d ключей временно в кулдауне, используем ...%s", len(km.keys), maskKey(earliestKey))
+	return earliestKey
+}
+
+func (km *APIKeyManager) MarkFailed(key string, duration time.Duration) {
+	km.Lock()
+	defer km.Unlock()
+	km.cooldowns[key] = time.Now().Add(duration)
+	log.Printf("⏳ [KeyManager] Ключ ...%s отправлен в кулдаун на %v из-за ошибки квоты/доступа (активных ключей: %d/%d)",
+		maskKey(key), duration, len(km.keys)-len(km.cooldowns), len(km.keys))
+}
+
+func (km *APIKeyManager) MarkHealthy(key string) {
+	km.Lock()
+	defer km.Unlock()
+	delete(km.cooldowns, key)
+}
+
+func (km *APIKeyManager) TotalKeys() int {
+	km.RLock()
+	defer km.RUnlock()
+	return len(km.keys)
+}
+
+func maskKey(k string) string {
+	if len(k) <= 8 {
+		return k
+	}
+	return k[len(k)-8:]
+}
+
 // normalizeModelForEndpoint убирает префикс "gemini/", если обращение идет напрямую в Google API
 func normalizeModelForEndpoint(model string) string {
 	if strings.Contains(aiBaseUrl, "googleapis.com") {
@@ -426,6 +521,30 @@ func isSubtotalRow(name string) bool {
 	return false
 }
 
+// isHallucinatedBalancingRow проверяет, не является ли строка искусственной балансирующей строкой нейросети.
+func isHallucinatedBalancingRow(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "" {
+		return false
+	}
+	hallucinatedExact := []string{
+		"дополнительно",
+		"разница",
+		"округление",
+		"балансирующая строка",
+		"корректировка суммы",
+	}
+	for _, ex := range hallucinatedExact {
+		if lower == ex {
+			return true
+		}
+	}
+	if strings.Contains(lower, "доставка") && strings.Contains(lower, "дополнительно") {
+		return true
+	}
+	return false
+}
+
 // isDuplicateJunction проверяет, не является ли позиция дубликатом со стыка смежных страниц.
 func isDuplicateJunction(prev AiItem, next AiItem) bool {
 	pName := normalizeItemName(prev.Name)
@@ -448,7 +567,7 @@ func mergePageResponses(pages []*AiResponse) *AiResponse {
 		// Фильтруем служебные строки даже для одиночной страницы
 		var filtered []AiItem
 		for _, it := range res.Items {
-			if !isSubtotalRow(it.Name) {
+			if !isSubtotalRow(it.Name) && !isHallucinatedBalancingRow(it.Name) {
 				filtered = append(filtered, it)
 			}
 		}
@@ -526,8 +645,8 @@ func mergePageResponses(pages []*AiResponse) *AiResponse {
 			continue
 		}
 		for _, item := range page.Items {
-			// Пропускаем служебные строки итогов страниц
-			if isSubtotalRow(item.Name) {
+			// Пропускаем служебные строки итогов страниц и искусственные балансирующие строки
+			if isSubtotalRow(item.Name) || isHallucinatedBalancingRow(item.Name) {
 				continue
 			}
 			// Проверяем дубликат на стыке
@@ -601,7 +720,139 @@ func GetModelsHealthStatus() []ModelStatusInfo {
 	return result
 }
 
-// parseMultiPageChunked выполняет постраничный параллельный парсинг многостраничных документов.
+// detectDocumentType классифицирует форму документа (TORG12, UPD, RECEIPT, OTHER)
+// по первой странице через gemini-3.1-flash-lite либо мгновенным анализом текста.
+func detectDocumentType(text string, firstImageBase64 string, report func(string, string, int)) string {
+	// 1. Fast Path: Мгновенное определение по текстовому слою (0 мс)
+	if len(strings.TrimSpace(text)) > 30 {
+		upper := strings.ToUpper(text)
+		if strings.Contains(upper, "ТОРГ-12") || strings.Contains(upper, "0330212") || strings.Contains(upper, "ТОВАРНАЯ НАКЛАДНАЯ") {
+			log.Printf("📋 [AutoDetect FastPath] Обнаружен шаблон ТОРГ-12 (ОКУД 0330212)")
+			if report != nil {
+				report("📋", "Определен шаблон: ТОРГ-12 (Товарная накладная)...", 30)
+			}
+			return "TORG12"
+		}
+		if strings.Contains(upper, "УНИВЕРСАЛЬНЫЙ ПЕРЕДАТОЧНЫЙ") || strings.Contains(upper, "СЧЕТ-ФАКТУРА") {
+			log.Printf("📋 [AutoDetect FastPath] Обнаружен шаблон УПД")
+			if report != nil {
+				report("📋", "Определен шаблон: УПД (Универсальный передаточный документ)...", 30)
+			}
+			return "UPD"
+		}
+	}
+
+	// 2. Если текста нет (скан/фото) — отправляем 1-ю страницу в gemini-3.1-flash-lite
+	if firstImageBase64 == "" && len(strings.TrimSpace(text)) == 0 {
+		return "OTHER"
+	}
+
+	if report != nil {
+		report("🔍", "Классификация шаблона накладной (gemini-3.1-flash-lite)...", 28)
+	}
+
+	var parts []map[string]interface{}
+	parts = append(parts, map[string]interface{}{
+		"type": "text",
+		"text": documentClassifierPrompt + "\n\nТекст первой страницы:\n" + text,
+	})
+	if firstImageBase64 != "" {
+		parts = append(parts, map[string]interface{}{
+			"type": "image_url",
+			"image_url": map[string]string{
+				"url": "data:image/jpeg;base64," + firstImageBase64,
+			},
+		})
+	}
+
+	classifierModel := "gemini-3.1-flash-lite"
+	payload := map[string]interface{}{
+		"model":      normalizeModelForEndpoint(classifierModel),
+		"messages":   []map[string]interface{}{{"role": "user", "content": parts}},
+		"max_tokens": 100,
+		"stream":     false,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("⚠️ Ошибка сериализации классификатора: %v", err)
+		return "TORG12"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "TORG12"
+	}
+	currentKey := globalKeyManager.GetAvailableKey()
+	req.Header.Set("Authorization", "Bearer "+currentKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := llmHTTPClient.Do(req)
+	if err != nil {
+		log.Printf("⚠️ Ошибка классификатора gemini-3.1-flash-lite: %v (фоллбэк на TORG12)", err)
+		return "TORG12"
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10240))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		log.Printf("⚠️ Классификатор вернул HTTP %d (фоллбэк)", resp.StatusCode)
+		return "TORG12"
+	}
+
+	var parsedResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &parsedResp); err != nil || len(parsedResp.Choices) == 0 {
+		return "TORG12"
+	}
+
+	rawContent := strings.TrimSpace(parsedResp.Choices[0].Message.Content)
+	var cls struct {
+		DocType string `json:"doc_type"`
+	}
+	startIdx := strings.Index(rawContent, "{")
+	endIdx := strings.LastIndex(rawContent, "}")
+	if startIdx != -1 && endIdx != -1 && endIdx > startIdx {
+		_ = json.Unmarshal([]byte(rawContent[startIdx:endIdx+1]), &cls)
+	}
+
+	docType := strings.ToUpper(strings.TrimSpace(cls.DocType))
+	if docType == "" {
+		upperResp := strings.ToUpper(rawContent)
+		if strings.Contains(upperResp, "TORG12") || strings.Contains(upperResp, "ТОРГ-12") || strings.Contains(upperResp, "0330212") {
+			docType = "TORG12"
+		} else if strings.Contains(upperResp, "UPD") || strings.Contains(upperResp, "УПД") {
+			docType = "UPD"
+		} else if strings.Contains(upperResp, "RECEIPT") || strings.Contains(upperResp, "ЧЕК") {
+			docType = "RECEIPT"
+		} else {
+			docType = "TORG12"
+		}
+	}
+
+	log.Printf("🎯 [Classifier gemini-3.1-flash-lite] Определен тип документа: %s", docType)
+	if report != nil {
+		typeName := docType
+		if docType == "TORG12" {
+			typeName = "ТОРГ-12 (Товарная накладная)"
+		} else if docType == "UPD" {
+			typeName = "УПД (Универсальный передаточный документ)"
+		} else if docType == "RECEIPT" {
+			typeName = "Кассовый чек"
+		}
+		report("📋", fmt.Sprintf("Определен шаблон: %s", typeName), 32)
+	}
+	return docType
+}
+
+// parseMultiPageChunked выполняет двухэтапный парсинг с классификацией и специализированными промптами.
 func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt string, progress ...ProgressReporter) (*AiResponse, error) {
 	report := func(icon, msg string, percent int) {
 		if len(progress) > 0 && progress[0] != nil {
@@ -610,8 +861,39 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 	}
 
 	mainPrompt := customPrompt
-	if strings.TrimSpace(mainPrompt) == "" {
-		mainPrompt = defaultParserPrompt
+	continuationPrompt := continuationPageParserPrompt
+
+	// Если пользователь не выбрал кастомный промпт вручную — запускаем автоопределение!
+	if strings.TrimSpace(customPrompt) == "" {
+		firstImg := ""
+		if len(imagesBase64) > 0 {
+			firstImg = imagesBase64[0]
+		}
+		docType := detectDocumentType(text, firstImg, report)
+		switch docType {
+		case "TORG12":
+			mainPrompt = torg12ParserPrompt
+			continuationPrompt = torg12ContinuationPrompt
+			log.Printf("📄 [AutoDetect] Применен специализированный промпт: ТОРГ-12 (ОКУД 0330212)")
+		case "UPD":
+			mainPrompt = updParserPrompt
+			continuationPrompt = updContinuationPrompt
+			log.Printf("📄 [AutoDetect] Применен специализированный промпт: УПД")
+		case "RECEIPT":
+			mainPrompt = receiptParserPrompt
+			continuationPrompt = receiptParserPrompt
+			log.Printf("📄 [AutoDetect] Применен специализированный промпт: Кассовый чек")
+		default:
+			mainPrompt = torg12ParserPrompt
+			continuationPrompt = torg12ContinuationPrompt
+			log.Printf("📄 [AutoDetect] Применен стандартный профиль накладной (ТОРГ-12)")
+		}
+	} else {
+		if strings.Contains(customPrompt, "ТОРГ-12") || strings.Contains(customPrompt, "0330212") {
+			continuationPrompt = torg12ContinuationPrompt
+		} else if strings.Contains(customPrompt, "УПД") {
+			continuationPrompt = updContinuationPrompt
+		}
 	}
 
 	// Для PDF с извлеченным текстом (pdftotext) или документов до 6 страниц — отправляем единым целостным запросом.
@@ -689,9 +971,9 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 			// Для страниц 2..N используем специализированный промпт (все правила для товаров сохранены, отключена только шапка документа)
 			if pageIdx > 0 {
 				if customPrompt != "" {
-					promptToUse = continuationPageParserPrompt + "\n\nДОПОЛНИТЕЛЬНЫЕ ПОЛЬЗОВАТЕЛЬСКИЕ ПРАВИЛА:\n" + customPrompt
+					promptToUse = continuationPrompt + "\n\nДОПОЛНИТЕЛЬНЫЕ ПОЛЬЗОВАТЕЛЬСКИЕ ПРАВИЛА:\n" + customPrompt
 				} else {
-					promptToUse = continuationPageParserPrompt
+					promptToUse = continuationPrompt
 				}
 			}
 
@@ -858,7 +1140,7 @@ func applyAutoReflection(parsed *AiResponse, imagesBase64 []string, text string,
 	// Фильтруем возможные служебные строки из ответа рефлексии
 	var cleanItems []AiItem
 	for _, it := range reflected.Items {
-		if !isSubtotalRow(it.Name) {
+		if !isSubtotalRow(it.Name) && !isHallucinatedBalancingRow(it.Name) {
 			cleanItems = append(cleanItems, it)
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -62,8 +63,13 @@ func (nfs neuteredFileSystem) Open(path string) (http.File, error) {
 		return nil, err
 	}
 	if s.IsDir() {
-		f.Close()
-		return nil, os.ErrPermission
+		index := filepath.Join(path, "index.html")
+		if fIndex, err := nfs.fs.Open(index); err != nil {
+			f.Close()
+			return nil, err
+		} else {
+			_ = fIndex.Close()
+		}
 	}
 	return f, nil
 }
@@ -93,14 +99,18 @@ func main() {
 
 	useDirectGoogle := os.Getenv("USE_DIRECT_GOOGLE") == "true"
 	if useDirectGoogle {
-		googleKey := os.Getenv("GOOGLE_API_KEY")
+		googleKey := os.Getenv("GOOGLE_API_KEYS")
 		if googleKey == "" {
-			log.Fatalf("❌ Критическая ошибка: задан USE_DIRECT_GOOGLE=true, но GOOGLE_API_KEY отсутствует в .env")
+			googleKey = os.Getenv("GOOGLE_API_KEY")
 		}
-		aiApiKey = googleKey
+		if googleKey == "" {
+			log.Fatalf("❌ Критическая ошибка: задан USE_DIRECT_GOOGLE=true, но GOOGLE_API_KEY / GOOGLE_API_KEYS отсутствует в .env")
+		}
+		globalKeyManager.InitKeys(googleKey)
+		aiApiKey = globalKeyManager.GetAvailableKey()
 		aiBaseUrl = getEnv("AI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions")
-		aiModel = getEnv("AI_MODEL", "gemini-2.0-flash,gemini-1.5-flash,gemini-2.5-pro")
-		log.Printf("🌐 [AI Config] Включен ПРЯМОЙ режим работы с Google Gemini API (минуя OmniRoute): %s", aiBaseUrl)
+		aiModel = getEnv("AI_MODEL", "gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.1-flash-lite-preview,gemini-3.1-flash-lite")
+		log.Printf("🌐 [AI Config] Включен ПРЯМОЙ режим работы с Google Gemini API (ключей в пуле: %d): %s", globalKeyManager.TotalKeys(), aiBaseUrl)
 	} else {
 		aiApiKey = os.Getenv("AI_API_KEY")
 		if aiApiKey == "" {
@@ -203,6 +213,7 @@ func main() {
 
 	mux.HandleFunc("/api/import", authMiddleware(handleImport))
 	mux.HandleFunc("/api/templates/save", authMiddleware(handleSaveTemplateProxy))
+	mux.HandleFunc("/api/iiko/export-trigger", authMiddleware(handleTriggerIikoExport))
 	mux.HandleFunc("/api/unlisted-operations", authMiddleware(handleGetUnlistedOperations))
 	mux.HandleFunc("/api/unlisted-operations/resolve", authMiddleware(handleResolveUnlistedOperation))
 	mux.HandleFunc("/api/unlisted-operations/reject", authMiddleware(handleRejectUnlistedOperation))
@@ -312,14 +323,14 @@ func handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	if db == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(`{"status":"error","service":"iiko_parser","error":"database not initialized"}`))
+		_, _ = w.Write([]byte(`{"status":"error","service":"iiko_parser"}`))
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"error","service":"iiko_parser","error":%q}`, err.Error())))
+		_, _ = w.Write([]byte(`{"status":"error","service":"iiko_parser"}`))
 		return
 	}
 	w.WriteHeader(http.StatusOK)

@@ -394,6 +394,12 @@ function switchTab(id) {
     const activeNav = document.getElementById('nav-' + id);
     if (activeNav) activeNav.classList.add('active');
     
+    if (tg.HapticFeedback) {
+        try {
+            tg.HapticFeedback.impactOccurred('light');
+        } catch (e) {}
+    }
+
     if (id === 'admin') {
         loadAdminData();
     }
@@ -449,6 +455,23 @@ function switchTab(id) {
                 fakeInput.style.color = "var(--text)";
             }
         }
+    }
+}
+
+function swipeTab(direction) {
+    // direction: 1 = свайп влево (след. вкладка), -1 = свайп вправо (пред. вкладка)
+    const currentIdx = MAIN_TABS.indexOf(currentActiveTab);
+    const validIdx = currentIdx === -1 ? 0 : currentIdx;
+    
+    let nextIdx;
+    if (direction > 0) {
+        // Переход вперед вкруг
+        nextIdx = (validIdx + 1) % MAIN_TABS.length;
+        switchTab(MAIN_TABS[nextIdx], 'next');
+    } else {
+        // Переход назад вкруг
+        nextIdx = (validIdx - 1 + MAIN_TABS.length) % MAIN_TABS.length;
+        switchTab(MAIN_TABS[nextIdx], 'prev');
     }
 }
 
@@ -1463,6 +1486,8 @@ function openOperationDetails(idx) {
 }
 
 function closeEditWriteoffDrawer() {
+    const resEl = document.getElementById('edit_w_results');
+    if (resEl) resEl.style.display = 'none';
     if (window.editWriteoffFrom === 'pending_writeoffs') {
         openPendingWriteoffsDrawer();
     } else {
@@ -1476,6 +1501,11 @@ function openEditWriteoffFromPending(op) {
 
     document.getElementById('edit_op_id').value = op.id;
     document.getElementById('edit_w_search').value = op.position_name;
+    const nameEl = document.getElementById('edit_w_name');
+    if (nameEl) nameEl.value = op.position_name;
+    const resEl = document.getElementById('edit_w_results');
+    if (resEl) resEl.style.display = 'none';
+
     document.getElementById('edit_w_qty').value = Math.abs(op.quantity);
     document.getElementById('edit_w_unit_display').value = op.unit || 'ед.';
     document.getElementById('edit_w_comment').value = op.comment || '';
@@ -1513,6 +1543,11 @@ function openEditWriteoffForm(idx) {
 
     document.getElementById('edit_op_id').value = op.id;
     document.getElementById('edit_w_search').value = op.position_name;
+    const nameEl = document.getElementById('edit_w_name');
+    if (nameEl) nameEl.value = op.position_name;
+    const resEl = document.getElementById('edit_w_results');
+    if (resEl) resEl.style.display = 'none';
+
     document.getElementById('edit_w_qty').value = Math.abs(op.quantity);
     document.getElementById('edit_w_unit_display').value = op.unit;
     document.getElementById('edit_w_comment').value = op.comment || '';
@@ -1545,16 +1580,21 @@ function openEditWriteoffForm(idx) {
 
 async function submitEditWriteoff() {
     const opID = document.getElementById('edit_op_id').value;
+    const nameInput = document.getElementById('edit_w_name');
+    const searchInput = document.getElementById('edit_w_search');
+    const posName = (nameInput && nameInput.value) ? nameInput.value : (searchInput ? searchInput.value : "");
     const qty = document.getElementById('edit_w_qty').value;
     const locID = document.getElementById('edit_w_location').value;
     const accountID = document.getElementById('edit_w_account_id').value;
     const comment = document.getElementById('edit_w_comment').value || ""; 
     let opDate = document.getElementById('edit_w_date').value;
 
+    if (!posName || !posName.trim()) return alert("Выберите или введите наименование товара!");
     if (!qty || parseFloat(qty) <= 0) return alert("Укажите корректное количество!");
     if (opDate.length === 10) opDate += "T12:00";
 
     const payload = {
+        position_name: posName.trim(),
         quantity: parseFloat(qty),
         location_id: parseInt(locID),
         account_id: accountID,
@@ -2826,6 +2866,12 @@ function switchSupplierTab(id) {
     document.querySelectorAll(".supplier-nav-item").forEach(i => i.classList.remove("active"));
     const activeNav = document.getElementById("sup-nav-" + id);
     if (activeNav) activeNav.classList.add("active");
+
+    if (tg.HapticFeedback) {
+        try {
+            tg.HapticFeedback.impactOccurred('light');
+        } catch (e) {}
+    }
 }
 
 async function deleteSupplierOffer(id) {

@@ -6,10 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"iiko_parser/pkg/ratelimit"
 )
+
+var companyInviteLimiter = ratelimit.NewLimiter(10, 1*time.Minute, 10*time.Minute, 10000)
 
 func handleGenerateInvite(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -20,6 +25,12 @@ func handleGenerateInvite(w http.ResponseWriter, r *http.Request) {
 	user := GetAuthUser(r)
 	if user == nil {
 		http.Error(w, "Неавторизованный доступ", http.StatusUnauthorized)
+		return
+	}
+
+	rateKey := fmt.Sprintf("invite_%d_%s", user.ID, ratelimit.GetClientIP(r))
+	if allowed, remaining := companyInviteLimiter.Allow(rateKey); !allowed {
+		http.Error(w, fmt.Sprintf("Слишком много запросов на создание инвайтов. Попробуйте через %d сек.", int(remaining.Seconds())+1), http.StatusTooManyRequests)
 		return
 	}
 
@@ -65,7 +76,8 @@ func handleGenerateInvite(w http.ResponseWriter, r *http.Request) {
 		VALUES ($1, $2, $3, $4, FALSE)
 	`, inviteCode, req.Name, firmID, expiresAt)
 	if err != nil {
-		http.Error(w, "Ошибка БД: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Invite] DB insert error: %v", err)
+		http.Error(w, "Ошибка сохранения инвайт-кода в базе данных", http.StatusInternalServerError)
 		return
 	}
 

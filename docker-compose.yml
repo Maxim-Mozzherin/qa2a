@@ -38,6 +38,7 @@ services:
       EXTERNAL_API_KEY: "${EXTERNAL_API_KEY:-dev-external-api-key}"
       BOT_TOKEN: "${BOT_TOKEN:-123456789:ABCDEF_mock_dev_telegram_bot_token}"
       ADMIN_TG_ID: "${ADMIN_TG_ID:-0}"
+      TELEGRAM_NOTIFICATION_CHAT: "${TELEGRAM_NOTIFICATION_CHAT:-@qa2a_team}"
       UPLOADS_DIR: "/app/uploads"
     ports:
       - "${QA2A_PORT:-8085}:8082"
@@ -74,6 +75,39 @@ services:
       - "${PARSER_PORT:-8098}:8099"
     volumes:
       - qa2a_uploads_data:/app/uploads
+
+  analytics:
+    build:
+      context: ./Analytics
+      dockerfile: Dockerfile
+    container_name: qa2a-analytics-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: "8096"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_USER: "${DB_USER:-admin}"
+      DB_PASS: "${DB_PASS:-postgres_dev_pass}"
+      DB_NAME: "${DB_NAME:-qa2a}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef}"
+      AI_API_KEY: "${AI_API_KEY:-dummy-key}"
+      AI_BASE_URL: "${AI_BASE_URL:-http://127.0.0.1:20128/v1/chat/completions}"
+      AI_MODEL: "${AI_MODEL:-gemini/gemini-3.5-flash,gemini/gemini-3.0-flash}"
+      BOT_TOKEN: "${BOT_TOKEN:-123456789:ABCDEF_mock_dev_telegram_bot_token}"
+    ports:
+      - "${ANALYTICS_PORT:-8096}:8096"
+
+  qa2a_site:
+    build:
+      context: ./qa2a site
+      dockerfile: Dockerfile
+    container_name: qa2a-site-app
+    restart: unless-stopped
+    ports:
+      - "${SITE_PORT:-3000}:80"
 
 volumes:
   qa2a_postgres_dev_data:

@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>PDF Patcher & High-Res Exporter</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    body {
+      background: #0f172a;
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #f8fafc;
+    }
+    h1 { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
+    .status { color: #38bdf8; font-size: 14px; margin-bottom: 20px; font-weight: 600; }
+    .controls { margin-bottom: 24px; display: flex; gap: 12px; }
+    button {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 700;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    }
+    button:hover { background: #2563eb; }
+    .page-wrap {
+      margin-bottom: 40px;
+      background: #1e293b;
+      padding: 16px;
+      border-radius: 12px;
+      display: inline-block;
+    }
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .canvas-container {
+      position: relative;
+      background: white;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      border-radius: 4px;
+      overflow: hidden;
+      cursor: crosshair;
+    }
+    canvas { display: block; }
+    .coord-tip {
+      font-size: 12px;
+      color: #94a3b8;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <h1>QA2A PDF Report Patcher (Ultra High-Res 300 DPI)</h1>
+  <div class="status" id="status">Загрузка шрифтов и PDF...</div>
+
+  <div class="controls">
+    <button onclick="applyAllPatches()">Применить все патчи (Стр. 1, 2, 4)</button>
+  </div>
+
+  <div id="pages-container"></div>
+
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    window.patcherReady = false;
+    window.canvases = {};
+
+    async function init() {
+      document.getElementById('status').textContent = 'Загрузка PDF...';
+
+      const resp = await fetch('Аудит_закупок_Покерамен_demo (13).pdf');
+      const data = await resp.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data }).promise;
+
+      document.getElementById('status').textContent = `PDF загружен. Рендеринг страниц 1, 2, 4 в 300 DPI...`;
+
+      // Render at scale 3.0 (1785 x 2525 px)
+      const SCALE = 3.0;
+      const targetPages = [1, 2, 4];
+
+      for (const pageNum of targetPages) {
+        const page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: SCALE });
+
+        const wrap = document.createElement('div');
+        wrap.className = 'page-wrap';
+        wrap.id = `wrap-page-${pageNum}`;
+
+        const header = document.createElement('div');
+        header.className = 'page-header';
+        header.innerHTML = `<strong>Страница ${pageNum} (${Math.round(viewport.width)} × ${Math.round(viewport.height)} px)</strong> <span class="coord-tip" id="coord-p${pageNum}">X: 0, Y: 0</span>`;
+        wrap.appendChild(header);
+
+        const container = document.createElement('div');
+        container.className = 'canvas-container';
+
+        const canvas = document.createElement('canvas');
+        canvas.id = `canvas-page-${pageNum}`;
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.width = (viewport.width / 2.5) + 'px';
+        canvas.style.height = (viewport.height / 2.5) + 'px';
+
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        container.appendChild(canvas);
+        wrap.appendChild(container);
+        document.getElementById('pages-container').appendChild(wrap);
+
+        window.canvases[pageNum] = canvas;
+
+        canvas.addEventListener('mousemove', (e) => {
+          const rect = canvas.getBoundingClientRect();
+          const scaleX = canvas.width / rect.width;
+          const scaleY = canvas.height / rect.height;
+          const x = Math.round((e.clientX - rect.left) * scaleX);
+          const y = Math.round((e.clientY - rect.top) * scaleY);
+          document.getElementById(`coord-p${pageNum}`).textContent = `X: ${x}, Y: ${y}`;
+        });
+      }
+
+      document.getElementById('status').textContent = 'Рендеринг завершен. Готово к применению патчей.';
+      window.patcherReady = true;
+    }
+
+    // Helper: Draw styled text chunks in a single line
+    function drawTextSpans(ctx, spans, startX, baselineY) {
+      let curX = startX;
+      for (const span of spans) {
+        ctx.font = span.font;
+        ctx.fillStyle = span.color;
+        ctx.fillText(span.text, curX, baselineY);
+        curX += ctx.measureText(span.text).width;
+      }
+      return curX;
+    }
+
+    // Helper: Draw wrapped text in a box
+    function drawWrappedText(ctx, text, startX, startY, maxWidth, lineHeight, font, color) {
+      ctx.font = font;
+      ctx.fillStyle = color;
+      const words = text.split(' ');
+      let line = '';
+      let curY = startY;
+
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        const testWidth = ctx.measureText(testLine).width;
+        if (testWidth > maxWidth && n > 0) {
+          ctx.fillText(line.trim(), startX, curY);
+          line = words[n] + ' ';
+          curY += lineHeight;
+        } else {
+          line = testLine;
+        }
+      }
+      ctx.fillText(line.trim(), startX, curY);
+      return curY;
+    }
+
+    // Helper: Draw rounded rectangle
+    function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + width - radius, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+      ctx.lineTo(x + width, y + height - radius);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      ctx.lineTo(x + radius, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+      if (fill) ctx.fill();
+      if (stroke) ctx.stroke();
+    }
+
+    // === PATCH PAGE 1 ===
+    window.patchPage1 = function() {
+      const canvas = window.canvases[1];
+      const ctx = canvas.getContext('2d');
+
+      // 1. Header line
+      // Cover: "Заведение: Покерамен • Город: Пермь • Период анализа: 60 дней"
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(95, 290, 1150, 36);
+
+      const headerSpans = [
+        { text: 'Заведение: ', font: '500 22.5px "Inter", sans-serif', color: '#475569' },
+        { text: 'Паназиатский ресторан [Скрыто по NDA]', font: '700 22.5px "Inter", sans-serif', color: '#0f172a' },
+        { text: '   •   ', font: '500 22.5px "Inter", sans-serif', color: '#64748b' },
+        { text: 'Город: ', font: '500 22.5px "Inter", sans-serif', color: '#475569' },
+        { text: 'Город-миллионник', font: '700 22.5px "Inter", sans-serif', color: '#0f172a' },
+        { text: '   •   ', font: '500 22.5px "Inter", sans-serif', color: '#64748b' },
+        { text: 'Период анализа: ', font: '500 22.5px "Inter", sans-serif', color: '#475569' },
+        { text: '60 дней', font: '700 22.5px "Inter", sans-serif', color: '#0f172a' }
+      ];
+      drawTextSpans(ctx, headerSpans, 98, 314);
+
+      // 2. Auditor text paragraph 1
+      // Clear entire paragraph 1 area: y 780 to 935, x 130 to 1660
+      ctx.fillStyle = '#f9faff';
+      ctx.fillRect(130, 780, 1530, 160);
+
+      const auditorP1 = 'По результатам финансового анализа закупок заведения «Паназиатский ресторан [Скрыто по NDA]» (Город-миллионник) за 60 дней выявлен расчетный резерв оптимизации в размере 158996 ₽ в месяц к средней рынка (2.6% от общего бюджета закупок, с потенциалом оптимизации до 186975 ₽ к минимуму когорты). Основная концентрация ценового разрыва локализована в категориях: Кальмар командорский (филе/тушка), Сливки 33-35% (для взбивания), Крахмал кукурузный. Индекс концентрации HHI составляет 3619 (Критическая зависимость от монопольного поставщика).';
+
+      drawWrappedText(
+        ctx,
+        auditorP1,
+        134,
+        810,
+        1520,
+        35.5,
+        '400 19px "Inter", sans-serif',
+        '#1e293b'
+      );
+    };
+
+    // === PATCH PAGE 2 ===
+    window.patchPage2 = function() {
+      const canvas = window.canvases[2];
+      const ctx = canvas.getContext('2d');
+
+      // Helper for supplier cell text
+      function drawSupplierCell(clearX, clearY, clearW, clearH, line1, line2) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(clearX, clearY, clearW, clearH);
+
+        ctx.fillStyle = '#1e293b'; // slate-800
+        if (line2) {
+          ctx.font = '700 16.5px "Inter", sans-serif';
+          ctx.fillText(line1, clearX + 5, clearY + 22);
+          ctx.fillText(line2, clearX + 5, clearY + 44);
+        } else {
+          ctx.font = '700 17px "Inter", sans-serif';
+          ctx.fillText(line1, clearX + 5, clearY + 30);
+        }
+      }
+
+      // Card #1: Позиция №1 (Кальмар). Поставщик «ООО РЕМО» ➔ «Федеральный дистрибьютор (Опт)»
+      drawSupplierCell(145, 555, 190, 52, 'Федеральный', 'дистрибьютор (Опт)');
+
+      // Card #2: Позиция №2 (Сливки).
+      // Row 1: «ООО РЕМО» ➔ «Федеральный дистрибьютор (Опт)»
+      drawSupplierCell(145, 1230, 190, 52, 'Федеральный', 'дистрибьютор (Опт)');
+      // Row 2: «ООО МЕТРО» ➔ «Крупная торговая сеть»
+      drawSupplierCell(145, 1318, 190, 52, 'Крупная торговая', 'сеть');
+
+      // Card #3: Позиция №3 (Крахмал).
+      // Row 1: «ООО РЕМО» ➔ «Федеральный дистрибьютор (Опт)»
+      drawSupplierCell(145, 2025, 190, 52, 'Федеральный', 'дистрибьютор (Опт)');
+      // Row 2: «ООО МЕТРО» ➔ «Крупная торговая сеть»
+      drawSupplierCell(145, 2110, 190, 52, 'Крупная торговая', 'сеть');
+      // Row 3: «ИП Юркина...» ➔ «Локальный поставщик (ИП)»
+      drawSupplierCell(145, 2195, 190, 75, 'Локальный поставщик', '(ИП)');
+      // Row 4: «чек наличные» ➔ ОСТАВЛЯЕМ КАК ЕСТЬ!
+    };
+
+    // === PATCH PAGE 4 ===
+    window.patchPage4 = function() {
+      const canvas = window.canvases[4];
+      const ctx = canvas.getContext('2d');
+
+      // Banner Badge 1: update to «к средней: 53 070 ₽/мес»
+      // Badge coords: top: 1884, bottom: 1932, left: 965, right: 1280
+      const bx = 965;
+      const by = 1884;
+      const bw = 320;
+      const bh = 48;
+
+      ctx.fillStyle = '#fef3c7'; // amber-100
+      ctx.strokeStyle = '#fcd34d'; // amber-300
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, bx, by, bw, bh, 8, true, true);
+
+      // Text inside Badge 1
+      const badgeSpans = [
+        { text: 'к средней: ', font: '700 19px "Inter", sans-serif', color: '#451a03' },
+        { text: '53 070 ₽', font: '900 19px "Inter", sans-serif', color: '#451a03' },
+        { text: '/мес', font: '700 19px "Inter", sans-serif', color: '#451a03' }
+      ];
+      // Center text horizontally
+      let totalW = 0;
+      badgeSpans.forEach(s => {
+        ctx.font = s.font;
+        totalW += ctx.measureText(s.text).width;
+      });
+      const startX = bx + (bw - totalW) / 2;
+      drawTextSpans(ctx, badgeSpans, startX, by + 31);
+    };
+
+    // Apply all patches
+    window.applyAllPatches = function() {
+      window.patchPage1();
+      window.patchPage2();
+      window.patchPage4();
+      document.getElementById('status').textContent = 'Все патчи успешно применены!';
+      window.patchesApplied = true;
+    };
+  </script>
+</body>
+</html>

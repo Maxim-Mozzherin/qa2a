@@ -61,6 +61,7 @@ func fetchIikoCatalog(host, token string) ([]IikoProduct, error) {
 			UUID: p.ID,
 			Name: p.Name,
 			Type: pType,
+			Unit: strings.TrimSpace(p.MainUnit),
 		}
 
 		switch pType {

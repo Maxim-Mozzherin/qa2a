@@ -107,32 +107,90 @@ func ClassifyProduct(rawName string) ProductClassification {
 		return res
 	}
 
-	// 5. Базовые овощи/фрукты (лимон, лайм, чеснок, имбирь)
-	if strings.Contains(clean, "лимон") && !strings.Contains(clean, "лимонад") {
-		res.CanonicalCategory = "Лимоны свежие"
-		res.IsCommodity = true
+	// 4.5. Барные сиропы, топпинги, основы, пюре и концентраты
+	// ВАЖНО: это не биржевой коммодити-товар! Сравнение ТОЛЬКО бренд-в-бренд.
+	if strings.Contains(clean, "сироп") || strings.Contains(clean, "топпинг") {
+		res.CanonicalCategory = "Сиропы и топпинги барные"
+		res.IsCommodity = false // Сравнение ТОЛЬКО бренд-в-бренд
 		return res
 	}
-	if strings.Contains(clean, "лайм") {
-		res.CanonicalCategory = "Лайм свежий"
-		res.IsCommodity = true
-		return res
-	}
-	if strings.Contains(clean, "чеснок") {
-		res.CanonicalCategory = "Чеснок свежий"
-		res.IsCommodity = true
-		return res
-	}
-	if strings.Contains(clean, "имбир") {
-		if strings.Contains(clean, "маринован") || strings.Contains(clean, "розов") || strings.Contains(clean, "белый") {
-			res.CanonicalCategory = "Имбирь маринованный"
-			res.IsCommodity = true
-			return res
-		}
-		res.CanonicalCategory = "Имбирь корень свежий"
-		res.IsCommodity = true
+	if strings.Contains(clean, "концентрат") || strings.Contains(clean, "кордиал") ||
+		(strings.Contains(clean, "пюре") && !strings.Contains(clean, "картофел")) ||
+		strings.Contains(clean, "основа для") || strings.Contains(clean, "основа напит") {
+		res.CanonicalCategory = "Основы, пюре и концентраты для напитков"
+		res.IsCommodity = false // Сравнение ТОЛЬКО бренд-в-бренд или точное совпадение
 		return res
 	}
 
+	// 4.6. Специи, зелень и кондитерские ингредиенты
+	if strings.Contains(clean, "кислот") && strings.Contains(clean, "лимон") {
+		res.CanonicalCategory = "Лимонная кислота / специи"
+		res.IsCommodity = false
+		return res
+	}
+	if strings.Contains(clean, "лемонграсс") || (strings.Contains(clean, "лимон") && strings.Contains(clean, "трава")) {
+		res.CanonicalCategory = "Лемонграсс / зелень"
+		res.IsCommodity = false
+		return res
+	}
+
+	// 5. Базовые овощи/фрукты (лимон, лайм, чеснок, имбирь)
+	// КРИТИЧНО: отсекаем барные заготовки, концентраты, пюре и сиропы!
+	if !isBarOrProcessedFruit(clean) {
+		if strings.Contains(clean, "лимон") && !strings.Contains(clean, "лимонад") {
+			res.CanonicalCategory = "Лимоны свежие"
+			res.IsCommodity = true
+			return res
+		}
+		if strings.Contains(clean, "лайм") && !strings.Contains(clean, "лист") {
+			res.CanonicalCategory = "Лайм свежий"
+			res.IsCommodity = true
+			return res
+		}
+		if strings.Contains(clean, "чеснок") && !strings.Contains(clean, "сушен") && !strings.Contains(clean, "гранул") && !strings.Contains(clean, "соус") {
+			res.CanonicalCategory = "Чеснок свежий"
+			res.IsCommodity = true
+			return res
+		}
+		if strings.Contains(clean, "имбир") {
+			if strings.Contains(clean, "маринован") || strings.Contains(clean, "розов") || strings.Contains(clean, "белый") {
+				res.CanonicalCategory = "Имбирь маринованный"
+				res.IsCommodity = true
+				return res
+			}
+			res.CanonicalCategory = "Имбирь корень свежий"
+			res.IsCommodity = true
+			return res
+		}
+	}
+
 	return res
+}
+
+// isBarOrProcessedFruit проверяет, относится ли позиция к переработанным основам, сиропам, пюре, сокам
+func isBarOrProcessedFruit(clean string) bool {
+	return strings.Contains(clean, "концентрат") ||
+		strings.Contains(clean, "сироп") ||
+		strings.Contains(clean, "пюре") ||
+		strings.Contains(clean, "кордиал") ||
+		strings.Contains(clean, "топпинг") ||
+		strings.Contains(clean, "основа") ||
+		strings.Contains(clean, "морс") ||
+		strings.Contains(clean, "сок ") ||
+		strings.Contains(clean, "нектар") ||
+		strings.Contains(clean, "наполнитель") ||
+		strings.Contains(clean, "джем") ||
+		strings.Contains(clean, "варенье") ||
+		strings.Contains(clean, "паста") ||
+		strings.Contains(clean, "начинк") ||
+		strings.Contains(clean, "десерт") ||
+		strings.Contains(clean, "морожен") ||
+		strings.Contains(clean, "кислот") ||
+		strings.Contains(clean, "лемонграсс") ||
+		strings.Contains(clean, "трава") ||
+		strings.Contains(clean, "цедр") ||
+		strings.Contains(clean, "перец") ||
+		strings.Contains(clean, "чай ") ||
+		strings.Contains(clean, "сушен") ||
+		strings.Contains(clean, "порошок")
 }

@@ -67,11 +67,14 @@ func (r *Repository) GetOperationByIDTx(tx *sqlx.Tx, companyID, id int) (*models
 func (r *Repository) UpdateWriteoffTx(tx *sqlx.Tx, op *models.Operation) error {
 	query := `
 		UPDATE operations SET 
+			position_name = :position_name,
+			unit = :unit,
 			quantity = :quantity,
 			location_id = :location_id,
 			account_id = :account_id,
 			comment = :comment,
-			created_at = :created_at
+			created_at = :created_at,
+			is_unlisted = :is_unlisted
 		WHERE id = :id AND company_id = :company_id`
 	_, err := tx.NamedExec(query, op)
 	return err

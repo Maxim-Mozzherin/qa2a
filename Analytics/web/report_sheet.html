@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="ru" class="bg-white">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QA2A Analytics Audit Report</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        brand: {
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        @page {
+            size: A4 portrait;
+            margin: 8mm 8mm 8mm 8mm;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #ffffff;
+            color: #0f172a;
+            margin: 0;
+            padding: 0;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .avoid-break {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+        .force-break-before {
+            break-before: page;
+            page-break-before: always;
+        }
+    </style>
+</head>
+<body class="p-2 flex justify-center">
+    <div id="report-document-sheet" class="w-[780px] max-w-[780px] bg-white text-slate-900 p-3 space-y-3.5 text-left box-border">
+        
+        <!-- Шапка листа -->
+        <div class="flex justify-between items-start border-b border-slate-200 pb-2.5">
+            <div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-black tracking-widest text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded font-mono">QA2A ANALYTICS</span>
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Аудит Закупок и Ценовой Радар HoReCa</span>
+                </div>
+                <h1 class="text-lg font-black text-slate-900 tracking-tight mt-1">ОТЧЕТ ПО АУДИТУ ЗАКУПОЧНЫХ ЦЕН И РЕЗЕРВАМ ЭКОНОМИИ</h1>
+                <div class="text-[11px] text-slate-600 mt-0.5 flex flex-wrap items-center gap-2.5">
+                    <span>Заведение: <strong id="rep-sheet-rest" class="text-slate-900">—</strong></span>
+                    <span>•</span>
+                    <span>Город: <strong id="rep-sheet-city" class="text-slate-900">Пермь</strong></span>
+                    <span>•</span>
+                    <span>Период анализа: <strong id="rep-sheet-period" class="text-slate-900">30 дней</strong></span>
+                </div>
+            </div>
+            <div class="text-right space-y-1">
+                <div id="rep-sheet-badge" class="inline-block px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-800 border border-indigo-300">
+                    ПОЛНЫЙ АУДИТ (ТОП-10 ПЕРЕПЛАТ)
+                </div>
+                <div class="text-[9.5px] text-slate-400 font-medium" id="rep-sheet-date">Дата: —</div>
+            </div>
+        </div>
+
+        <!-- 4 Ключевые управленческие метрики -->
+        <div class="grid grid-cols-4 gap-2.5 text-center avoid-break">
+            <div class="bg-rose-50 border border-rose-200 rounded-xl p-2.5 space-y-0.5">
+                <div class="text-[8.5px] font-bold text-rose-700 uppercase tracking-wider">Перерасход к средней рынка</div>
+                <div id="rep-sheet-monthly" class="text-base font-black text-rose-600">-0 ₽</div>
+                <div id="rep-sheet-yearly" class="text-[7.5px] text-rose-500 font-medium">-0 ₽ / год</div>
+            </div>
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-2.5 space-y-0.5">
+                <div class="text-[8.5px] font-bold text-amber-800 uppercase tracking-wider">Потенциал к минимуму когорты</div>
+                <div id="rep-sheet-min-monthly" class="text-base font-black text-amber-700">-0 ₽</div>
+                <div id="rep-sheet-min-yearly" class="text-[7.5px] text-amber-600 font-medium">-0 ₽ / год (макс. резерв)</div>
+            </div>
+            <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-2.5 space-y-0.5">
+                <div class="text-[8.5px] font-bold text-indigo-700 uppercase tracking-wider">Доля потерь в закупках</div>
+                <div id="rep-sheet-pct" class="text-base font-black text-indigo-700">0.0%</div>
+                <div id="rep-sheet-pct-sub" class="text-[7.5px] text-indigo-500 font-medium">% от бюджета закупок</div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-2.5 space-y-0.5">
+                <div class="text-[8.5px] font-bold text-slate-600 uppercase tracking-wider">Концентрация HHI</div>
+                <div id="rep-sheet-hhi" class="text-base font-black text-slate-800">0</div>
+                <div id="rep-sheet-hhi-sub" class="text-[7.5px] text-slate-500 font-medium leading-tight">Риск поставок</div>
+            </div>
+        </div>
+
+        <!-- Обязательное предупреждение о средневзвешенных значениях за 30 дней -->
+        <div class="bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-[9px] text-slate-700 avoid-break leading-relaxed">
+            <span class="font-bold text-slate-900">ВНИМАНИЕ:</span> Отчет сформирован за 30 дней. Все показатели рассчитаны как средневзвешенные значения за расчетный месяц по электронным накладным iiko RMS в сопоставлении с независимыми рыночными бенчмарками г. <span id="rep-disclaimer-city">Пермь</span>.
+        </div>
+
+        <!-- Экспертное заключение управленческого аудитора -->
+        <div id="rep-sheet-ai-auditor-box" class="border border-indigo-200 bg-indigo-50/40 rounded-xl p-3.5 space-y-1.5 avoid-break">
+            <div class="flex items-center justify-between border-b border-indigo-100 pb-1.5">
+                <span class="text-[10px] font-black uppercase tracking-wider text-indigo-900">
+                    Экспертное заключение управленческого аудитора
+                </span>
+            </div>
+            <div id="rep-sheet-ai-text" class="text-[9.5px] text-slate-800 leading-relaxed font-sans whitespace-pre-line space-y-1">
+            </div>
+        </div>
+
+        <!-- Блок графиков (Кривая рынка и Пайчарт) -->
+        <div id="rep-charts-wrapper" class="grid grid-cols-2 gap-3.5 avoid-break">
+            <!-- График сравнения с рынком -->
+            <div id="rep-market-chart-box" class="border border-slate-200 rounded-xl p-3 bg-slate-50/50">
+                <div class="flex justify-between items-center mb-1">
+                    <h4 class="text-[10.5px] font-bold text-slate-800">Кривая цен закупки относительно рынка</h4>
+                    <span class="text-[8.5px] text-slate-500 font-medium">Топ переплат</span>
+                </div>
+                <div class="relative h-40 w-full">
+                    <canvas id="rep-chart-market"></canvas>
+                </div>
+                <div class="flex items-center justify-center gap-3 mt-1.5 text-[8.5px] font-bold text-slate-600">
+                    <span class="flex items-center gap-1"><span class="w-2.5 h-1.5 rounded-xs bg-rose-500 inline-block"></span> Ваша цена</span>
+                    <span class="flex items-center gap-1"><span class="w-2.5 h-1.5 rounded-xs bg-indigo-500 inline-block"></span> Средняя рынка</span>
+                    <span class="flex items-center gap-1"><span class="w-2.5 h-1.5 rounded-xs bg-emerald-500 inline-block"></span> Лучшая в когорте</span>
+                </div>
+            </div>
+
+            <!-- Пайчарт распределения по категориям -->
+            <div id="rep-category-chart-box" class="border border-slate-200 rounded-xl p-3 bg-slate-50/50">
+                <div class="flex justify-between items-center mb-1">
+                    <h4 class="text-[10.5px] font-bold text-slate-800">Доли потерь по категориям продуктов</h4>
+                    <span class="text-[8.5px] text-slate-500 font-medium">Суммы переплат (₽)</span>
+                </div>
+                <div class="relative h-40 w-full">
+                    <canvas id="rep-chart-category"></canvas>
+                </div>
+                <div id="rep-category-legend-badges" class="flex flex-wrap items-center justify-center gap-1 mt-1 text-[8.5px] font-semibold text-slate-600">
+                </div>
+            </div>
+        </div>
+
+        <!-- Разделитель страниц для печати -->
+        <div class="force-break-before pt-2"></div>
+
+        <!-- ВТОРАЯ СТРАНИЦА: Детализация позиций и анализ поставщиков (Карточки) -->
+        <div class="space-y-3">
+            <div class="flex justify-between items-center border-b border-slate-200 pb-2">
+                <div>
+                    <h4 class="text-xs font-black text-slate-900 uppercase tracking-wider">Детализация позиций и анализ поставщиков</h4>
+                    <p class="text-[9.5px] text-slate-500">Позиционный срез с разбивкой по ключевым поставщикам, контрактным ценам и резервам оптимизации</p>
+                </div>
+                <span id="rep-sheet-count-label" class="text-[10px] text-indigo-700 font-bold bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg"></span>
+            </div>
+
+            <!-- Контейнер карточек позиций (в точности как в вебе) -->
+            <div id="rep-sheet-cards-container" class="space-y-3">
+                <!-- Карточки наполняются JS -->
+            </div>
+        </div>
+
+        <!-- Блок «Методология и правила формирования финансового среза» -->
+        <div id="rep-sheet-methodology" class="pt-3 border-t border-slate-200 space-y-2 text-slate-600 avoid-break mt-4">
+            <div class="flex items-center justify-between">
+                <span class="text-[9.5px] font-black uppercase tracking-wider text-slate-800">
+                    Методология и правила формирования финансового среза
+                </span>
+                <span class="text-[8px] font-bold text-slate-400 font-mono tracking-wider">СТАНДАРТ АУДИТА QA2A</span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 text-[8px] leading-relaxed bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+                <div class="space-y-1.5">
+                    <div>
+                        <strong class="text-slate-800 font-bold">1. Первичные данные:</strong> 
+                        Анализ строится на фактических электронных приходных накладных iiko RMS за выбранный период. Хозяйственные и инвентарные расходы исключены.
+                    </div>
+                    <div>
+                        <strong class="text-slate-800 font-bold">2. Принцип весовых когорт:</strong> 
+                        Сравнение цен производится строго внутри сопоставимых объемов потребления (Small до 50 кг, Medium 50–200 кг, Large свыше 200 кг/мес).
+                    </div>
+                </div>
+                <div class="space-y-1.5">
+                    <div>
+                        <strong class="text-slate-800 font-bold">3. Рыночная медиана:</strong> 
+                        В качестве целевого рыночного ориентира принимается медианная цена по актуальным поставкам независимых заведений в Перми.
+                    </div>
+                    <div>
+                        <strong class="text-slate-800 font-bold">4. Рекомендации по переговорам:</strong> 
+                        Позиции с выявленным спредом > 8% подлежат первоочередному пересмотру спецификаций с ключевыми поставщиками.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let currentAudit = null;
+        let allItems = [];
+
+        function formatRub(val) {
+            if (val === undefined || val === null || isNaN(val)) return '0';
+            return Math.round(val).toLocaleString('ru-RU');
+        }
+
+        function formatVol(val) {
+            if (!val || isNaN(val)) return '0';
+            if (val >= 100) return Math.round(val).toLocaleString('ru-RU');
+            return Number(val.toFixed(1)).toLocaleString('ru-RU');
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        async function initReport() {
+            const params = new URLSearchParams(window.location.search);
+            const restId = params.get('restaurant_id') || '1';
+            const days = params.get('days') || '30';
+            const token = params.get('token') || 'a4f91c83e2b74059d81e3a6c905b7f14e2d83b9c';
+
+            try {
+                const res = await fetch(`/api/analytics/audit?restaurant_id=${restId}&days=${days}&mode=full`, {
+                    headers: { 'X-Superadmin-Token': token }
+                });
+                if (!res.ok) {
+                    throw new Error('HTTP ' + res.status);
+                }
+                currentAudit = await res.json();
+                allItems = currentAudit.items_audit || [];
+                renderReportSheet();
+                renderReportMarketChart();
+                renderReportCategoryChart();
+
+                // Даем время на отрисовку шрифтов и Chart.js
+                setTimeout(() => {
+                    window.REPORT_READY = true;
+                }, 300);
+            } catch (err) {
+                console.error('Ошибка загрузки данных:', err);
+                window.REPORT_ERROR = err.message;
+            }
+        }
+
+        function renderReportSheet() {
+            if (!currentAudit) return;
+
+            document.getElementById('rep-sheet-rest').textContent = currentAudit.restaurant_name || 'Не указано';
+            document.getElementById('rep-sheet-city').textContent = currentAudit.city || 'Пермь';
+            const disCity = document.getElementById('rep-disclaimer-city');
+            if (disCity) disCity.textContent = currentAudit.city || 'Пермь';
+
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            document.getElementById('rep-sheet-date').textContent = `Дата: ${dateStr}`;
+
+            const vsAvgMonth = currentAudit.total_monthly_overpay_vs_avg_rub || currentAudit.total_monthly_overpay_rub || 0;
+            const vsAvgYear = currentAudit.total_yearly_overpay_vs_avg_rub || currentAudit.total_yearly_overpay_rub || 0;
+            const vsMinMonth = currentAudit.total_monthly_overpay_vs_min_rub || 0;
+            const vsMinYear = currentAudit.total_yearly_overpay_vs_min_rub || 0;
+            const vsMinBudgetPct = currentAudit.overpay_vs_min_budget_percent || 0;
+
+            document.getElementById('rep-sheet-monthly').textContent = `-${formatRub(vsAvgMonth)} ₽`;
+            document.getElementById('rep-sheet-yearly').textContent = `-${formatRub(vsAvgYear)} ₽ / год`;
+
+            const minMonthEl = document.getElementById('rep-sheet-min-monthly');
+            if (minMonthEl) minMonthEl.textContent = `-${formatRub(vsMinMonth)} ₽`;
+            const minYearEl = document.getElementById('rep-sheet-min-yearly');
+            if (minYearEl) minYearEl.textContent = `-${formatRub(vsMinYear)} ₽ / год (макс. резерв)`;
+
+            document.getElementById('rep-sheet-pct').textContent = `${(currentAudit.overpay_budget_percent || 0).toFixed(1)}%`;
+            const pctSub = document.getElementById('rep-sheet-pct-sub');
+            if (pctSub) {
+                pctSub.textContent = vsMinBudgetPct > 0 ? `до ${vsMinBudgetPct.toFixed(1)}% к минимуму` : '% от бюджета закупок';
+            }
+
+            document.getElementById('rep-sheet-hhi').textContent = `${Math.round(currentAudit.supplier_hhi || 0)}`;
+            const hhiSub = document.getElementById('rep-sheet-hhi-sub');
+            if (hhiSub) {
+                let status = currentAudit.supplier_hhi_status || 'Риск поставок';
+                if (status.includes('Критическ')) status = 'Критическая зависимость';
+                hhiSub.textContent = status;
+            }
+
+            // AI Заключение
+            const repAiText = document.getElementById('rep-sheet-ai-text');
+            if (repAiText && currentAudit.auditor_summary) {
+                let formattedSummary = escapeHtml(currentAudit.auditor_summary)
+                    .replace(/1\. РЕЗЮМЕ АУДИТА:/g, '<strong class="text-indigo-900 block text-[9.5px] tracking-wide uppercase font-extrabold mb-0.5">1. Резюме аудита:</strong>')
+                    .replace(/2\. ФАКТОРЫ ФОРМИРОВАНИЯ РАЗРЫВА:/g, '<strong class="text-amber-900 block text-[9.5px] tracking-wide uppercase font-extrabold mt-1.5 mb-0.5">2. Факторы формирования разрыва:</strong>')
+                    .replace(/3\. РЕКОМЕНДАЦИИ ПО ОПТИМИЗАЦИИ:/g, '<strong class="text-emerald-900 block text-[9.5px] tracking-wide uppercase font-extrabold mt-1.5 mb-0.5">3. Рекомендации по оптимизации:</strong>');
+                repAiText.innerHTML = formattedSummary;
+            }
+
+            // Карточки позиций (Топ-10)
+            const overpayItems = allItems.filter(it => it.is_overpay);
+            const displayItems = overpayItems.slice(0, 10);
+            document.getElementById('rep-sheet-count-label').textContent = `Показан Топ-${displayItems.length} позиций с максимальным перерасходом`;
+
+            const cardsContainer = document.getElementById('rep-sheet-cards-container');
+            if (cardsContainer) cardsContainer.innerHTML = '';
+
+            displayItems.forEach((it, idx) => {
+                const nameHtml = `<span class="font-black text-slate-900">${escapeHtml(it.product_name)}</span>`;
+                const catHtml = `<span class="text-slate-700 font-semibold">${escapeHtml(it.canonical_category)}</span>`;
+                const supsCount = it.suppliers_count || (it.suppliers_breakdown ? it.suppliers_breakdown.length : 1);
+                const mainSup = it.main_supplier || it.supplier_name || '—';
+                const volHtml = `<span class="font-bold text-slate-900 whitespace-nowrap">${formatVol(it.monthly_volume)} <span class="text-[9px] text-slate-500">${escapeHtml(it.unit)}</span></span>`;
+
+                const brandBadge = it.detected_brand
+                    ? `<span class="text-[9px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">Бренд: ${escapeHtml(it.detected_brand)}</span>`
+                    : '';
+                const isCommBadge = it.is_commodity
+                    ? `<span class="text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">Коммодити</span>`
+                    : '';
+
+                let suppliersTableHtml = '';
+                if (it.suppliers_breakdown && it.suppliers_breakdown.length > 0) {
+                    const rows = it.suppliers_breakdown.map(s => {
+                        const diffVsMin = s.last_price - it.market_min_price;
+                        const diffVsMinPct = it.market_min_price > 0 ? ((diffVsMin / it.market_min_price) * 100) : 0;
+                        let supStatusHtml = s.monthly_overpayment_rub > 0
+                            ? `<span class="font-black text-rose-600 whitespace-nowrap">-${formatRub(s.monthly_overpayment_rub)} ₽/мес</span>`
+                            : `<span class="text-emerald-700 font-bold text-[9px] whitespace-nowrap">✓ В рынке</span>`;
+
+                        return `
+                            <tr class="hover:bg-slate-50/80">
+                                <td class="py-1 px-2 font-bold text-slate-800 text-left">${escapeHtml(s.supplier_name)}</td>
+                                <td class="py-1 px-1.5 text-center whitespace-nowrap"><span class="inline-block bg-slate-100 text-slate-700 text-[9px] font-bold px-1.5 py-0.5 rounded border border-slate-200">${s.share_pct.toFixed(0)}%</span></td>
+                                <td class="py-1 px-2 text-right text-slate-700 font-medium whitespace-nowrap">${formatVol(s.monthly_volume)} ${escapeHtml(it.unit)}</td>
+                                <td class="py-1 px-2 text-right text-slate-700 font-medium whitespace-nowrap">${s.avg_price.toFixed(2)} ₽</td>
+                                <td class="py-1 px-2 text-right whitespace-nowrap"><span class="font-black text-slate-900">${s.last_price.toFixed(2)} ₽</span></td>
+                                <td class="py-1 px-2 text-right whitespace-nowrap font-bold">${diffVsMin > 0 ? `<span class="text-rose-600">+${diffVsMinPct.toFixed(1)}%</span>` : `<span class="text-emerald-700">Лучшая</span>`}</td>
+                                <td class="py-1 px-2.5 text-right font-black">${supStatusHtml}</td>
+                            </tr>
+                        `;
+                    }).join('');
+
+                    suppliersTableHtml = `
+                        <div class="rounded-lg border border-slate-200 overflow-hidden mt-1">
+                            <table class="w-full text-left text-[9px]">
+                                <thead class="bg-slate-100 text-[8px] uppercase font-bold text-slate-600 border-b border-slate-200">
+                                    <tr>
+                                        <th class="py-1 px-2 text-left">Поставщик</th>
+                                        <th class="py-1 px-1.5 text-center">Доля</th>
+                                        <th class="py-1 px-2 text-right">Мес. объем</th>
+                                        <th class="py-1 px-2 text-right">Ср. цена</th>
+                                        <th class="py-1 px-2 text-right">Посл. цена</th>
+                                        <th class="py-1 px-2 text-right">Разница</th>
+                                        <th class="py-1 px-2.5 text-right">Переплата</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                }
+
+                const diffVsAvgRub = it.restaurant_price - it.market_avg_price;
+                const diffVsAvgPct = it.price_diff_percent_vs_avg || (it.market_avg_price > 0 ? ((diffVsAvgRub / it.market_avg_price) * 100) : 0);
+                const diffVsMedRub = it.restaurant_price - it.market_median_price;
+                const diffVsMedPct = it.market_median_price > 0 ? ((diffVsMedRub / it.market_median_price) * 100) : 0;
+                const diffVsMinRub = it.restaurant_price - it.market_min_price;
+                const diffVsMinPct = it.price_diff_percent_vs_min || (it.market_min_price > 0 ? ((diffVsMinRub / it.market_min_price) * 100) : 0);
+
+                const vsAvgRub = it.monthly_overpay_vs_avg_rub || it.monthly_overpayment_rub || 0;
+                const vsMinRub = it.monthly_overpay_vs_min_rub || 0;
+                const vsAvgDiffPct = it.price_diff_percent_vs_avg || it.price_diff_percent || 0;
+
+                const card = document.createElement('div');
+                card.className = "position-card avoid-break border border-slate-200 rounded-xl p-3 bg-white shadow-xs space-y-2";
+                card.innerHTML = `
+                    <div class="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
+                        <div>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="text-[10px] font-black px-2 py-0.5 rounded bg-slate-900 text-white font-mono">#${idx + 1}</span>
+                                <span class="text-xs font-black text-slate-900 tracking-tight">${nameHtml}</span>
+                                ${brandBadge}
+                                ${isCommBadge}
+                            </div>
+                            <div class="text-[10px] text-slate-500 mt-1 flex items-center gap-2.5 flex-wrap">
+                                <span>Категория: <strong class="text-slate-700">${catHtml}</strong></span>
+                                <span>•</span>
+                                <span>Месячный объем: <strong class="text-slate-900">${volHtml}</strong> <span class="text-[8.5px] text-slate-400">(${it.cohort_tier})</span></span>
+                            </div>
+                        </div>
+
+                        <div class="text-right shrink-0 leading-tight space-y-1">
+                            <div>
+                                <span class="text-[8px] uppercase font-bold text-slate-400">К средней рынка: </span>
+                                <span class="text-xs font-black text-rose-600">-${formatRub(vsAvgRub)} ₽/мес <span class="text-[8.5px] font-bold text-rose-500">(+${vsAvgDiffPct.toFixed(1)}%)</span></span>
+                            </div>
+                            <div>
+                                <span class="text-[8px] uppercase font-bold text-amber-700">К минимуму когорты: </span>
+                                <span class="text-xs font-black text-amber-800">-${formatRub(vsMinRub)} ₽/мес</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-4 gap-2 bg-slate-50 rounded-lg p-2 text-center text-xs border border-slate-100">
+                        <div>
+                            <div class="text-[8px] uppercase font-bold text-slate-400">Ваша ср. цена</div>
+                            <div class="text-xs font-black text-rose-600">${it.restaurant_price.toFixed(2)} ₽</div>
+                        </div>
+                        <div>
+                            <div class="text-[8px] uppercase font-bold text-slate-400">Средняя рынка</div>
+                            <div class="text-xs font-bold text-indigo-700">${it.market_avg_price.toFixed(2)} ₽</div>
+                            <div class="text-[7.5px] font-bold text-rose-600">+${diffVsAvgRub.toFixed(2)} ₽ (+${diffVsAvgPct.toFixed(0)}%)</div>
+                        </div>
+                        <div>
+                            <div class="text-[8px] uppercase font-bold text-slate-400">Медиана рынка</div>
+                            <div class="text-xs font-bold text-slate-700">${it.market_median_price.toFixed(2)} ₽</div>
+                            <div class="text-[7.5px] font-bold text-rose-600">+${diffVsMedRub.toFixed(2)} ₽ (+${diffVsMedPct.toFixed(0)}%)</div>
+                        </div>
+                        <div>
+                            <div class="text-[8px] uppercase font-bold text-slate-400">Мин. в когорте</div>
+                            <div class="text-xs font-bold text-emerald-600">${it.market_min_price.toFixed(2)} ₽</div>
+                            <div class="text-[7.5px] font-bold text-amber-700">+${diffVsMinRub.toFixed(2)} ₽ (+${diffVsMinPct.toFixed(0)}%)</div>
+                        </div>
+                    </div>
+
+                    ${suppliersTableHtml}
+                `;
+                cardsContainer.appendChild(card);
+            });
+        }
+
+        function renderReportMarketChart() {
+            const canvas = document.getElementById('rep-chart-market');
+            if (!canvas) return;
+
+            const overpayItems = allItems.filter(it => it.is_overpay);
+            const chartItems = overpayItems.slice(0, 5);
+            if (chartItems.length === 0) return;
+
+            const labels = chartItems.map(it => {
+                const name = it.product_name || '';
+                return name.length > 12 ? name.substring(0, 11) + '…' : name;
+            });
+
+            const myPrices = chartItems.map(it => it.restaurant_price);
+            const avgPrices = chartItems.map(it => it.market_avg_price);
+            const minPrices = chartItems.map(it => it.market_min_price);
+
+            new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Ваша цена',
+                            data: myPrices,
+                            borderColor: '#e11d48',
+                            backgroundColor: 'rgba(225, 29, 72, 0.1)',
+                            borderWidth: 2.5,
+                            pointBackgroundColor: '#e11d48',
+                            pointRadius: 4.5,
+                            tension: 0.25
+                        },
+                        {
+                            label: 'Средняя рынка',
+                            data: avgPrices,
+                            borderColor: '#4f46e5',
+                            backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                            borderWidth: 2,
+                            borderDash: [4, 4],
+                            pointBackgroundColor: '#4f46e5',
+                            pointRadius: 4,
+                            tension: 0.25
+                        },
+                        {
+                            label: 'Лучшая в когорте',
+                            data: minPrices,
+                            borderColor: '#059669',
+                            backgroundColor: 'rgba(5, 150, 105, 0.1)',
+                            borderWidth: 2,
+                            pointBackgroundColor: '#059669',
+                            pointRadius: 4,
+                            tension: 0.25
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { font: { size: 9, weight: 'bold' }, color: '#475569' } },
+                        y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 9 }, color: '#64748b', callback: v => v + ' ₽' } }
+                    }
+                }
+            });
+        }
+
+        function renderReportCategoryChart() {
+            const canvas = document.getElementById('rep-chart-category');
+            if (!canvas) return;
+
+            const overpayItems = allItems.filter(it => it.is_overpay);
+            const catMap = {};
+            overpayItems.forEach(it => {
+                const cat = it.canonical_category || 'Прочее';
+                catMap[cat] = (catMap[cat] || 0) + (it.monthly_overpayment_rub || 0);
+            });
+
+            const sortedCats = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+            const topCats = sortedCats.slice(0, 5);
+            const othersSum = sortedCats.slice(5).reduce((acc, curr) => acc + curr[1], 0);
+            if (othersSum > 0) topCats.push(['Прочие категории', othersSum]);
+
+            const catLabels = topCats.map(c => c[0]);
+            const catValues = topCats.map(c => Math.round(c[1]));
+            const colors = ['#f43f5e', '#f97316', '#eab308', '#6366f1', '#8b5cf6', '#10b981', '#94a3b8'];
+
+            new Chart(canvas.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: catLabels,
+                    datasets: [{
+                        data: catValues,
+                        backgroundColor: colors.slice(0, catValues.length),
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    cutout: '55%',
+                    plugins: { legend: { display: false } }
+                }
+            });
+
+            // Бейджи легенды
+            const legendContainer = document.getElementById('rep-category-legend-badges');
+            if (legendContainer) {
+                legendContainer.innerHTML = topCats.map((c, i) => `
+                    <span class="inline-flex items-center gap-1 bg-white border border-slate-200 px-1.5 py-0.5 rounded text-[8px] text-slate-700">
+                        <span class="w-2 h-2 rounded-full inline-block" style="background-color: ${colors[i % colors.length]}"></span>
+                        <span class="truncate max-w-[90px]">${escapeHtml(c[0])}</span>
+                        <strong class="text-rose-600">${formatRub(c[1])} ₽</strong>
+                    </span>
+                `).join('');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', initReport);
+    </script>
+</body>
+</html>

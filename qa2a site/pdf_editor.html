@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>QA2A PDF Editor & Exporter</title>
+  <script src="pdf.min.js"></script>
+  <style>
+    body {
+      background: #0f172a;
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #f8fafc;
+    }
+    h1 { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
+    .status { color: #38bdf8; font-size: 14px; margin-bottom: 20px; font-weight: 600; }
+    .page-wrap {
+      margin-bottom: 40px;
+      background: #1e293b;
+      padding: 16px;
+      border-radius: 12px;
+      display: inline-block;
+    }
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .canvas-container {
+      position: relative;
+      background: white;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <h1>QA2A PDF Editor & High-Res Exporter</h1>
+  <div class="status" id="status">Загрузка PDF...</div>
+
+  <div id="pages-container"></div>
+
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
+
+    window.editorReady = false;
+    window.canvases = {};
+
+    function drawTextSpans(ctx, spans, startX, baselineY) {
+      let curX = startX;
+      for (const span of spans) {
+        ctx.font = span.font;
+        ctx.fillStyle = span.color;
+        ctx.fillText(span.text, curX, baselineY);
+        curX += ctx.measureText(span.text).width;
+      }
+      return curX;
+    }
+
+    function drawWrappedText(ctx, text, startX, startY, maxWidth, lineHeight, font, color) {
+      ctx.font = font;
+      ctx.fillStyle = color;
+      const words = text.split(' ');
+      let line = '';
+      let curY = startY;
+
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        const testWidth = ctx.measureText(testLine).width;
+        if (testWidth > maxWidth && n > 0) {
+          ctx.fillText(line.trim(), startX, curY);
+          line = words[n] + ' ';
+          curY += lineHeight;
+        } else {
+          line = testLine;
+        }
+      }
+      ctx.fillText(line.trim(), startX, curY);
+      return curY;
+    }
+
+    function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + width - radius, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+      ctx.lineTo(x + width, y + height - radius);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      ctx.lineTo(x + radius, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+      if (fill) ctx.fill();
+      if (stroke) ctx.stroke();
+    }
+
+    function patchPage1(canvas) {
+      const ctx = canvas.getContext('2d');
+      const sx = canvas.width / 1785.84;
+      const sy = canvas.height / 2525.67;
+
+      // 1. Header line replacement
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(95 * sx, 288 * sy, 1150 * sx, 38 * sy);
+
+      const headerFontRegular = `500 ${Math.round(22.5 * sx)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+      const headerFontBold = `700 ${Math.round(22.5 * sx)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+
+      const headerSpans = [
+        { text: 'Заведение: ', font: headerFontRegular, color: '#475569' },
+        { text: 'Паназиатский ресторан [Скрыто по NDA]', font: headerFontBold, color: '#0f172a' },
+        { text: '   •   ', font: headerFontRegular, color: '#64748b' },
+        { text: 'Город: ', font: headerFontRegular, color: '#475569' },
+        { text: 'Город-миллионник', font: headerFontBold, color: '#0f172a' },
+        { text: '   •   ', font: headerFontRegular, color: '#64748b' },
+        { text: 'Период анализа: ', font: headerFontRegular, color: '#475569' },
+        { text: '60 дней', font: headerFontBold, color: '#0f172a' }
+      ];
+      drawTextSpans(ctx, headerSpans, 98 * sx, 314 * sy);
+
+      // 2. Auditor text paragraph 1 replacement
+      ctx.fillStyle = '#f9faff';
+      ctx.fillRect(130 * sx, 780 * sy, 1530 * sx, 160 * sy);
+
+      const auditorP1 = 'По результатам финансового анализа закупок заведения «Паназиатский ресторан [Скрыто по NDA]» (Город-миллионник) за 60 дней выявлен расчетный резерв оптимизации в размере 158996 ₽ в месяц к средней рынка (2.6% от общего бюджета закупок, с потенциалом оптимизации до 186975 ₽ к минимуму когорты). Основная концентрация ценового разрыва локализована в категориях: Кальмар командорский (филе/тушка), Сливки 33-35% (для взбивания), Крахмал кукурузный. Индекс концентрации HHI составляет 3619 (Критическая зависимость от монопольного поставщика).';
+
+      const auditorFont = `400 ${Math.round(19 * sx)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+      drawWrappedText(
+        ctx,
+        auditorP1,
+        134 * sx,
+        810 * sy,
+        1520 * sx,
+        35.5 * sy,
+        auditorFont,
+        '#1e293b'
+      );
+    }
+
+    function patchPage2(canvas) {
+      const ctx = canvas.getContext('2d');
+      const sx = canvas.width / 1785.84;
+      const sy = canvas.height / 2525.67;
+
+      function drawSupplierCell(clearX, clearY, clearW, clearH, line1, line2, yOffset1 = 20, yOffset2 = 41) {
+        ctx.fillStyle = '#ffffff';
+        // Clear full column up to the pill badge
+        ctx.fillRect(clearX * sx, clearY * sy, clearW * sx, clearH * sy);
+
+        ctx.fillStyle = '#1e293b';
+        ctx.font = `700 ${Math.round(15 * sx)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+        ctx.fillText(line1, (clearX + 4) * sx, (clearY + yOffset1) * sy);
+        if (line2) {
+          ctx.fillText(line2, (clearX + 4) * sx, (clearY + yOffset2) * sy);
+        }
+      }
+
+      // Card #1: Кальмар -> «Федеральный дистрибьютор (Опт)»
+      drawSupplierCell(140, 555, 196, 52, 'Федеральный', 'дистрибьютор (Опт)', 19, 39);
+
+      // Card #2: Сливки
+      // Row 1: ООО РЕМО -> «Федеральный дистрибьютор (Опт)»
+      drawSupplierCell(140, 1230, 196, 52, 'Федеральный', 'дистрибьютор (Опт)', 19, 39);
+      // Row 2: ООО МЕТРО -> «Крупная торговая сеть»
+      drawSupplierCell(140, 1318, 196, 52, 'Крупная торговая', 'сеть', 19, 39);
+
+      // Card #3: Крахмал
+      // Row 1: ООО РЕМО -> «Федеральный дистрибьютор (Опт)»
+      drawSupplierCell(140, 2025, 196, 52, 'Федеральный', 'дистрибьютор (Опт)', 19, 39);
+      // Row 2: ООО МЕТРО -> «Крупная торговая сеть»
+      drawSupplierCell(140, 2110, 196, 52, 'Крупная торговая', 'сеть', 19, 39);
+      // Row 3: ИП Юркина... -> «Локальный поставщик (ИП)»
+      drawSupplierCell(140, 2195, 196, 75, 'Локальный', 'поставщик (ИП)', 26, 48);
+      // Row 4: «чек наличные» -> ОСТАВИТЬ КАК ЕСТЬ!
+    }
+
+    function patchPage4(canvas) {
+      const ctx = canvas.getContext('2d');
+      const sx = canvas.width / 1785.84;
+      const sy = canvas.height / 2525.67;
+
+      const bx = 965 * sx;
+      const by = 1884 * sy;
+      const bw = 320 * sx;
+      const bh = 48 * sy;
+
+      ctx.fillStyle = '#fef3c7'; // amber-100
+      ctx.strokeStyle = '#fcd34d'; // amber-300
+      ctx.lineWidth = 1.5 * sx;
+      roundRect(ctx, bx, by, bw, bh, 8 * sx, true, true);
+
+      const fBold = `700 ${Math.round(19 * sx)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+      const fBlack = `900 ${Math.round(19 * sx)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+
+      const badgeSpans = [
+        { text: 'к средней: ', font: fBold, color: '#451a03' },
+        { text: '53 070 ₽', font: fBlack, color: '#451a03' },
+        { text: '/мес', font: fBold, color: '#451a03' }
+      ];
+
+      let totalW = 0;
+      badgeSpans.forEach(s => {
+        ctx.font = s.font;
+        totalW += ctx.measureText(s.text).width;
+      });
+      const startX = bx + (bw - totalW) / 2;
+      drawTextSpans(ctx, badgeSpans, startX, by + 31 * sy);
+    }
+
+    async function load() {
+      try {
+        const resp = await fetch(encodeURI('Аудит_закупок_Покерамен_demo (13).pdf'));
+        const data = await resp.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data }).promise;
+
+        const SCALE = 2.5; // High crisp 250 DPI
+        const targetPages = [1, 2, 4];
+
+        for (const pageNum of targetPages) {
+          const page = await pdf.getPage(pageNum);
+          const viewport = page.getViewport({ scale: SCALE });
+
+          const wrap = document.createElement('div');
+          wrap.className = 'page-wrap';
+          wrap.id = `wrap-page-${pageNum}`;
+
+          const header = document.createElement('div');
+          header.className = 'page-header';
+          header.innerHTML = `<strong>Страница ${pageNum} (${Math.round(viewport.width)} × ${Math.round(viewport.height)} px)</strong>`;
+          wrap.appendChild(header);
+
+          const container = document.createElement('div');
+          container.className = 'canvas-container';
+
+          const canvas = document.createElement('canvas');
+          canvas.id = `canvas-page-${pageNum}`;
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          canvas.style.width = (viewport.width / 2) + 'px';
+          canvas.style.height = (viewport.height / 2) + 'px';
+
+          const ctx = canvas.getContext('2d');
+          await page.render({ canvasContext: ctx, viewport }).promise;
+
+          // Apply specific page patch
+          if (pageNum === 1) patchPage1(canvas);
+          if (pageNum === 2) patchPage2(canvas);
+          if (pageNum === 4) patchPage4(canvas);
+
+          container.appendChild(canvas);
+          wrap.appendChild(container);
+          document.getElementById('pages-container').appendChild(wrap);
+
+          window.canvases[pageNum] = canvas;
+        }
+
+        document.getElementById('status').textContent = 'Все страницы отредактированы и готовы к экспорту.';
+        window.editorReady = true;
+      } catch (err) {
+        document.getElementById('status').textContent = 'Ошибка: ' + err.message;
+        console.error(err);
+      }
+    }
+
+    // Function to save image directly via local server
+    window.savePage = async function(pageNum, filename, format = 'image/png') {
+      const canvas = window.canvases[pageNum];
+      if (!canvas) throw new Error(`Canvas for page ${pageNum} not found`);
+      const data = canvas.toDataURL(format, 0.95);
+      const resp = await fetch('/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, data })
+      });
+      return await resp.json();
+    };
+
+    window.saveAllPages = async function() {
+      const results = {};
+      results['page_1_png'] = await window.savePage(1, 'report_page_1.png', 'image/png');
+      results['page_1_webp'] = await window.savePage(1, 'report_page_1.webp', 'image/webp');
+      results['page_2_png'] = await window.savePage(2, 'report_page_2.png', 'image/png');
+      results['page_2_webp'] = await window.savePage(2, 'report_page_2.webp', 'image/webp');
+      results['page_4_png'] = await window.savePage(4, 'report_page_4.png', 'image/png');
+      results['page_4_webp'] = await window.savePage(4, 'report_page_4.webp', 'image/webp');
+      return results;
+    };
+
+    load();
+  </script>
+</body>
+</html>

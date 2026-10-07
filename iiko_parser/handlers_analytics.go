@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -44,7 +45,8 @@ func handleGetUnlistedOperations(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query(query, companyID)
 	if err != nil {
-		http.Error(w, "Ошибка чтения неучтенных списаний: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Analytics] Error querying unlisted operations for company %d: %v", companyID, err)
+		http.Error(w, "Ошибка чтения неучтенных списаний", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -97,7 +99,8 @@ func handleResolveUnlistedOperation(w http.ResponseWriter, r *http.Request) {
 
 	res, err := db.Exec(query, req.IikoProductName, req.OperationID, req.CompanyID)
 	if err != nil {
-		http.Error(w, "Ошибка обновления операции в БД: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Analytics] Error resolving unlisted operation %d: %v", req.OperationID, err)
+		http.Error(w, "Ошибка обновления операции в базе данных", http.StatusInternalServerError)
 		return
 	}
 
@@ -196,7 +199,8 @@ func handleAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query(query, companyID, days)
 	if err != nil {
-		http.Error(w, "Ошибка чтения истории закупок: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Analytics] Error reading purchase history for company %d: %v", companyID, err)
+		http.Error(w, "Ошибка чтения истории закупок", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -340,7 +344,8 @@ LIMIT 10;`
 
 	rows, err := db.Query(query, companyID, days) // Pass days directly as integer!
 	if err != nil {
-		http.Error(w, "Ошибка выполнения аналитики списаний: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Analytics] Error running toxic writeoffs query for company %d: %v", companyID, err)
+		http.Error(w, "Ошибка выполнения аналитики списаний", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -467,7 +472,8 @@ func handleMarketSearch(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query(query, pq.Array(patterns))
 	if err != nil {
-		http.Error(w, "Ошибка SQL выборки рынка: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Market] Error querying market data: %v", err)
+		http.Error(w, "Ошибка выборки данных рынка", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -570,7 +576,8 @@ func handleGetHistoryInvoices(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query(query, companyID)
 	if err != nil {
-		http.Error(w, "Ошибка SQL выборки истории накладных: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Analytics] Error querying invoice history for company %d: %v", companyID, err)
+		http.Error(w, "Ошибка выборки истории накладных", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -633,7 +640,8 @@ func handleGetInvoiceItems(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query(query, companyID, invoiceNumber)
 	if err != nil {
-		http.Error(w, "Ошибка SQL выборки позиций накладной: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Analytics] Error querying invoice items for company %d, invoice %s: %v", companyID, invoiceNumber, err)
+		http.Error(w, "Ошибка выборки позиций накладной", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -685,7 +693,8 @@ func handleUpdateInvoiceItems(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, "Ошибка старта транзакции: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Analytics] Error starting transaction: %v", err)
+		http.Error(w, "Ошибка выполнения операции в базе данных", http.StatusInternalServerError)
 		return
 	}
 	defer tx.Rollback()
@@ -693,7 +702,8 @@ func handleUpdateInvoiceItems(w http.ResponseWriter, r *http.Request) {
 	if req.SupplierName != "" {
 		_, err = tx.Exec("UPDATE purchase_history SET supplier_name = $1 WHERE company_id = $2 AND invoice_number = $3", req.SupplierName, req.CompanyID, req.InvoiceNumber)
 		if err != nil {
-			http.Error(w, "Ошибка обновления поставщика: "+err.Error(), http.StatusInternalServerError)
+			log.Printf("❌ [Analytics] Error updating supplier name: %v", err)
+			http.Error(w, "Ошибка обновления данных поставщика", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -704,7 +714,8 @@ func handleUpdateInvoiceItems(w http.ResponseWriter, r *http.Request) {
 		WHERE id = $5 AND company_id = $6
 	`)
 	if err != nil {
-		http.Error(w, "Ошибка подготовки SQL: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Analytics] Error preparing statement: %v", err)
+		http.Error(w, "Ошибка подготовки запроса обновления", http.StatusInternalServerError)
 		return
 	}
 	defer stmt.Close()
@@ -720,13 +731,15 @@ func handleUpdateInvoiceItems(w http.ResponseWriter, r *http.Request) {
 		}
 		_, err := stmt.Exec(it.FinalQty, unit, it.TotalSum, pricePerUnit, it.ID, req.CompanyID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Ошибка обновления строки id=%d: %v", it.ID, err), http.StatusInternalServerError)
+			log.Printf("❌ [Analytics] Error updating item id=%d: %v", it.ID, err)
+			http.Error(w, "Ошибка обновления позиции накладной", http.StatusInternalServerError)
 			return
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		http.Error(w, "Ошибка фиксации транзакции: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [Analytics] Error committing transaction: %v", err)
+		http.Error(w, "Ошибка фиксации изменений в базе данных", http.StatusInternalServerError)
 		return
 	}
 

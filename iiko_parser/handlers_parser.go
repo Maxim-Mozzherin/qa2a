@@ -3,12 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
-	"html"
 	"iiko_parser/crypto"
 	"iiko_parser/pkg/netutil"
 	"io"
@@ -614,6 +612,7 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 			MappedUUID    string  `json:"mapped_uuid"`
 			MappedName    string  `json:"mapped_name"`
 			Multiplier    float64 `json:"multiplier"`
+			FinalQuantity float64 `json:"final_quantity"`
 		} `json:"items"`
 	}
 
@@ -675,7 +674,10 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		finalQuantity := item.Quantity * item.Multiplier
+		finalQuantity := item.FinalQuantity
+		if finalQuantity <= 0 {
+			finalQuantity = item.Quantity * item.Multiplier
+		}
 		finalSum := item.Sum
 		finalPrice := 0.0
 		if finalQuantity > 0 {
@@ -801,6 +803,15 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 
 	for _, item := range req.Items {
 		if item.MappedUUID != "" {
+			finalQty := item.FinalQuantity
+			if finalQty <= 0 {
+				finalQty = item.Quantity * item.Multiplier
+			}
+			effectiveMult := item.Multiplier
+			if item.Quantity > 0 && finalQty > 0 {
+				effectiveMult = finalQty / item.Quantity
+			}
+
 			_, err = tx.Exec(`
 				INSERT INTO product_mappings (company_id, vendor_name, vendor_item_name, iiko_product_uuid, iiko_product_name, multiplier, updated_at)
 				VALUES ($1, $2, $3, $4, $5, $6, now())
@@ -809,7 +820,7 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 				              iiko_product_name = EXCLUDED.iiko_product_name,
 				              multiplier = EXCLUDED.multiplier,
 				              updated_at = now()`,
-				req.CompanyID, req.VendorName, item.Name, item.MappedUUID, item.MappedName, item.Multiplier)
+				req.CompanyID, req.VendorName, item.Name, item.MappedUUID, item.MappedName, effectiveMult)
 			if err != nil {
 				log.Printf("⚠️ Ошибка сохранения маппинга: %v", err)
 			}
@@ -826,88 +837,14 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 					WHERE company_id = $5 
 					  AND iiko_product_uuid = $6 
 					  AND (product_name_in_invoice = iiko_product_name OR product_name_in_invoice = '')`,
-					item.Name, item.CleanCategory, item.Brand, item.Multiplier, req.CompanyID, item.MappedUUID)
+					item.Name, item.CleanCategory, item.Brand, effectiveMult, req.CompanyID, item.MappedUUID)
 			}
 
-			finalQty := item.Quantity * item.Multiplier
 			pricePerUnit := 0.0
 			if finalQty > 0 {
 				pricePerUnit = item.Sum / finalQty
 			}
 
-			// Проверка скачка цены (Price Spike Sentinel) перед записью в историю
-			var medianPrice sql.NullFloat64
-			_ = tx.QueryRow(`
-				SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price_per_base_unit) 
-				FROM purchase_history 
-				WHERE company_id = $1 AND iiko_product_uuid = $2 AND invoice_date >= NOW() - INTERVAL '30 days'`,
-				req.CompanyID, item.MappedUUID).Scan(&medianPrice)
-
-			if medianPrice.Valid && medianPrice.Float64 > 0 && pricePerUnit > medianPrice.Float64*1.15 && item.Sum > 500 {
-				companyID := req.CompanyID
-				prodName := item.MappedName
-				if prodName == "" {
-					prodName = item.Name
-				}
-				med := medianPrice.Float64
-				cur := pricePerUnit
-				growth := ((cur - med) / med) * 100.0
-				vendor := req.VendorName
-				invNum := req.InvoiceNumber
-
-				go func(cID int, pName string, growthPct, mPrice, cPrice float64, vName, iNum, iDate, sName string) {
-					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-					defer cancel()
-
-					var compName string
-					_ = db.QueryRowContext(ctx, "SELECT name FROM companies WHERE id = $1", cID).Scan(&compName)
-					if compName == "" {
-						compName = fmt.Sprintf("ID %d", cID)
-					}
-
-					var tgIDs []int64
-					rows, err := db.QueryContext(ctx, `
-						SELECT u.tg_id 
-						FROM memberships m 
-						JOIN users u ON m.user_id = u.id 
-						WHERE m.company_id = $1 AND m.role IN ('owner', 'admin', 'manager')`, cID)
-					if err == nil {
-						defer rows.Close()
-						for rows.Next() {
-							var tid int64
-							if err := rows.Scan(&tid); err == nil && tid > 0 {
-								tgIDs = append(tgIDs, tid)
-							}
-						}
-					}
-
-					formattedDate := iDate
-					if pt, parseErr := time.Parse("2006-01-02", iDate); parseErr == nil {
-						formattedDate = pt.Format("02.01.2006")
-					}
-
-					msg := fmt.Sprintf("🚨 <b>Скачок закупочной цены!</b>\n" +
-						"🏢 Заведение: <b>%s</b>\n" +
-						"📍 Склад: <b>%s</b>\n" +
-						"📦 Товар: <b>%s</b>\n" +
-						"📈 Рост: <b>+%.1f%%</b> (Медиана: %.2f ₽ ➡️ Новая: %.2f ₽)\n" +
-						"🚚 Поставщик: <b>%s</b>\n" +
-						"📄 Накладная: <b>№%s от %s</b>",
-						html.EscapeString(compName),
-						html.EscapeString(sName),
-						html.EscapeString(pName),
-						growthPct,
-						mPrice,
-						cPrice,
-						html.EscapeString(vName),
-						html.EscapeString(iNum),
-						html.EscapeString(formattedDate),
-					)
-					for _, tid := range tgIDs {
-						sendTelegramNotification(tid, msg)
-					}
-				}(companyID, prodName, growth, med, cur, vendor, invNum, dbInvoiceDate, storeName)
-			}
 
 			unit := strings.TrimSpace(item.Unit)
 			if isNumericOrInvalidUnit(unit) {
@@ -931,7 +868,7 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 					consignee, shipper
 				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
 				req.CompanyID, dbInvoiceDate, req.InvoiceNumber, req.SupplierUUID, req.VendorName,
-				item.MappedUUID, item.MappedName, item.Name, item.CleanCategory, item.Brand, item.Quantity, unit, item.Multiplier, item.Sum, pricePerUnit,
+				item.MappedUUID, item.MappedName, item.Name, item.CleanCategory, item.Brand, item.Quantity, unit, effectiveMult, item.Sum, pricePerUnit,
 				req.Consignee, req.Shipper)
 			if err != nil {
 				log.Printf("⚠️ Ошибка записи purchase_history: %v", err)

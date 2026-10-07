@@ -29,6 +29,7 @@ const els = {
     resVendor: document.getElementById('res-vendor'),
     resDocnum: document.getElementById('res-docnum'),
     resDocdate: document.getElementById('res-docdate'),
+    resComment: document.getElementById('res-comment'),
     resConsignee: document.getElementById('res-consignee'),
     resShipper: document.getElementById('res-shipper'),
     tbody: document.getElementById('items-tbody'),

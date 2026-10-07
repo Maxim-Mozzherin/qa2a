@@ -231,170 +231,233 @@ document.addEventListener('DOMContentLoaded', () => {
 
 if (els.btnImport) {
     els.btnImport.addEventListener('click', async () => {
-        if (!currentDocData) return;
-
-        const companyId = els.company.value;
-        const storeUuid = els.store.value;
-        
-        if (!companyId) return alert("Заведение не выбрано!");
-        if (!storeUuid) return alert("⚠️ Сначала укажите Склад прихода в iiko!");
-
-        const supplierName = els.supplierSearch.value.trim();
-        const foundSupplier = iikoSuppliers.find(s => s.name === supplierName);
-        const supplierUuid = foundSupplier ? foundSupplier.uuid : '';
-
-        if (!supplierUuid) {
-            alert("⚠️ Указанный Поставщик не найден! Пожалуйста, выберите корректного поставщика из выпадающего списка.");
-            return;
-        }
-
-        const rows = els.tbody.querySelectorAll('.invoice-item-row');
-        if (rows.length === 0 || !currentDocData.items || currentDocData.items.length === 0) {
-            alert("⚠️ Нет товаров для отправки!");
-            return;
-        }
-
-        const itemsToImport = [];
-        let hasErrors = false;
-        let unmappedCount = 0;
-        let firstErrorEl = null;
-
-        rows.forEach((tr, idx) => {
-            const searchInputEl = tr.querySelector('.iiko-search');
-            const searchInput = searchInputEl ? searchInputEl.value.trim() : "";
-            const originalItem = currentDocData.items[idx];
-            if (!originalItem) return;
-
-            let multInput = (typeof originalItem.multiplier === 'number') ? originalItem.multiplier : 1.0;
-            const unitCapInput = tr.querySelector('.iiko-unit-capacity');
-            const finalQtyInput = tr.querySelector('.iiko-final-qty');
-            if (unitCapInput) {
-                const cap = parseFloat(unitCapInput.value.replace(',', '.')) || 0;
-                if (cap > 0) multInput = cap;
-            } else if (finalQtyInput) {
-                const finalQ = parseFloat(finalQtyInput.value.replace(',', '.')) || 0;
-                const q = parseFloat(originalItem.quantity) || 0;
-                if (q > 0) multInput = finalQ / q;
-            } else {
-                const rawMult = (tr.querySelector('.iiko-mult')?.value || "").replace(',', '.');
-                if (rawMult) multInput = parseFloat(rawMult) || multInput;
+        try {
+            if (!currentDocData) {
+                alert("⚠️ Данные накладной не загружены в память. Попробуйте обновить страницу и загрузить файл заново.");
+                return;
             }
 
-            let mappedUuid = "";
-            let mappedName = searchInput;
+            const companyId = (els.company && els.company.value) || localStorage.getItem('selected_company_id') || '';
+            const storeUuid = (els.store && els.store.value) || document.getElementById('res-inline-store')?.value || '';
+            
+            if (!companyId) return alert("Заведение не выбрано!");
+            if (!storeUuid) return alert("⚠️ Сначала укажите Склад прихода в iiko!");
 
-            if (searchInput !== "") {
-                const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
-                const match = searchInput.match(uuidRegex);
+            let supplierName = (els.supplierSearch ? els.supplierSearch.value.trim() : '') || document.getElementById('res-inline-supplier-name')?.innerText.trim() || '';
+            if (supplierName === '—') supplierName = '';
 
-                if (match) {
-                    mappedUuid = match[0];
-                    mappedName = `[UUID] ${searchInput}`;
+            let foundSupplier = (typeof iikoSuppliers !== 'undefined' && Array.isArray(iikoSuppliers))
+                ? iikoSuppliers.find(s => s.name && s.name.trim().toLowerCase() === supplierName.toLowerCase())
+                : null;
+            let supplierUuid = foundSupplier ? foundSupplier.uuid : '';
+
+            // Fallback: check if currentDocData already has mapped supplier UUID
+            if (!supplierUuid && currentDocData.mapped_supplier_uuid) {
+                supplierUuid = currentDocData.mapped_supplier_uuid;
+            }
+            if (!supplierUuid && currentDocData.supplier_uuid) {
+                supplierUuid = currentDocData.supplier_uuid;
+            }
+            // Fallback: match by partial name or uuid in iikoSuppliers
+            if (!supplierUuid && supplierName && typeof iikoSuppliers !== 'undefined' && Array.isArray(iikoSuppliers)) {
+                foundSupplier = iikoSuppliers.find(s => 
+                    s.uuid === supplierName || 
+                    (s.name && s.name.toLowerCase().includes(supplierName.toLowerCase())) || 
+                    (s.name && supplierName.toLowerCase().includes(s.name.toLowerCase()))
+                );
+                if (foundSupplier) supplierUuid = foundSupplier.uuid;
+            }
+
+            if (!supplierUuid) {
+                alert("⚠️ Указанный Поставщик не найден! Пожалуйста, выберите корректного поставщика из выпадающего списка.");
+                return;
+            }
+
+            const rows = els.tbody.querySelectorAll('.invoice-item-row');
+            if (rows.length === 0 || !currentDocData.items || currentDocData.items.length === 0) {
+                alert("⚠️ Нет товаров для отправки!");
+                return;
+            }
+
+            const itemsToImport = [];
+            let hasErrors = false;
+            let unmappedCount = 0;
+            let firstErrorEl = null;
+
+            rows.forEach((tr, idx) => {
+                const searchInputEl = tr.querySelector('.iiko-search');
+                const searchInput = searchInputEl ? searchInputEl.value.trim() : "";
+                const originalItem = currentDocData.items[idx];
+                if (!originalItem) return;
+
+                let multInput = (typeof originalItem.multiplier === 'number') ? originalItem.multiplier : 1.0;
+                const unitCapInput = tr.querySelector('.iiko-unit-capacity');
+                const finalQtyInput = tr.querySelector('.iiko-final-qty');
+                const aiQtyInput = tr.querySelector('.ai-qty-input');
+                const aiPriceInput = tr.querySelector('.ai-price-input');
+                const sumInput = tr.querySelector('.ai-sum-input');
+
+                const currentQty = parseFloat((aiQtyInput ? aiQtyInput.value : originalItem.quantity).toString().replace(',', '.')) || originalItem.quantity || 1.0;
+                const currentSum = parseFloat((sumInput ? sumInput.value : originalItem.sum).toString().replace(',', '.')) || originalItem.sum || 0.0;
+                const currentPrice = parseFloat((aiPriceInput ? aiPriceInput.value : originalItem.price).toString().replace(',', '.')) || originalItem.price || 0.0;
+
+                // Точное итоговое количество: если пользователь ввел вес/количество руками в finalQtyInput,
+                // берем его НАПРЯМУЮ, исключая любые погрешности промежуточного округления фасовки
+                let finalQ = 0;
+                if (finalQtyInput && finalQtyInput.value.trim() !== '') {
+                    finalQ = parseFloat(finalQtyInput.value.replace(',', '.')) || 0;
+                }
+                if (finalQ > 0 && currentQty > 0) {
+                    multInput = finalQ / currentQty;
+                } else if (unitCapInput) {
+                    const cap = parseFloat(unitCapInput.value.replace(',', '.')) || 0;
+                    if (cap > 0) {
+                        multInput = cap;
+                        finalQ = currentQty * cap;
+                    }
                 } else {
-                    const cleanSearch = searchInput.toLowerCase().trim();
-                    const foundProduct = iikoCatalog.find(c =>
-                        c.name.toLowerCase().trim() === cleanSearch ||
-                        c.uuid.toLowerCase().trim() === cleanSearch
-                    );
+                    finalQ = currentQty * multInput;
+                }
 
-                    if (foundProduct) {
-                        mappedUuid = foundProduct.uuid;
-                        mappedName = foundProduct.name;
+                let mappedUuid = "";
+                let mappedName = searchInput;
+
+                if (searchInput !== "") {
+                    const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+                    const match = searchInput.match(uuidRegex);
+
+                    if (match) {
+                        mappedUuid = match[0];
+                        mappedName = `[UUID] ${searchInput}`;
+                    } else {
+                        const cleanSearch = searchInput.toLowerCase().trim();
+                        const foundProduct = (typeof iikoCatalog !== 'undefined' && Array.isArray(iikoCatalog))
+                            ? iikoCatalog.find(c =>
+                                (c.name && c.name.toLowerCase().trim() === cleanSearch) ||
+                                (c.uuid && c.uuid.toLowerCase().trim() === cleanSearch)
+                            )
+                            : null;
+
+                        if (foundProduct) {
+                            mappedUuid = foundProduct.uuid;
+                            mappedName = foundProduct.name;
+                        }
                     }
                 }
-            }
 
-            if (!mappedUuid) {
-                hasErrors = true;
-                unmappedCount++;
-                if (searchInputEl) {
-                    searchInputEl.classList.add('border-red-500/80', 'bg-red-500/10', 'ring-2', 'ring-red-500/20');
-                    if (!firstErrorEl) firstErrorEl = searchInputEl;
+                if (!mappedUuid) {
+                    hasErrors = true;
+                    unmappedCount++;
+                    if (searchInputEl) {
+                        searchInputEl.classList.add('border-red-500/80', 'bg-red-500/10', 'ring-2', 'ring-red-500/20');
+                        if (!firstErrorEl) firstErrorEl = searchInputEl;
+                    }
+                } else {
+                    if (searchInputEl) {
+                        searchInputEl.classList.remove('border-red-500/80', 'bg-red-500/10', 'ring-2', 'ring-red-500/20');
+                    }
+                    
+                    let baseUnitInput = tr.querySelector('.iiko-base-unit-input')?.value.trim() || originalItem.base_unit || originalItem.unit || "шт";
+                    if (!baseUnitInput || /^\d+$/.test(baseUnitInput) || baseUnitInput === 'ед.' || baseUnitInput === 'кг/шт') {
+                        if (mappedUuid && typeof iikoCatalog !== 'undefined' && Array.isArray(iikoCatalog)) {
+                            const foundInCat = iikoCatalog.find(c => (c.uuid || '').toLowerCase() === mappedUuid.toLowerCase());
+                            if (foundInCat && foundInCat.unit && !/^\d+$/.test(foundInCat.unit.trim())) {
+                                baseUnitInput = foundInCat.unit.trim();
+                            } else {
+                                baseUnitInput = "шт";
+                            }
+                        } else {
+                            baseUnitInput = "шт";
+                        }
+                    }
+
+                    const userCategory = tr.querySelector('.clean-category-select')?.value.trim() || originalItem.clean_category || "";
+
+                    itemsToImport.push({
+                        name: originalItem.name,
+                        clean_category: userCategory,
+                        brand: originalItem.brand || "",
+                        quantity: currentQty,
+                        unit: baseUnitInput,
+                        price: currentPrice,
+                        sum: currentSum,
+                        sum_without_nds: parseFloat(originalItem.sum_without_nds) || 0.0,
+                        nds_percent: parseFloat(originalItem.nds_percent) || 0.0,
+                        mapped_uuid: mappedUuid,
+                        mapped_name: mappedName,
+                        multiplier: multInput,
+                        final_quantity: finalQ
+                    });
                 }
-            } else {
-                if (searchInputEl) {
-                    searchInputEl.classList.remove('border-red-500/80', 'bg-red-500/10', 'ring-2', 'ring-red-500/20');
-                }
-                
-                const userCategory = tr.querySelector('.clean-category-select')?.value || originalItem.clean_category || "";
-                const baseUnitInput = tr.querySelector('.iiko-base-unit-input')?.value.trim() || originalItem.base_unit || originalItem.unit || "кг/шт";
-                itemsToImport.push({
-                    name: originalItem.name,
-                    clean_category: userCategory,
-                    brand: originalItem.brand || "",
-                    quantity: originalItem.quantity,
-                    unit: baseUnitInput,
-                    price: originalItem.price,
-                    sum: originalItem.sum,
-                    sum_without_nds: parseFloat(originalItem.sum_without_nds) || 0.0,
-                    nds_percent: parseFloat(originalItem.nds_percent) || 0.0,
-                    mapped_uuid: mappedUuid,
-                    mapped_name: mappedName,
-                    multiplier: multInput
-                });
-            }
-        });
-
-        if (hasErrors || unmappedCount > 0) {
-            if (firstErrorEl) {
-                firstErrorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                firstErrorEl.focus();
-            }
-            alert(`⛔ Отправка накладной запрещена!\n\nНе все позиции сопоставлены с номенклатурой iiko RMS (не привязано позиций: ${unmappedCount} из ${rows.length}).\n\nВсе товары из накладной обязательно должны быть сопоставлены со справочником iiko. Пожалуйста, укажите номенклатуру для строк, подсвеченных красным, или удалите лишние позиции (кнопка ✕), перед тем как отправить документ.`);
-            return;
-        }
-
-        if (itemsToImport.length === 0) {
-            alert("⚠️ Нет товаров для отправки!");
-            return;
-        }
-
-        const payload = {
-            company_id: parseInt(companyId),
-            store_uuid: storeUuid,
-            supplier_uuid: supplierUuid,
-            vendor_name: currentDocData.vendor_name,
-            vendor_inn: currentDocData.vendor_inn || "",
-            consignee: currentDocData.consignee,
-            shipper: currentDocData.shipper,
-            invoice_number: currentDocData.doc_number,
-            invoice_date: (typeof parseRuToIsoDate === 'function')
-                ? parseRuToIsoDate(els.resDocdate ? els.resDocdate.value.trim() : "")
-                : (els.resDocdate ? els.resDocdate.value.trim() : ""),
-            items: itemsToImport
-        };
-
-        els.btnImport.disabled = true;
-        els.loaderImport.classList.remove('hidden');
-
-        try {
-            const res = await fetch('api/import', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + getAuthToken()
-                },
-                body: JSON.stringify(payload)
             });
 
-            const text = await res.text();
-            if (!res.ok) throw new Error(text);
-
-            alert("✅ Успешно! Накладная создана в iiko RMS и добавлена в историю аналитики.");
-            els.resSection.classList.add('hidden');
-            els.file.value = "";
-            currentDocData = null; // Сброс состояния для предотвращения случайного прикрепления фото к старой накладной
-            
-            // Если вкладка аналитики загружалась, обновляем её данными новой накладной
-            if (analyticsCache.length > 0) {
-                loadAnalytics();
+            if (hasErrors || unmappedCount > 0) {
+                if (firstErrorEl) {
+                    firstErrorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    firstErrorEl.focus();
+                }
+                alert(`⛔ Отправка накладной запрещена!\n\nНе все позиции сопоставлены с номенклатурой iiko RMS (не привязано позиций: ${unmappedCount} из ${rows.length}).\n\nВсе товары из накладной обязательно должны быть сопоставлены со справочником iiko. Пожалуйста, укажите номенклатуру для строк, подсвеченных красным, или удалите лишние позиции (кнопка ✕), перед тем как отправить документ.`);
+                return;
             }
 
-        } catch (err) {
-            alert("❌ Ошибка отправки:\n" + err.message);
-        } finally {
-            els.btnImport.disabled = false;
-            els.loaderImport.classList.add('hidden');
+            if (itemsToImport.length === 0) {
+                alert("⚠️ Нет товаров для отправки!");
+                return;
+            }
+
+            const commentVal = els.resComment ? els.resComment.value.trim() : (document.getElementById('res-comment') ? document.getElementById('res-comment').value.trim() : (currentDocData.comment || ""));
+
+            const payload = {
+                company_id: parseInt(companyId),
+                store_uuid: storeUuid,
+                supplier_uuid: supplierUuid,
+                vendor_name: currentDocData.vendor_name,
+                vendor_inn: currentDocData.vendor_inn || "",
+                consignee: currentDocData.consignee,
+                shipper: currentDocData.shipper,
+                invoice_number: currentDocData.doc_number,
+                comment: commentVal,
+                invoice_date: (typeof parseRuToIsoDate === 'function')
+                    ? parseRuToIsoDate(els.resDocdate ? els.resDocdate.value.trim() : "")
+                    : (els.resDocdate ? els.resDocdate.value.trim() : ""),
+                items: itemsToImport
+            };
+
+            els.btnImport.disabled = true;
+            if (els.loaderImport) els.loaderImport.classList.remove('hidden');
+
+            try {
+                const res = await fetch('api/import', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + getAuthToken()
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const text = await res.text();
+                if (!res.ok) throw new Error(text);
+
+                alert("✅ Успешно! Накладная создана в iiko RMS и добавлена в историю аналитики.");
+                if (els.resSection) els.resSection.classList.add('hidden');
+                if (els.file) els.file.value = "";
+                currentDocData = null; // Сброс состояния для предотвращения случайного прикрепления фото к старой накладной
+                
+                // Если вкладка аналитики загружалась, обновляем её данными новой накладной
+                if (typeof analyticsCache !== 'undefined' && Array.isArray(analyticsCache) && analyticsCache.length > 0) {
+                    loadAnalytics();
+                }
+
+            } catch (err) {
+                alert("❌ Ошибка отправки:\n" + err.message);
+            } finally {
+                els.btnImport.disabled = false;
+                if (els.loaderImport) els.loaderImport.classList.add('hidden');
+            }
+        } catch (fatalErr) {
+            console.error("Fatal error in btnImport:", fatalErr);
+            alert("⚠️ Произошла ошибка при отправке накладной:\n" + (fatalErr ? fatalErr.message : fatalErr));
         }
     });
 }
@@ -684,6 +747,48 @@ document.addEventListener("DOMContentLoaded", () => {
             } finally {
                 btn.innerText = oldText;
                 btn.disabled = false;
+            }
+        });
+    }
+
+    // Кнопка экстренной выгрузки списаний в iiko RMS
+    const btnExportIiko = document.getElementById("btn-export-iiko");
+    if (btnExportIiko) {
+        btnExportIiko.addEventListener("click", async () => {
+            const companySelect = document.getElementById("set-company");
+            const companyId = parseInt(companySelect ? companySelect.value : "0", 10);
+            const companyName = companySelect && companySelect.selectedOptions[0] ? companySelect.selectedOptions[0].text : "";
+
+            if (!companyId || isNaN(companyId)) {
+                alert("⚠️ Пожалуйста, сначала выберите активное заведение в выпадающем списке.");
+                return;
+            }
+
+            const confirmed = confirm(`🚀 Запустить экстренную выгрузку списаний и перемещений для заведения "${companyName}" в iiko RMS?\n\nВсе подтвержденные операции за смену будут отправлены в iiko, а отчет о статусе поступит в @qa2a_team.`);
+            if (!confirmed) return;
+
+            const oldHtml = btnExportIiko.innerHTML;
+            btnExportIiko.disabled = true;
+            btnExportIiko.innerHTML = `<span>⏳ Выгрузка в iiko...</span>`;
+
+            try {
+                const res = await authFetch("/api/iiko/export-trigger", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ company_id: companyId })
+                });
+
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data.error || data.message || `HTTP ${res.status}`);
+                }
+
+                alert(`✅ Успех!\n\n${data.message || "Выгрузка в iiko успешно завершена."}\nУведомление отправлено в @qa2a_team.`);
+            } catch (err) {
+                alert(`❌ Сбой выгрузки в iiko:\n${err.message}`);
+            } finally {
+                btnExportIiko.disabled = false;
+                btnExportIiko.innerHTML = oldHtml;
             }
         });
     }

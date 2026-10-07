@@ -130,6 +130,117 @@ async function handleCompanyChange() {
     }
 }
 
+window.refreshCatalogKeepInvoice = async function() {
+    const companyId = els.company ? els.company.value : "";
+    if (!companyId) {
+        alert("Пожалуйста, сначала выберите активное заведение!");
+        return;
+    }
+
+    const btn = document.getElementById('btn-refresh-catalog');
+    const icon = document.getElementById('refresh-catalog-icon');
+    const text = document.getElementById('refresh-catalog-text');
+
+    if (btn) btn.disabled = true;
+    if (icon) icon.classList.add('animate-spin');
+    if (text) text.innerText = 'Синхронизация...';
+
+    try {
+        const res = await fetch('api/catalog', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': getAuthToken()
+            },
+            body: JSON.stringify({ company_id: parseInt(companyId) })
+        });
+
+        if (!res.ok) {
+            const errTxt = await res.text();
+            throw new Error(errTxt || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        if (data.token) currentToken = data.token;
+        iikoCatalog = data.catalog || [];
+        iikoSuppliers = data.suppliers || [];
+
+        // 1. Обновляем datalist номенклатуры и поставщиков
+        populateDatalists();
+
+        // 2. Обновляем склады, сохраняя текущий выбор пользователя
+        const curStoreVal = (els.store && els.store.value) || (document.getElementById('res-inline-store') && document.getElementById('res-inline-store').value);
+        if (data.stores && data.stores.length > 0 && els.store) {
+            els.store.innerHTML = '';
+            data.stores.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.uuid;
+                opt.textContent = s.name;
+                els.store.appendChild(opt);
+            });
+            if (curStoreVal && Array.from(els.store.options).some(o => o.value === curStoreVal)) {
+                els.store.value = curStoreVal;
+            }
+            const inlineStore = document.getElementById('res-inline-store');
+            if (inlineStore) {
+                inlineStore.innerHTML = els.store.innerHTML;
+                inlineStore.value = els.store.value;
+                inlineStore.disabled = false;
+            }
+        }
+
+        // 3. Пытаемся автоматически досопоставить несопоставленные позиции в открытой накладной
+        let newlyMatchedCount = 0;
+        const rows = document.querySelectorAll('#items-tbody tr');
+        rows.forEach(tr => {
+            const searchInput = tr.querySelector('.iiko-search');
+            if (!searchInput) return;
+            const currentVal = searchInput.value.trim();
+
+            const isUnresolved = !currentVal || searchInput.classList.contains('border-red-500/80');
+            if (isUnresolved) {
+                const idx = parseInt(tr.dataset.idx);
+                const originalItem = (currentDocData && currentDocData.items && !isNaN(idx)) ? currentDocData.items[idx] : null;
+                const rawName = originalItem ? originalItem.name : currentVal;
+
+                if (rawName) {
+                    const cleanRaw = rawName.toLowerCase().trim();
+                    const exact = iikoCatalog.find(c => c.name.toLowerCase().trim() === cleanRaw);
+                    if (exact) {
+                        searchInput.value = exact.name;
+                        searchInput.classList.remove('border-red-500/80', 'bg-red-500/10', 'ring-2', 'ring-red-500/20');
+                        newlyMatchedCount++;
+                    }
+                }
+            }
+        });
+
+        // 4. Обновляем статус
+        if (els.badge) {
+            els.badge.innerText = `✅ Справочник обновлен (${iikoCatalog.length} поз.)`;
+            els.badge.className = "px-3 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+        }
+
+        if (text) {
+            text.innerText = newlyMatchedCount > 0 ? `Обновлено (+${newlyMatchedCount} сопост.)` : `Обновлено (${iikoCatalog.length})`;
+            setTimeout(() => {
+                if (text) text.innerText = 'Обновить номенклатуру';
+            }, 3000);
+        }
+
+    } catch (err) {
+        console.error("Ошибка обновления справочника:", err);
+        alert("❌ Не удалось обновить справочник из iiko: " + err.message);
+        if (text) text.innerText = 'Ошибка обновления';
+        setTimeout(() => {
+            if (text) text.innerText = 'Обновить номенклатуру';
+        }, 3000);
+    } finally {
+        if (btn) btn.disabled = false;
+        if (icon) icon.classList.remove('animate-spin');
+    }
+};
+
 function resetDashboardState() {
     localStorage.removeItem('active_company_id');
     els.store.innerHTML = '<option value="">-- Сначала выберите заведение --</option>';

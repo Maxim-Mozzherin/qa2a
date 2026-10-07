@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+
+	"qa2a/pkg/ratelimit"
 )
 
 // ============================================================================
@@ -28,6 +31,13 @@ func (h *Handler) CreateAccountingTicketHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	clientIP := ratelimit.GetClientIP(r)
+	rateKey := fmt.Sprintf("ticket_%d_%d_%s", companyID, userID, clientIP)
+	if allowed, remaining := h.joinLimiter.Allow(rateKey); !allowed {
+		respondError(w, http.StatusTooManyRequests, fmt.Sprintf("Слишком много заявок. Повторите попытку через %d сек.", int(remaining.Seconds())+1))
+		return
+	}
+
 	hasAccess, err := h.checkAdminAccess(companyID, userID)
 	if err != nil || !hasAccess {
 		respondError(w, http.StatusForbidden, "Отправлять заявки могут только руководители заведения")
@@ -41,9 +51,20 @@ func (h *Handler) CreateAccountingTicketHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	category := r.FormValue("category")
-	description := strings.TrimSpace(r.FormValue("description"))
+	category := strings.TrimSpace(r.FormValue("category"))
+	allowedCats := map[string]bool{
+		"ttk":       true,
+		"invoice":   true,
+		"writeoff":  true,
+		"inventory": true,
+		"other":     true,
+	}
+	if !allowedCats[category] {
+		respondError(w, http.StatusBadRequest, "Некорректная категория заявки")
+		return
+	}
 
+	description := strings.TrimSpace(r.FormValue("description"))
 	if description == "" {
 		respondError(w, http.StatusBadRequest, "Пожалуйста, опишите суть вопроса")
 		return
@@ -126,7 +147,8 @@ func (h *Handler) CreateAccountingTicketHandler(w http.ResponseWriter, r *http.R
 
 	err = h.inventoryService.GetRepo().CreateAccountingTicket(companyID, userID, category, "normal", description, string(mediaJSON))
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Ошибка создания тикета: "+err.Error())
+		log.Printf("❌ [Tickets] Error creating ticket for company %d: %v", companyID, err)
+		respondError(w, http.StatusInternalServerError, "Ошибка создания тикета в базе данных")
 		return
 	}
 
@@ -151,7 +173,8 @@ func (h *Handler) GetAccountingTicketsHandler(w http.ResponseWriter, r *http.Req
 
 	tickets, err := h.inventoryService.GetRepo().GetCompanyTickets(companyID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Ошибка чтения списка заявок: "+err.Error())
+		log.Printf("❌ [Tickets] Error fetching company tickets for company %d: %v", companyID, err)
+		respondError(w, http.StatusInternalServerError, "Ошибка чтения списка заявок")
 		return
 	}
 

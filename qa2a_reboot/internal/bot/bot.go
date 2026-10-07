@@ -18,9 +18,11 @@ import (
 )
 
 type Bot struct {
-	Token   string
-	AdminID int64
-	Repo    *repository.Repository
+	Token      string
+	AdminID    int64
+	TargetChat string
+	Repo       *repository.Repository
+	HTTPClient *http.Client
 }
 
 type updateResponse struct {
@@ -40,10 +42,16 @@ type updateResponse struct {
 }
 
 func New(token string, adminID int64, repo *repository.Repository) *Bot {
+	target := os.Getenv("TELEGRAM_NOTIFICATION_CHAT")
+	if target == "" {
+		target = "@qa2a_team"
+	}
 	return &Bot{
-		Token:   token,
-		AdminID: adminID,
-		Repo:    repo,
+		Token:      token,
+		AdminID:    adminID,
+		TargetChat: target,
+		Repo:       repo,
+		HTTPClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -103,16 +111,45 @@ func (b *Bot) handleCommand(text string) {
 }
 
 func (b *Bot) SendText(text string) {
-	if b.Token == "" {
-		return
+	target := b.TargetChat
+	if target == "" {
+		target = "@qa2a_team"
+	}
+	_ = b.SendToTarget(target, text)
+}
+
+func (b *Bot) SendToTarget(target string, text string) error {
+	if b.Token == "" || target == "" {
+		return fmt.Errorf("bot token is empty or invalid target")
+	}
+	client := b.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", b.Token)
 	payload, _ := json.Marshal(map[string]interface{}{
-		"chat_id":    b.AdminID,
+		"chat_id":    target,
 		"text":       text,
 		"parse_mode": "HTML",
 	})
-	http.Post(url, "application/json", bytes.NewBuffer(payload))
+	resp, err := client.Post(url, "application/json", bytes.NewBuffer(payload))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return fmt.Errorf("telegram api error: %s", string(respBody))
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return nil
+}
+
+func (b *Bot) SendToChat(chatID int64, text string) error {
+	if b.TargetChat != "" {
+		return b.SendToTarget(b.TargetChat, text)
+	}
+	return b.SendToTarget(fmt.Sprintf("%d", chatID), text)
 }
 
 func getSystemStats() (string, string, string) {
@@ -344,7 +381,11 @@ func (b *Bot) sendDocument(filePath, caption string) error {
 			}
 		}()
 
-		if err = writer.WriteField("chat_id", fmt.Sprintf("%d", b.AdminID)); err != nil {
+		targetChat := b.TargetChat
+		if targetChat == "" {
+			targetChat = "@qa2a_team"
+		}
+		if err = writer.WriteField("chat_id", targetChat); err != nil {
 			return
 		}
 		if caption != "" {

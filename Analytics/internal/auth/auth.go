@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -119,6 +120,26 @@ func ValidateSession(db *sql.DB, r *http.Request) (*User, error) {
 		return nil, errors.New("unauthorized: missing session token")
 	}
 
+	// 0. Check against system SUPERADMIN_TOKEN or EXTERNAL_API_KEY if configured
+	if envSuperToken := os.Getenv("SUPERADMIN_TOKEN"); envSuperToken != "" && token == envSuperToken {
+		return &User{
+			ID:          1,
+			Login:       "admin",
+			Role:        "superadmin",
+			IsSuperuser: true,
+			IsActive:    true,
+		}, nil
+	}
+	if envExtKey := os.Getenv("EXTERNAL_API_KEY"); envExtKey != "" && token == envExtKey {
+		return &User{
+			ID:          1,
+			Login:       "admin",
+			Role:        "superadmin",
+			IsSuperuser: true,
+			IsActive:    true,
+		}, nil
+	}
+
 	var u User
 	var role string
 
@@ -178,18 +199,28 @@ func GetUserFromContext(ctx context.Context) *User {
 }
 
 func extractToken(r *http.Request) string {
+	// 0. Header X-Superadmin-Token
+	if xToken := r.Header.Get("X-Superadmin-Token"); strings.TrimSpace(xToken) != "" {
+		return strings.TrimSpace(xToken)
+	}
+
 	// 1. Authorization: Bearer <token>
 	authHeader := r.Header.Get("Authorization")
 	if strings.HasPrefix(authHeader, "Bearer ") {
 		return strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 	}
 
-	// 2. Cookie analytics_session
+	// 2. Query param ?token=...
+	if qToken := r.URL.Query().Get("token"); strings.TrimSpace(qToken) != "" {
+		return strings.TrimSpace(qToken)
+	}
+
+	// 3. Cookie analytics_session
 	if cookie, err := r.Cookie("analytics_session"); err == nil && strings.TrimSpace(cookie.Value) != "" {
 		return strings.TrimSpace(cookie.Value)
 	}
 
-	// 3. Cookie access_token (from parser web app)
+	// 4. Cookie access_token (from parser web app)
 	if cookie, err := r.Cookie("access_token"); err == nil && strings.TrimSpace(cookie.Value) != "" {
 		return strings.TrimSpace(cookie.Value)
 	}

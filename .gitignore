@@ -1,5 +1,6 @@
 *.log
 server.log
+node_modules/
 .env
 .env.*
 !.env.example
@@ -9,6 +10,11 @@ server.log
 /qa2a_app
 qa2a_reboot/qa2a
 qa2a_reboot/qa2a_app
+leads_server
+Parser/leads_server
+analytics_server
+Analytics/analytics_server
+Analytics/analytics-server*
 iiko_parser/iiko
 iiko_parser/iiko_parser
 iiko_parser/iiko-parser
@@ -19,6 +25,9 @@ uploads/
 *.exe
 /VPN/
 /dev/
+/google/
 /qa2a-reboot/
 *backup*
 qa2a_clean_project.txt
+qa2a_site_bundle.*
+*.bundle.*

@@ -98,6 +98,23 @@ func (r *Repository) GetPositionByName(companyID int, name string) (*models.Posi
 	return &p, err
 }
 
+// GetPositionByNameTx находит позицию по ее наименованию в рамках транзакции.
+func (r *Repository) GetPositionByNameTx(tx *sqlx.Tx, companyID int, name string) (*models.Position, error) {
+	var p models.Position
+	query := `
+		SELECT 
+			id, company_id, name, unit, 
+			COALESCE(supplier, '') AS supplier, 
+			COALESCE(external_id, '') AS external_id, 
+			type, 
+			COALESCE(conception, '') AS conception
+		FROM positions 
+		WHERE company_id = $1 AND name = $2 
+		LIMIT 1`
+	err := tx.Get(&p, query, companyID, name)
+	return &p, err
+}
+
 // GetGhostItems находит товары из списаний, которых нет в справочнике номенклатуры (неучтенка).
 func (r *Repository) GetGhostItems(companyID int) ([]string, error) {
 	var items []string

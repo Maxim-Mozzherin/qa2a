@@ -187,6 +187,15 @@ func (h *Handler) CreateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	clientIP := ratelimit.GetClientIP(r)
+	rateKey := fmt.Sprintf("create_comp_%d_%s", userID, clientIP)
+	if h.joinLimiter != nil {
+		if allowed, remaining := h.joinLimiter.Allow(rateKey); !allowed {
+			respondError(w, http.StatusTooManyRequests, fmt.Sprintf("Слишком много попыток создания заведений. Пожалуйста, подождите %d сек.", int(remaining.Seconds())+1))
+			return
+		}
+	}
+
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -206,6 +215,10 @@ func (h *Handler) CreateCompanyHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	if h.joinLimiter != nil {
+		h.joinLimiter.RecordSuccess(rateKey)
 	}
 
 	respondJSON(w, http.StatusCreated, map[string]int{"id": id})

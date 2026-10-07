@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -81,11 +82,12 @@ func (h *Handler) UpdateOperationHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req struct {
-		Qty       float64 `json:"quantity"`
-		Loc       int     `json:"location_id"`
-		Comment   string  `json:"comment"`
-		AccountID string  `json:"account_id"`
-		Date      string  `json:"date"`
+		PositionName string  `json:"position_name"`
+		Qty          float64 `json:"quantity"`
+		Loc          int     `json:"location_id"`
+		Comment      string  `json:"comment"`
+		AccountID    string  `json:"account_id"`
+		Date         string  `json:"date"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -93,6 +95,11 @@ func (h *Handler) UpdateOperationHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	req.PositionName = strings.TrimSpace(req.PositionName)
+	if req.PositionName == "" {
+		respondError(w, http.StatusBadRequest, "Укажите товар для списания")
+		return
+	}
 	if req.Qty <= 0 {
 		respondError(w, http.StatusBadRequest, "Количество должно быть строго больше нуля")
 		return
@@ -104,7 +111,7 @@ func (h *Handler) UpdateOperationHandler(w http.ResponseWriter, r *http.Request)
 
 	opDate := parseFlexibleDate(req.Date)
 
-	err := h.inventoryService.EditWriteoff(userID, cID, opID, req.Qty, req.Loc, req.Comment, req.AccountID, opDate)
+	err := h.inventoryService.EditWriteoff(userID, cID, opID, req.PositionName, req.Qty, req.Loc, req.Comment, req.AccountID, opDate)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
@@ -130,7 +137,8 @@ func (h *Handler) GetPendingWriteoffsHandler(w http.ResponseWriter, r *http.Requ
 
 	items, err := h.inventoryService.GetRepo().GetPendingWriteoffs(cID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Ошибка загрузки активных списаний: "+err.Error())
+		log.Printf("❌ [Operations] Error loading pending writeoffs for company %d: %v", cID, err)
+		respondError(w, http.StatusInternalServerError, "Ошибка загрузки активных списаний")
 		return
 	}
 	if items == nil {
@@ -278,7 +286,8 @@ func (h *Handler) SaveShiftNoteHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.inventoryService.GetRepo().UpsertShiftNote(note); err != nil {
-		respondError(w, http.StatusInternalServerError, "Ошибка сохранения заметки к смене: "+err.Error())
+		log.Printf("❌ [Operations] Error upserting shift note for company %d: %v", cID, err)
+		respondError(w, http.StatusInternalServerError, "Ошибка сохранения заметки к смене")
 		return
 	}
 

@@ -9,7 +9,7 @@
     
     <!-- Telegram WebApp JS SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="/static/css/style.css?v=2.0">
+    <link rel="stylesheet" href="/static/css/style.css?v=2.4">
 </head>
 <body>
     <!-- ====================================================================== -->
@@ -184,14 +184,14 @@
                         </button>
                     </div>
                     
-                    <div class="input-group">
+                    <div class="input-group" style="margin-bottom: 8px;">
                         <label for="w_search">Товар</label>
-                        <input type="text" id="w_search" oninput="filterSearch('w')" placeholder="Поиск товара по каталогу..." autocomplete="off">
+                        <input type="text" id="w_search" oninput="filterSearch('w')" placeholder="Поиск товара по каталогу..." autocomplete="off" style="margin-bottom:0;">
                         <div id="w_results" class="search-results"></div>
                         <input type="hidden" id="w_name">
                     </div>
 
-                    <div style="display:flex; gap:10px; margin-bottom: 15px;">
+                    <div style="display:flex; gap:10px; margin-bottom: 8px;">
                         <div style="flex:2;">
                             <label for="w_qty">Количество</label>
                             <input type="number" id="w_qty" step="any" placeholder="0.00" style="margin-bottom:0;">
@@ -202,12 +202,12 @@
                         </div>
                     </div>
 
-                    <div class="input-group">
+                    <div class="input-group" style="margin-bottom: 8px;">
                         <label for="w_comment">Причина списания / Комментарий</label>
                         <input type="text" id="w_comment" placeholder="Порча, брак, служебное питание, бой..." style="margin-bottom:0;">
                     </div>
 
-                    <div class="input-group">
+                    <div class="input-group" style="margin-bottom: 8px;">
                         <label>Дата и время списания</label>
                         <div class="date-input-wrapper">
                             <div class="fake-input" id="w_date_fake">Выберите дату...</div>
@@ -215,21 +215,21 @@
                         </div>
                     </div>
 
-                    <div class="input-group">
+                    <div class="input-group" style="margin-bottom: 8px;">
                         <label for="w_location">Склад списания</label>
                         <select id="w_location" style="margin-bottom:0;"></select>
                     </div>
 
-                    <div class="input-group">
+                    <div class="input-group" style="margin-bottom: 8px;">
                         <label for="w_account_id">Счет (Статья расходов)</label>
                         <select id="w_account_id" style="margin-bottom:0;"></select>
                     </div>
 
-                    <div id="w_ghost_warning" style="display:none; background-color: rgba(245, 158, 11, 0.1); color: #D97706; padding: 12px; border-radius: 8px; font-size: 11px; margin-top: 15px; border: 1px solid rgba(245, 158, 11, 0.3); line-height: 1.4;">
+                    <div id="w_ghost_warning" style="display:none; background-color: rgba(245, 158, 11, 0.1); color: #D97706; padding: 12px; border-radius: 8px; font-size: 11px; margin-top: 10px; border: 1px solid rgba(245, 158, 11, 0.3); line-height: 1.4;">
                         ⚠️ <b>Этого товара нет в каталоге!</b><br>Он будет записан как «Неучтенка» и передан бухгалтеру на согласование.
                     </div>
                     
-                    <button type="button" class="btn-main" onclick="submitOperation('writeoff', 'w')" style="margin-top:15px; background:#EF4444;">Списать</button>
+                    <button type="button" class="btn-main" onclick="submitOperation('writeoff', 'w')" style="margin-top:10px; background:#EF4444;">Списать</button>
                 </div>
             </div>
 
@@ -240,14 +240,14 @@
                         <div class="section-title" style="margin-bottom: 0;">Внутреннее перемещение</div>
                     </div>
                     
-                    <div class="input-group">
+                    <div class="input-group" style="margin-bottom: 8px;">
                         <label for="tr_search">Товар / Полуфабрикат</label>
-                        <input type="text" id="tr_search" oninput="filterSearch('tr')" placeholder="Поиск перемещаемой позиции..." autocomplete="off">
+                        <input type="text" id="tr_search" oninput="filterSearch('tr')" placeholder="Поиск перемещаемой позиции..." autocomplete="off" style="margin-bottom:0;">
                         <div id="tr_results" class="search-results"></div>
                         <input type="hidden" id="tr_name">
                     </div>
 
-                    <div style="display:flex; gap:10px; margin-bottom: 15px;">
+                    <div style="display:flex; gap:10px; margin-bottom: 8px;">
                         <div style="flex:2;">
                             <label for="tr_qty">Количество</label>
                             <input type="number" id="tr_qty" step="any" placeholder="0.00" style="margin-bottom:0;">
@@ -258,12 +258,12 @@
                         </div>
                     </div>
 
-                    <div class="input-group">
+                    <div class="input-group" style="margin-bottom: 8px;">
                         <label for="tr_comment">Причина перемещения / Комментарий</label>
                         <input type="text" id="tr_comment" placeholder="Напр. перенос в бар, приготовление для банкета..." style="margin-bottom:0;">
                     </div>
 
-                    <div class="input-group" style="margin-top:15px">
+                    <div class="input-group" style="margin-bottom: 8px;">
                         <label>Дата и время перемещения</label>
                         <div class="date-input-wrapper">
                             <div class="fake-input" id="tr_date_fake">Выберите дату...</div>
@@ -271,17 +271,17 @@
                         </div>
                     </div>
 
-                    <div class="input-group" style="margin-top:15px">
+                    <div class="input-group" style="margin-bottom: 8px;">
                         <label for="tr_location">Откуда (Склад-отправитель)</label>
                         <select id="tr_location" style="margin-bottom:0;"></select>
                     </div>
 
-                    <div class="input-group" style="margin-top:15px">
+                    <div class="input-group" style="margin-bottom: 8px;">
                         <label for="tr_to_location">Куда (Склад-получатель)</label>
                         <select id="tr_to_location" style="margin-bottom:0;"></select>
                     </div>
 
-                    <button type="button" class="btn-main" onclick="submitOperation('transfer', 'tr')" style="margin-top:15px; background:var(--accent);">Переместить</button>
+                    <button type="button" class="btn-main" onclick="submitOperation('transfer', 'tr')" style="margin-top:10px; background:var(--accent);">Переместить</button>
                 </div>
             </div>
 
@@ -556,8 +556,10 @@
             <input type="hidden" id="edit_op_id">
             
             <div class="input-group">
-                <label for="edit_w_search">Товар (только для чтения)</label>
-                <input type="text" id="edit_w_search" readonly style="background:var(--surface);">
+                <label for="edit_w_search">Товар</label>
+                <input type="text" id="edit_w_search" oninput="filterSearch('edit_w')" placeholder="Поиск товара по каталогу..." autocomplete="off">
+                <div id="edit_w_results" class="search-results"></div>
+                <input type="hidden" id="edit_w_name">
             </div>
 
             <div style="display:flex; gap:10px; margin-bottom: 15px;">
@@ -702,7 +704,7 @@
     <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
 
     <!-- Клиентский скрипт приложения -->
-    <script src="/static/js/app.js?v=2.0"></script>
+    <script src="/static/js/app.js?v=2.4"></script>
 
     <!-- ====================================================================== -->
     <!-- ПОРТАЛ ПОСТАВЩИКА                                                      -->

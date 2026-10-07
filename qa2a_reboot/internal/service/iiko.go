@@ -19,6 +19,7 @@ import (
 	"qa2a/pkg/netutil"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 )
 
 // IikoService обеспечивает интеграцию с REST/XML API iiko RMS:
@@ -64,6 +65,7 @@ type XMLProduct struct {
 	Type             string `xml:"type"`
 	ParentID         string `xml:"parentId"`
 	ProductGroupType string `xml:"productGroupType"`
+	Deleted          bool   `xml:"deleted"`
 }
 
 type XMLProducts struct {
@@ -430,15 +432,22 @@ func (s *IikoService) SyncNomenclature(companyID int, userID int) error {
 		return name
 	}
 
-	// 3. Сохраняем позиции в базе данных
+	// 3. Сохраняем активные позиции в базе данных и очищаем выбывшие
 	return s.repo.ExecuteInTx(func(tx *sqlx.Tx) error {
+		var activeProductIDs []string
+
 		for _, p := range products.List {
+			if p.Deleted {
+				continue
+			}
+
 			pType := strings.ToUpper(strings.TrimSpace(p.ProductType))
 			if pType == "" {
 				pType = strings.ToUpper(strings.TrimSpace(p.Type))
 			}
 
 			if pType == "GOODS" || pType == "PREPARED" || pType == "DISH" || pType == "MODIFIER" {
+				activeProductIDs = append(activeProductIDs, p.ID)
 				unitName := strings.TrimSpace(p.MainUnit)
 				if unitName == "" {
 					unitName = "ед."
@@ -457,6 +466,35 @@ func (s *IikoService) SyncNomenclature(companyID int, userID int) error {
 				}
 			}
 		}
+
+		// Защита: удаляем позиции, выбывшие или заархивированные в iiko RMS,
+		// только если успешно получен непустой список актуальных ID
+		if len(activeProductIDs) > 0 {
+			queryDelete := `
+				DELETE FROM positions 
+				WHERE company_id = $1 
+				  AND supplier = 'iiko' 
+				  AND external_id != '' 
+				  AND NOT (external_id = ANY($2))`
+			res, errDel := tx.Exec(queryDelete, companyID, pq.Array(activeProductIDs))
+			if errDel != nil {
+				log.Printf("[iiko-sync] ⚠️ Ошибка очистки выбывших позиций компании #%d: %v", companyID, errDel)
+			} else {
+				if rowsDel, _ := res.RowsAffected(); rowsDel > 0 {
+					log.Printf("[iiko-sync] 🗑️ Удалено %d неактуальных позиций (удаленных в iiko) для компании #%d", rowsDel, companyID)
+				}
+			}
+
+			// Подчищаем пустые нулевые балансы по выбывшим позициям
+			_, _ = tx.Exec(`
+				DELETE FROM balances 
+				WHERE company_id = $1 
+				  AND quantity = 0 
+				  AND position_name NOT IN (SELECT name FROM positions WHERE company_id = $1)`,
+				companyID,
+			)
+		}
+
 		return nil
 	})
 }

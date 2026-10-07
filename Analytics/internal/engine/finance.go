@@ -202,6 +202,7 @@ type ExecutiveFinancialAudit struct {
 	RevealedItemsOverpayVsMinRub float64 `json:"revealed_items_overpay_vs_min_rub"`
 	HiddenItemsOverpayVsMinRub   float64 `json:"hidden_items_overpay_vs_min_rub"`
 	HiddenPositionsCount         int     `json:"hidden_positions_count"`
+	UnblurredPositionsCount      int     `json:"unblurred_positions_count"`
 	AuditMode                    string  `json:"audit_mode"` // "demo" | "full"
 
 	// AI Заключение управленческого аудитора
@@ -342,11 +343,12 @@ func CalculateExecutiveAudit(
 	}
 }
 
-// ApplyFreemiumMask applies paywall obfuscation to Rank 4+ items if mode is "demo" (or default).
+// ApplyFreemiumMask applies paywall obfuscation to items beyond unblurCount if mode is "demo" (or default).
 // In "full" mode, reveals all items.
-func ApplyFreemiumMask(audit *ExecutiveFinancialAudit, mode string) {
+func ApplyFreemiumMask(audit *ExecutiveFinancialAudit, mode string, unblurCount int) {
 	if mode == "full" {
 		audit.AuditMode = "full"
+		audit.UnblurredPositionsCount = len(audit.ItemsAudit)
 		var totalOverpay float64
 		var totalOverpayVsMin float64
 		for _, item := range audit.ItemsAudit {
@@ -361,8 +363,12 @@ func ApplyFreemiumMask(audit *ExecutiveFinancialAudit, mode string) {
 		return
 	}
 
-	// Default demo mode: Top 3 open, subsequent positions obfuscated
+	if unblurCount < 0 {
+		unblurCount = 3
+	}
+
 	audit.AuditMode = "demo"
+	audit.UnblurredPositionsCount = unblurCount
 	var revealedOverpay float64
 	var hiddenOverpay float64
 	var revealedOverpayVsMin float64
@@ -371,7 +377,7 @@ func ApplyFreemiumMask(audit *ExecutiveFinancialAudit, mode string) {
 
 	for i := range audit.ItemsAudit {
 		item := &audit.ItemsAudit[i]
-		if item.Rank <= 3 {
+		if item.Rank <= unblurCount {
 			revealedOverpay += item.MonthlyOverpaymentRub
 			revealedOverpayVsMin += item.MonthlyOverpayVsMinRub
 		} else {

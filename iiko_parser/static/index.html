@@ -148,7 +148,10 @@
                         🔑 Инвайт заведения
                     </button>
                     <button id="btn-generate-accountant-invite" class="hidden bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white px-5 py-2.5 rounded-xl text-[11px] font-semibold transition-all-300 shadow-sm flex items-center gap-2">
-                        👨💼 Пригласить бухгалтера
+                        👨‍💼 Пригласить бухгалтера
+                    </button>
+                    <button id="btn-export-iiko" type="button" class="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white px-5 py-2.5 rounded-xl text-[11px] font-semibold transition-all-300 shadow-sm flex items-center gap-2" title="Выгрузить подтвержденные списания и перемещения заведения в iiko RMS">
+                        🚀 Экстренная выгрузка в iiko
                     </button>
                 </div>
             </section>
@@ -283,31 +286,41 @@
                     </div>
 
                     <!-- Карточка метаданных накладной -->
-                    <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4 bg-[#090d16] p-4 rounded-xl border border-slate-800/80">
-                        <div class="space-y-1">
-                            <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Поставщик (УПД)</span>
-                            <div id="res-vendor" class="font-bold text-slate-300 text-xs whitespace-normal break-words leading-tight"></div>
-                        </div>
-                        <div class="space-y-1">
-                            <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Номер документа</span>
-                            <div id="res-docnum" class="font-bold text-slate-300 text-xs"></div>
-                        </div>
-                        <div class="space-y-1">
-                            <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Дата документа</span>
-                            <input type="text" id="res-docdate" placeholder="ДД.ММ.ГГГГ" maxlength="10" class="block w-full font-bold text-slate-300 border border-slate-800 rounded-lg px-2.5 py-1 text-xs bg-[#111827] outline-none focus:border-brand-500 transition-all-300 text-center font-mono">
-                        </div>
-                        <div class="space-y-1 lg:col-span-2">
-                            <div class="flex items-center justify-between">
-                                <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Адрес отправления (Грузоотправитель)</span>
-                                <button type="button" onclick="swapParties()" title="Поменять местами грузоотправителя и грузополучателя" class="px-2 py-0.5 text-xs bg-slate-800/80 hover:bg-slate-700 text-brand-400 hover:text-brand-300 border border-slate-700 rounded transition-all flex items-center gap-1 font-bold">
-                                    <span>⇄</span> <span class="text-[9px] font-normal text-slate-400">Swap</span>
-                                </button>
+                    <div class="space-y-4 bg-[#090d16] p-4 rounded-xl border border-slate-800/80">
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-center">
+                            <div class="space-y-1">
+                                <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Поставщик (УПД)</span>
+                                <div id="res-vendor" class="font-bold text-slate-300 text-xs whitespace-normal break-words leading-tight"></div>
                             </div>
-                            <textarea id="res-shipper" rows="2" class="w-full bg-[#111827] border border-slate-700 rounded-lg p-2 text-xs text-slate-300 outline-none focus:border-brand-500 resize-none" oninput="currentDocData.shipper = this.value"></textarea>
+                            <div class="space-y-1">
+                                <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Номер документа</span>
+                                <div id="res-docnum" class="font-bold text-slate-300 text-xs"></div>
+                            </div>
+                            <div class="space-y-1">
+                                <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Дата документа</span>
+                                <input type="text" id="res-docdate" placeholder="ДД.ММ.ГГГГ" maxlength="10" class="block w-full font-bold text-slate-300 border border-slate-800 rounded-lg px-2.5 py-1 text-xs bg-[#111827] outline-none focus:border-brand-500 transition-all-300 text-center font-mono">
+                            </div>
+                            <div class="space-y-1">
+                                <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Комментарий в iiko</span>
+                                <input type="text" id="res-comment" placeholder="Примечание или комментарий..." class="block w-full text-slate-200 border border-slate-700 rounded-lg px-2.5 py-1 text-xs bg-[#111827] outline-none focus:border-brand-500 transition-all-300" oninput="if(typeof currentDocData!=='undefined'&&currentDocData) currentDocData.comment = this.value">
+                            </div>
                         </div>
-                        <div class="space-y-1 lg:col-span-2">
-                            <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Адрес доставки (Грузополучатель)</span>
-                            <textarea id="res-consignee" rows="2" class="w-full bg-[#111827] border border-slate-700 rounded-lg p-2 text-xs text-slate-300 outline-none focus:border-brand-500 resize-none" oninput="currentDocData.consignee = this.value"></textarea>
+
+                        <!-- Отправитель и Получатель: расширенные поля на 2 широкие колонки -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-slate-800/60">
+                            <div class="space-y-1.5">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Адрес отправления (Грузоотправитель)</span>
+                                    <button type="button" onclick="swapParties()" title="Поменять местами грузоотправителя и грузополучателя" class="px-2 py-0.5 text-xs bg-slate-800/80 hover:bg-slate-700 text-brand-400 hover:text-brand-300 border border-slate-700 rounded transition-all flex items-center gap-1 font-bold">
+                                        <span>⇄</span> <span class="text-[9px] font-normal text-slate-400">Swap</span>
+                                    </button>
+                                </div>
+                                <textarea id="res-shipper" rows="3" class="w-full bg-[#111827] border border-slate-700 rounded-lg p-2.5 text-xs text-slate-300 outline-none focus:border-brand-500 resize-y min-h-[72px] leading-relaxed" oninput="if(typeof currentDocData!=='undefined'&&currentDocData) currentDocData.shipper = this.value"></textarea>
+                            </div>
+                            <div class="space-y-1.5">
+                                <span class="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Адрес доставки (Грузополучатель)</span>
+                                <textarea id="res-consignee" rows="3" class="w-full bg-[#111827] border border-slate-700 rounded-lg p-2.5 text-xs text-slate-300 outline-none focus:border-brand-500 resize-y min-h-[72px] leading-relaxed" oninput="if(typeof currentDocData!=='undefined'&&currentDocData) currentDocData.consignee = this.value"></textarea>
+                            </div>
                         </div>
                     </div>
 
@@ -326,6 +339,13 @@
                                     <span class="text-[10px] uppercase tracking-widest text-slate-400 font-bold whitespace-nowrap">Поставщик в iiko:</span>
                                     <div id="res-inline-supplier-name" class="font-bold text-white text-xs whitespace-nowrap">—</div>
                                 </div>
+                            </div>
+                            <!-- Кнопка быстрого обновления справочника без сброса накладной -->
+                            <div class="flex items-center gap-2 shrink-0">
+                                <button id="btn-refresh-catalog" type="button" onclick="refreshCatalogKeepInvoice()" class="px-3 py-1.5 bg-slate-800/90 hover:bg-slate-700 active:bg-slate-900 text-slate-300 hover:text-white border border-slate-700 hover:border-brand-500/50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer whitespace-nowrap" title="Обновить список товаров и поставщиков из iiko без сброса распознанной накладной">
+                                    <span id="refresh-catalog-icon" class="inline-block transition-transform text-xs">🔄</span>
+                                    <span id="refresh-catalog-text">Обновить номенклатуру</span>
+                                </button>
                             </div>
                         </div>
 
@@ -865,14 +885,14 @@
         </div>
     </div>
 
-    <script src="js/state.js?v=11.1"></script>
+    <script src="js/state.js?v=11.2"></script>
     <script src="js/auth.js?v=11.0"></script>
-    <script src="js/ui.js?v=11.0"></script>
+    <script src="js/ui.js?v=11.1"></script>
     <script src="js/parser.js?v=12.0"></script>
     <script src="js/analytics.js?v=12.5"></script>
     <script src="js/templates.js?v=11.0"></script>
     <script src="js/presets.js?v=11.0"></script>
-    <script src="js/main.js?v=12.0"></script>
+    <script src="js/main.js?v=12.1"></script>
     <script src="js/tickets.js?v=1.0"></script>
     <script src="js/reconciliation.js?v=1.0"></script>
 

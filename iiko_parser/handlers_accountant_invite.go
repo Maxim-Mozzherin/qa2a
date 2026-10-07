@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 )
 
 var registerLimiter = ratelimit.NewLimiter(5, 1*time.Minute, 10*time.Minute, 10000)
+var accountantInviteLimiter = ratelimit.NewLimiter(10, 1*time.Minute, 10*time.Minute, 10000)
 
 func handleGenerateAccountantInvite(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -26,6 +28,12 @@ func handleGenerateAccountantInvite(w http.ResponseWriter, r *http.Request) {
 	user := GetAuthUser(r)
 	if user == nil || user.Role != "superadmin" {
 		http.Error(w, "Только главный администратор платформы (superadmin) может генерировать инвайты", http.StatusForbidden)
+		return
+	}
+
+	rateKey := fmt.Sprintf("acct_inv_%d_%s", user.ID, ratelimit.GetClientIP(r))
+	if allowed, remaining := accountantInviteLimiter.Allow(rateKey); !allowed {
+		http.Error(w, fmt.Sprintf("Слишком много запросов на создание инвайтов. Попробуйте через %d сек.", int(remaining.Seconds())+1), http.StatusTooManyRequests)
 		return
 	}
 
@@ -41,7 +49,8 @@ func handleGenerateAccountantInvite(w http.ResponseWriter, r *http.Request) {
 
 	_, err := db.Exec("INSERT INTO accountant_invites (code, expires_at, created_by) VALUES ($1, $2, $3)", inviteCode, expiresAt, creatorID)
 	if err != nil {
-		http.Error(w, "Ошибка БД: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ [AccountantInvite] DB error: %v", err)
+		http.Error(w, "Ошибка сохранения инвайта в базе данных", http.StatusInternalServerError)
 		return
 	}
 

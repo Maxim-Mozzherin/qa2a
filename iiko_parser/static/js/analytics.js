@@ -497,6 +497,7 @@ function renderPriceAnalyticsTable(data, updateCache = true) {
             latestColorClass = "text-emerald-400 font-extrabold";
         }
 
+        const safeUnit = formatItemUnit(item);
         return `
             <tr class="hover:bg-[#111827]/60 transition-colors border-b border-slate-800/40 align-middle">
                 <td class="p-4 align-middle">
@@ -505,17 +506,33 @@ function renderPriceAnalyticsTable(data, updateCache = true) {
                     ${item.uuid ? `<div class="text-[9px] text-slate-500 mt-0.5 font-mono">${escapeHtml(item.uuid)}</div>` : ''}
                 </td>
                 <td class="p-4 text-center border-r border-slate-800/40 align-middle">
-                    <div class="font-bold ${latestColorClass} text-xs">${item.last_price.toFixed(2)} ₽ / ${escapeHtml(item.unit || 'ед.')}</div>
+                    <div class="font-bold ${latestColorClass} text-xs">${item.last_price.toFixed(2)} ₽ / ${escapeHtml(safeUnit)}</div>
                     ${item.latestDate && item.latestDate !== '1970-01-01' ? `<div class="text-[9px] text-slate-500 mt-1">📅 ${item.latestDate}</div>` : ''}
                     ${item.latestSupplier ? `<div class="text-[9px] text-slate-400 mt-0.5 truncate max-w-[180px] mx-auto" title="${escapeHtml(item.latestSupplier)}">📦 ${escapeHtml(item.latestSupplier)}</div>` : ''}
                 </td>
                 <td class="p-4 text-center font-bold text-slate-300 text-xs border-r border-slate-800/40 align-middle">
-                    ${item.median_price.toFixed(2)} ₽ / ${escapeHtml(item.unit || 'ед.')}
+                    ${item.median_price.toFixed(2)} ₽ / ${escapeHtml(safeUnit)}
                 </td>
                 <td class="p-4 text-center align-middle">${badgeHtml}</td>
             </tr>
         `;
     }).join('');
+}
+
+function formatItemUnit(item) {
+    if (!item) return 'шт';
+    let u = (item.unit || '').trim();
+    if (!u || /^\d+$/.test(u) || u === 'ед.' || u === 'кг/шт') {
+        if (item.uuid && typeof iikoCatalog !== 'undefined' && Array.isArray(iikoCatalog)) {
+            const cleanUuid = item.uuid.toLowerCase().trim();
+            const found = iikoCatalog.find(c => (c.uuid || '').toLowerCase().trim() === cleanUuid);
+            if (found && found.unit && !/^\d+$/.test(found.unit.trim())) {
+                return found.unit.trim();
+            }
+        }
+        return 'шт';
+    }
+    return u;
 }
 
 window.renderAnalytics = renderPriceAnalyticsTable;

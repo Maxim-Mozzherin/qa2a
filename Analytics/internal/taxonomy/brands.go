@@ -462,6 +462,114 @@ var knownBrandsRegistry = []BrandInfo{
 		Country:       "RU",
 		Aliases:       []string{"заречное"},
 	},
+	// -------------------------------------------------------------
+	// 8. БАРНЫЕ СИРОПЫ, ТОППИНГИ И ОСНОВЫ ДЛЯ НАПИТКОВ
+	// -------------------------------------------------------------
+	{
+		CanonicalName: "Herbarista",
+		Type:          BrandHoReCaPro,
+		Country:       "RU",
+		Aliases:       []string{"herbarista", "гербариста"},
+	},
+	{
+		CanonicalName: "Monin",
+		Type:          BrandHoReCaPro,
+		Country:       "FR",
+		Aliases:       []string{"monin", "монин"},
+	},
+	{
+		CanonicalName: "1883 Maison Routin",
+		Type:          BrandHoReCaPro,
+		Country:       "FR",
+		Aliases:       []string{"1883", "maison routin", "routin", "рутин"},
+	},
+	{
+		CanonicalName: "Pinch&Drop",
+		Type:          BrandHoReCaPro,
+		Country:       "RU",
+		Aliases:       []string{"pinch&drop", "pinch & drop", "pinch and drop", "пинч энд дроп", "пинчэнддроп", "пичиндроп"},
+	},
+	{
+		CanonicalName: "ProffSyrup",
+		Type:          BrandHoReCaPro,
+		Country:       "RU",
+		Aliases:       []string{"proffsyrup", "proff syrup", "проффсироп", "профф сироп"},
+	},
+	{
+		CanonicalName: "WTS?!",
+		Type:          BrandHoReCaPro,
+		Country:       "RU",
+		Aliases:       []string{"wts?!", " wts ", "wts-", "втс"},
+	},
+	{
+		CanonicalName: "Miller&Miller",
+		Type:          BrandHoReCaPro,
+		Country:       "RU",
+		Aliases:       []string{"miller&miller", "miller & miller", "миллер энд миллер"},
+	},
+	{
+		CanonicalName: "RiCHEZA",
+		Type:          BrandHoReCaPro,
+		Country:       "RU",
+		Aliases:       []string{"richeza", "ричеза"},
+	},
+	{
+		CanonicalName: "Barline",
+		Type:          BrandHoReCaPro,
+		Country:       "RU",
+		Aliases:       []string{"barline", "барлайн"},
+	},
+	{
+		CanonicalName: "Spoom",
+		Type:          BrandHoReCaPro,
+		Country:       "RU",
+		Aliases:       []string{"spoom", "спум"},
+	},
+	{
+		CanonicalName: "BaResto",
+		Type:          BrandHoReCaPro,
+		Country:       "RU",
+		Aliases:       []string{"baresto", "баресто"},
+	},
+	{
+		CanonicalName: "Vedrenne",
+		Type:          BrandHoReCaPro,
+		Country:       "FR",
+		Aliases:       []string{"vedrenne", "ведренн"},
+	},
+	{
+		CanonicalName: "Fabbri",
+		Type:          BrandHoReCaPro,
+		Country:       "IT",
+		Aliases:       []string{"fabbri", "фаббри"},
+	},
+	// -------------------------------------------------------------
+	// 9. ФРУКТОВЫЕ ПЮРЕ, КОРДИАЛЫ И БАРНЫЕ ОСНОВЫ / КОНЦЕНТРАТЫ
+	// -------------------------------------------------------------
+	{
+		CanonicalName: "AGROBAR",
+		Type:          BrandHoReCaPro,
+		Country:       "RU",
+		Aliases:       []string{"agrobar", "агробар"},
+	},
+	{
+		CanonicalName: "Boiron",
+		Type:          BrandHoReCaPro,
+		Country:       "FR",
+		Aliases:       []string{"boiron", "буарон", "ле буарон", "les vergers boiron"},
+	},
+	{
+		CanonicalName: "Ravifruit",
+		Type:          BrandHoReCaPro,
+		Country:       "FR",
+		Aliases:       []string{"ravifruit", "равифрут"},
+	},
+	{
+		CanonicalName: "Drops",
+		Type:          BrandHoReCaPro,
+		Country:       "RU",
+		Aliases:       []string{"drops", "дропс"},
+	},
 }
 
 // DetectBrand анализирует строку наименования товара и выявляет торговую марку с учетом алиасов

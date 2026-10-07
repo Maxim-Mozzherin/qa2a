@@ -100,29 +100,34 @@ func initPromptPresets() {
 	var count int
 	_ = db.QueryRow("SELECT COUNT(*) FROM parser_prompt_presets WHERE is_default = TRUE").Scan(&count)
 	
-	if count < 2 {
+	if count < 4 {
 		// Очищаем старые системные пресеты
 		db.Exec("DELETE FROM parser_prompt_presets WHERE is_default = TRUE")
 
 		_, err = db.Exec(`
 			INSERT INTO parser_prompt_presets (id, company_id, name, description, prompt, is_default)
 			VALUES 
-			(1, 0, 'Стандартный (УПД / ТОРГ-12)', 'Основной шаблон для типовых накладных и многостраничных документов.', $1, TRUE),
-			(2, 0, 'Товарный чек / Простая квитанция', 'Упрощенный парсер для магазинных чеков без кодов ОКЕИ.', $2, TRUE)
+			(1, 0, 'Автоопределение (Рекомендуется)', 'Автоматическое определение типа документа (ТОРГ-12, УПД, Чек) с помощью Gemini 3.1 Flash Lite.', '', TRUE),
+			(2, 0, 'ТОРГ-12 (Товарная накладная ОКУД 0330212)', 'Специализированный парсер ТОРГ-12: извлечение веса из колонки 10 (масса нетто), игнорирование номенклатурных кодов в колонке 3, цена из колонки 11, сумма с НДС из колонки 15.', $1, TRUE),
+			(3, 0, 'УПД (Универсальный передаточный документ)', 'Классический парсер УПД и счетов-фактур: количество из колонки 3, цена из колонки 4, сумма из колонки 9.', $2, TRUE),
+			(4, 0, 'Товарный чек / Простая квитанция', 'Упрощенный парсер для розничных чеков супермаркетов без кодов ОКЕИ.', $3, TRUE)
 			ON CONFLICT (id) DO UPDATE SET 
-			    name = EXCLUDED.name, description = EXCLUDED.description, prompt = EXCLUDED.prompt, is_default = TRUE
-		`, defaultParserPrompt, receiptParserPrompt)
+			    name = EXCLUDED.name, description = EXCLUDED.description, prompt = EXCLUDED.prompt, is_default = TRUE;
+			SELECT setval('parser_prompt_presets_id_seq', (SELECT GREATEST(MAX(id), 10) FROM parser_prompt_presets));
+		`, torg12ParserPrompt, updParserPrompt, receiptParserPrompt)
 
 		if err != nil {
 			log.Printf("⚠️ Ошибка засеивания пресетов: %v", err)
 		} else {
-			log.Println("✅ Базовые пресеты промптов (УПД и Чеки) успешно инициализированы")
+			log.Println("✅ Базовые пресеты промптов (Автоопределение, ТОРГ-12, УПД, Чеки) успешно инициализированы")
 		}
 	} else {
-		// Обновляем только 1 и 2
-		db.Exec("UPDATE parser_prompt_presets SET prompt = $1, updated_at = NOW() WHERE id = 1", defaultParserPrompt)
-		db.Exec("UPDATE parser_prompt_presets SET prompt = $1, updated_at = NOW() WHERE id = 2", receiptParserPrompt)
-		log.Println("✅ Тексты 2-х системных пресетов актуализированы из констант")
+		// Обновляем тексты системных пресетов
+		db.Exec("UPDATE parser_prompt_presets SET name = 'Автоопределение (Рекомендуется)', description = 'Автоматическое определение типа документа (ТОРГ-12, УПД, Чек) с помощью Gemini 3.1 Flash Lite.', prompt = '', updated_at = NOW() WHERE id = 1")
+		db.Exec("UPDATE parser_prompt_presets SET name = 'ТОРГ-12 (Товарная накладная ОКУД 0330212)', description = 'Специализированный парсер ТОРГ-12: извлечение веса из колонки 10 (масса нетто), игнорирование номенклатурных кодов в колонке 3, цена из колонки 11, сумма с НДС из колонки 15.', prompt = $1, updated_at = NOW() WHERE id = 2", torg12ParserPrompt)
+		db.Exec("UPDATE parser_prompt_presets SET name = 'УПД (Универсальный передаточный документ)', description = 'Классический парсер УПД и счетов-фактур: количество из колонки 3, цена из колонки 4, сумма из колонки 9.', prompt = $1, updated_at = NOW() WHERE id = 3", updParserPrompt)
+		db.Exec("UPDATE parser_prompt_presets SET name = 'Товарный чек / Простая квитанция', description = 'Упрощенный парсер для розничных чеков супермаркетов без кодов ОКЕИ.', prompt = $1, updated_at = NOW() WHERE id = 4", receiptParserPrompt)
+		log.Println("✅ Тексты 4-х системных пресетов актуализированы из констант")
 	}
 }
 

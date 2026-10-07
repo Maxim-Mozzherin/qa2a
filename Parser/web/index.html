@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leads Monster — B2B HoReCa Lead Intelligence & CRM Platform</title>
+    
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Base & Styles -->
+    <script>
+        const BASE_PATH = window.location.pathname.startsWith('/bugh-team/parser') ? '/bugh-team/parser' : '';
+        document.write('<base href="' + (BASE_PATH ? BASE_PATH + '/' : '/') + '">');
+    </script>
+    <link rel="stylesheet" href="css/style.css?v=2.3.0">
+</head>
+<body>
+
+    <!-- ====================================================================== -->
+    <!-- 1. RESPONSIVE HEADER & KPIS                                            -->
+    <!-- ====================================================================== -->
+    <header class="app-header">
+        <div class="brand-wrap">
+            <div class="brand-icon">⚡</div>
+            <div>
+                <div class="brand-title">
+                    Leads Monster
+                    <span class="brand-badge">B2B CRM</span>
+                </div>
+                <div class="brand-subtitle">HoReCa Decision-Maker Lead Intelligence</div>
+            </div>
+        </div>
+
+        <!-- Quick KPI Counters -->
+        <div class="kpi-container">
+            <div class="kpi-card">
+                <span class="kpi-label">Всего точек</span>
+                <span id="kpi-total" class="kpi-value">—</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">С юрлицом (ООО/ИП)</span>
+                <span id="kpi-enriched" class="kpi-value emerald">—</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">Чек от 1 000 ₽</span>
+                <span id="kpi-high-ticket" class="kpi-value cyan">—</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">В работе / Пилот</span>
+                <span id="kpi-pipeline" class="kpi-value amber">—</span>
+            </div>
+        </div>
+
+        <!-- Action Controls -->
+        <div class="header-actions">
+            <button id="open-scraper-btn" class="btn btn-primary">
+                <span>⚡ Запустить парсер 2ГИС</span>
+            </button>
+            <button id="export-excel-btn" class="btn btn-secondary" title="Экспорт текущей выборки в .xlsx">
+                <span>📥 Экспорт в Excel</span>
+            </button>
+            <div class="user-badge">
+                <span class="user-dot"></span>
+                <span id="user-login-text">superadmin</span>
+            </div>
+            <button id="logout-btn" class="btn btn-secondary btn-icon" title="Выйти из системы">
+                <span>🚪</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- ====================================================================== -->
+    <!-- 2. MAIN WORKSPACE                                                      -->
+    <!-- ====================================================================== -->
+    <main class="main-wrapper">
+
+        <!-- Multi-Criteria Filter Bar (Sticky Top) -->
+        <section class="filter-bar">
+            <!-- Row 1: Search, Legal Only, Status, Reviews, Reset -->
+            <div class="filter-row">
+                <div class="input-group input-search">
+                    <span style="color:var(--text-muted); font-size:14px;">🔍</span>
+                    <input type="text" id="search-input" placeholder="Быстрый поиск по названию, ООО/ИП, улице..." autocomplete="off">
+                </div>
+
+                <label class="toggle-label" title="Показать только заведения с подтвержденным юридическим лицом">
+                    <input type="checkbox" id="legal-only-toggle">
+                    <span>Только с ООО / ИП</span>
+                </label>
+
+                <select id="status-filter-select" class="select-filter" title="Фильтр по воронке продаж">
+                    <option value="all">Все статусы воронки</option>
+                    <option value="new">Новый</option>
+                    <option value="verified_rusprofile">Проверен в Rusprofile</option>
+                    <option value="contacted">Взят в контакт</option>
+                    <option value="pilot_sent">Отправлен пилот 1₽</option>
+                    <option value="signed_1rub">Подписан договор</option>
+                    <option value="rejected">Отказ</option>
+                </select>
+
+                <select id="reviews-min-select" class="select-filter" title="Фильтр активности заведения">
+                    <option value="0">Все отзывы</option>
+                    <option value="30">> 30 отзывов</option>
+                    <option value="80">> 80 отзывов</option>
+                    <option value="150">> 150 отзывов</option>
+                </select>
+
+                <button id="reset-filters-btn" class="btn btn-secondary btn-sm" style="margin-left:auto;">
+                    <span>Сбросить фильтры</span>
+                </button>
+            </div>
+
+            <!-- Row 2: Average Bill Pills & Category Rubrics -->
+            <div class="filter-row" style="border-top: 1px solid #1c202c; padding-top: 10px;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Средний чек:</span>
+                    <div id="bill-pills" class="pill-group">
+                        <button class="filter-pill active" data-range="all">Все</button>
+                        <button class="filter-pill" data-range="under_800">Чек < 800 ₽</button>
+                        <button class="filter-pill" data-range="800_1200">800 - 1 200 ₽</button>
+                        <button class="filter-pill" data-range="1200_1800">1 200 - 1 800 ₽</button>
+                        <button class="filter-pill" data-range="over_1800">> 1 800 ₽</button>
+                    </div>
+                </div>
+
+                <div style="display:flex; align-items:center; gap:8px; margin-left:auto;">
+                    <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Рубрики:</span>
+                    <div id="rubric-pills" class="pill-group">
+                        <button class="filter-pill" data-rubric="Ресторан">Ресторан</button>
+                        <button class="filter-pill" data-rubric="Гастробар">Гастробар</button>
+                        <button class="filter-pill" data-rubric="Паназия">Паназия</button>
+                        <button class="filter-pill" data-rubric="Пиццерия">Пиццерия</button>
+                        <button class="filter-pill" data-rubric="Бар">Бар/Паб</button>
+                        <button class="filter-pill" data-rubric="Кофейня">Кофейня</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tactical Data Grid (Table) -->
+        <section class="table-container">
+            <table class="leads-table">
+                <thead>
+                    <tr>
+                        <th class="sortable" data-sort="priority" style="width: 85px; text-align: center;"># / Приоритет</th>
+                        <th class="sortable" data-sort="name" style="min-width: 220px;">Название заведения</th>
+                        <th style="min-width: 220px;">Юрлицо (ООО / ИП)</th>
+                        <th class="sortable" data-sort="avg_bill_val" style="width: 110px; text-align: center;">Средний чек</th>
+                        <th style="min-width: 170px;">Контакты</th>
+                        <th class="sortable" data-sort="reviews_count" style="width: 120px;">Рейтинг / Отзывы</th>
+                        <th style="min-width: 200px;">Адрес</th>
+                        <th style="width: 150px; text-align: center;">Статус (Pipeline)</th>
+                        <th style="width: 120px; text-align: center;">Заметки</th>
+                    </tr>
+                </thead>
+                <tbody id="leads-table-body">
+                    <!-- Populated dynamically via JS -->
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Pagination Bar -->
+        <footer class="pagination-bar">
+            <div id="pagination-info" style="font-size:12px; color:var(--text-muted); font-weight:500;">
+                Загрузка данных...
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <button id="prev-page-btn" class="btn btn-secondary btn-sm" disabled>
+                    <span>← Назад</span>
+                </button>
+                <select id="page-select" class="select-filter" style="padding:4px 8px; font-size:11px;">
+                    <option value="1">Стр. 1</option>
+                </select>
+                <button id="next-page-btn" class="btn btn-secondary btn-sm" disabled>
+                    <span>Вперед →</span>
+                </button>
+            </div>
+        </footer>
+
+    </main>
+
+    <!-- ====================================================================== -->
+    <!-- 3. MODAL: 2GIS SCRAPER CONFIGURATION                                   -->
+    <!-- ====================================================================== -->
+    <div id="scraper-modal" class="modal-overlay">
+        <div class="modal-content scraper-modal-content">
+            <div class="modal-header">
+                <div class="modal-title-wrap">
+                    <span class="modal-title-icon">⚡</span>
+                    <div>
+                        <div class="modal-title">Парсинг каталога 2ГИС</div>
+                        <div class="modal-subtitle">Автоматический сбор HoReCa заведений с фильтрацией по чеку</div>
+                    </div>
+                </div>
+                <button id="close-scraper-btn" class="close-btn">&times;</button>
+            </div>
+
+            <!-- Progress Notification Area -->
+            <div id="scraper-progress-area" class="scraper-progress-card" style="display:none;">
+                <div class="progress-status-badge">
+                    <span class="pulse-dot"></span>
+                    <span id="scraper-status-text">Идет сбор данных...</span>
+                </div>
+                <div id="scraper-progress-metrics" class="progress-metrics-row">
+                    Найдено: 0 | Сохранено: 0
+                </div>
+            </div>
+
+            <form id="scraper-form" class="modal-form">
+                <!-- City input -->
+                <div class="form-group">
+                    <label class="form-label">ГОРОД</label>
+                    <input type="text" id="scraper-city" class="form-input" value="Пермь" placeholder="Введите город (Пермь, Москва, Екатеринбург...)" required>
+                    <div class="quick-chips">
+                        <button type="button" class="quick-chip" onclick="document.getElementById('scraper-city').value='Пермь'">Пермь</button>
+                        <button type="button" class="quick-chip" onclick="document.getElementById('scraper-city').value='Москва'">Москва</button>
+                        <button type="button" class="quick-chip" onclick="document.getElementById('scraper-city').value='Санкт-Петербург'">СПб</button>
+                        <button type="button" class="quick-chip" onclick="document.getElementById('scraper-city').value='Екатеринбург'">Екб</button>
+                        <button type="button" class="quick-chip" onclick="document.getElementById('scraper-city').value='Казань'">Казань</button>
+                    </div>
+                </div>
+
+                <!-- Search queries -->
+                <div class="form-group">
+                    <label class="form-label">ПОИСКОВЫЕ КАТЕГОРИИ</label>
+                    <input type="text" id="scraper-query" class="form-input" value="ресторан, бар, гастробар, пиццерия, кафе" required>
+                    <div class="quick-chips">
+                        <button type="button" class="quick-chip" onclick="document.getElementById('scraper-query').value='ресторан, бар, гастробар, пиццерия, кафе'">Все заведения</button>
+                        <button type="button" class="quick-chip" onclick="document.getElementById('scraper-query').value='ресторан, гастробар'">Рестораны</button>
+                        <button type="button" class="quick-chip" onclick="document.getElementById('scraper-query').value='бар, паб, караоке-бар'">Бары и пабы</button>
+                        <button type="button" class="quick-chip" onclick="document.getElementById('scraper-query').value='пиццерия, доставка пиццы'">Пиццерии</button>
+                        <button type="button" class="quick-chip" onclick="document.getElementById('scraper-query').value='кофейня, пекарня'">Кофейни</button>
+                    </div>
+                </div>
+
+                <!-- 2-column: Min Bill & Pages -->
+                <div class="form-row-2">
+                    <div class="form-group">
+                        <label class="form-label">МИН. СРЕДНИЙ ЧЕК</label>
+                        <div class="input-with-addon">
+                            <input type="number" id="scraper-min-bill" class="form-input" value="700" min="0" step="50">
+                            <span class="input-addon">₽</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">ГЛУБИНА СБОРА</label>
+                        <div class="input-with-addon">
+                            <input type="number" id="scraper-pages" class="form-input" value="10" min="1" max="100" required>
+                            <span class="input-addon">стр.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Technical Advanced Accordion (hidden by default) -->
+                <details class="tech-accordion">
+                    <summary class="tech-summary">⚙️ Дополнительные параметры (API-ключ / City ID)</summary>
+                    <div class="tech-content">
+                        <div class="form-group">
+                            <label class="form-label">CITY ID 2ГИС (ОПЦИОНАЛЬНО)</label>
+                            <input type="text" id="scraper-city-id" class="form-input" value="" placeholder="Автоматическое определение по городу">
+                        </div>
+                        <div class="form-group" style="margin-top:8px;">
+                            <label class="form-label">ПОЛЬЗОВАТЕЛЬСКИЙ API КЛЮЧ 2ГИС</label>
+                            <input type="text" id="scraper-key" class="form-input" value="" placeholder="Не требуется (работает встроенный SSR парсер)">
+                        </div>
+                    </div>
+                </details>
+
+                <div class="modal-actions">
+                    <button type="button" id="stop-scraper-btn" class="btn btn-secondary" style="color:#fb7185; display:none;">
+                        Остановить
+                    </button>
+                    <button type="submit" id="start-scraper-submit-btn" class="btn btn-primary" style="margin-left:auto; padding:10px 20px; font-size:13px;">
+                        ⚡ Запустить сбор данных
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ====================================================================== -->
+    <!-- 4. MODAL: NOTES & CALL OUTCOMES                                        -->
+    <!-- ====================================================================== -->
+    <div id="notes-modal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 440px;">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-title" style="font-size:14px;">Заметки по заведению</div>
+                    <div id="notes-lead-name" style="font-size:12px; color:var(--accent-cyan); font-weight:700;">—</div>
+                </div>
+                <button id="close-notes-btn" class="close-btn">&times;</button>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                <textarea id="notes-textarea" rows="5" placeholder="ФИО управляющего, ЛПР, юр. нюансы, итог звонка или Telegram контакт..." style="background:#1e222d; border:1px solid #282d3b; color:#fff; padding:10px; border-radius:8px; font-family:var(--font-sans); font-size:12px; resize:vertical; outline:none;"></textarea>
+                
+                <div style="display:flex; justify-content:flex-end; gap:8px;">
+                    <button id="save-notes-btn" class="btn btn-primary btn-sm">
+                        💾 Сохранить заметку
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container"></div>
+
+    <!-- Scripts -->
+    <script src="js/api.js?v=2.3.0"></script>
+    <script src="js/app.js?v=2.3.0"></script>
+</body>
+</html>

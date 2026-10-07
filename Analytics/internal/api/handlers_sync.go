@@ -14,6 +14,7 @@ import (
 	"analytics_service/internal/crypto"
 	"analytics_service/internal/engine"
 	"analytics_service/internal/iiko"
+	"analytics_service/internal/queue"
 )
 
 // HandleSync запускает инжест накладных из iiko RMS за интервал дат
@@ -386,17 +387,76 @@ func (s *Server) autoSyncMissingInvoices() {
 		var invCount int
 		_ = s.db.QueryRow(`SELECT COUNT(*) FROM analytics_invoices WHERE restaurant_id = $1`, t.id).Scan(&invCount)
 		if invCount == 0 {
-			log.Printf("🔄 [Auto-Sync] Фоновая синхронизация накладных для заведения %d (%s)...", t.id, t.name)
-			go func(rid int, rname string) {
-				invs, items, errSync := s.SyncRestaurant(rid, from, to)
-				if errSync != nil {
-					log.Printf("⚠️ [Auto-Sync] Ошибка синхронизации %s (id %d): %v", rname, rid, errSync)
-				} else {
-					log.Printf("✅ [Auto-Sync] Успешно синхронизировано %s: %d накладных, %d позиций", rname, invs, items)
-				}
-			}(t.id, t.name)
+			if s.syncQueue != nil {
+				s.syncQueue.Enqueue(queue.SyncTask{
+					RestaurantID:   t.id,
+					RestaurantName: t.name,
+					From:           from,
+					To:             to,
+					Trigger:        "missing_invoices",
+				})
+			} else {
+				go func(rid int, rname string) {
+					_, _, _ = s.SyncRestaurant(rid, from, to)
+				}(t.id, t.name)
+			}
 		}
 	}
+}
+
+// HandleSyncAll ставит все активные заведения в очередь фоновой синхронизации
+func (s *Server) HandleSyncAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Ожидается POST", http.StatusMethodNotAllowed)
+		return
+	}
+
+	rows, err := s.db.Query(`
+		SELECT id, name 
+		FROM analytics_restaurants 
+		WHERE is_active = true AND (company_id != 10 OR company_id IS NULL)
+		ORDER BY id ASC`)
+	if err != nil {
+		http.Error(w, "Ошибка БД: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	days := 14
+	if dStr := r.URL.Query().Get("days"); dStr != "" {
+		if d, err := strconv.Atoi(dStr); err == nil && d > 0 {
+			days = d
+		}
+	}
+
+	from := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+	to := time.Now().Format("2006-01-02")
+	enqueued := 0
+
+	for rows.Next() {
+		var id int
+		var name string
+		if errScan := rows.Scan(&id, &name); errScan == nil {
+			if s.syncQueue != nil {
+				if s.syncQueue.Enqueue(queue.SyncTask{
+					RestaurantID:   id,
+					RestaurantName: name,
+					From:           from,
+					To:             to,
+					Trigger:        "manual_sync_all",
+				}) {
+					enqueued++
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":   "ok",
+		"enqueued": enqueued,
+		"message":  fmt.Sprintf("Поставлено в очередь на обновление: %d заведений", enqueued),
+	})
 }
 
 // ReclassifyAllItems выполняет глобальную реклассификацию всех товарных позиций в БД

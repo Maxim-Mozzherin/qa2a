@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/xml"
+	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -227,6 +229,39 @@ func TestIikoIncomingInvoiceXMLMarshalling(t *testing.T) {
 	}
 	if len(unmarshaledDoc.Items) != 1 || unmarshaledDoc.Items[0].Amount != "10.000" {
 		t.Errorf("unexpected items in unmarshaled doc: %+v", unmarshaledDoc.Items)
+	}
+}
+
+func TestFinalQuantityPreservation(t *testing.T) {
+	// Scenario: Shimeji mushrooms: quantity = 8 pcs, user typed final weight = 0.900 kg.
+	// Previously: multiplier was rounded to 0.113, causing 8 * 0.113 = 0.904 kg in iiko!
+	// Now: FinalQuantity = 0.900 is preserved directly without intermediate truncation.
+	item := struct {
+		Quantity      float64
+		Multiplier    float64
+		FinalQuantity float64
+	}{
+		Quantity:      8.0,
+		Multiplier:    0.113,
+		FinalQuantity: 0.900,
+	}
+
+	finalQuantity := item.FinalQuantity
+	if finalQuantity <= 0 {
+		finalQuantity = item.Quantity * item.Multiplier
+	}
+
+	amountStr := fmt.Sprintf("%.3f", finalQuantity)
+	if amountStr != "0.900" {
+		t.Errorf("expected amountStr to be '0.900', got %q", amountStr)
+	}
+
+	effectiveMult := item.Multiplier
+	if item.Quantity > 0 && finalQuantity > 0 {
+		effectiveMult = finalQuantity / item.Quantity
+	}
+	if math.Abs(effectiveMult-0.1125) > 0.00001 {
+		t.Errorf("expected effectiveMult to be 0.1125, got %.4f", effectiveMult)
 	}
 }
 

@@ -18,12 +18,15 @@ type Config struct {
 	AIBaseURL     string
 	AIApiKey      string
 	AIModel       string
+	BotToken      string
+	FontPath      string
 }
 
 func Load() *Config {
 	_ = godotenv.Load(".env")
 	_ = godotenv.Load("/opt/Analytics/.env")
 	_ = godotenv.Load("/opt/iiko_parser/.env")
+	_ = godotenv.Load("/opt/qa2a-reboot/.env")
 
 	apiKey := os.Getenv("AI_API_KEY")
 	if googleKeys := os.Getenv("GOOGLE_API_KEYS"); googleKeys != "" {
@@ -37,6 +40,8 @@ func Load() *Config {
 
 	aiBaseURL := getEnv("AI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions")
 	aiModel := getEnv("AI_MODEL", "gemini-2.5-flash")
+	botToken := getEnv("BOT_TOKEN", "8364435346:AAHoKylC6rhKsvWqP6Qp-IoAIqQBPOqfZSA")
+	fontPath := getEnv("FONT_PATH", "./fonts/DejaVuSans.ttf")
 
 	return &Config{
 		Port:          getEnv("PORT", "8098"),
@@ -49,6 +54,8 @@ func Load() *Config {
 		AIBaseURL:     aiBaseURL,
 		AIApiKey:      apiKey,
 		AIModel:       aiModel,
+		BotToken:      botToken,
+		FontPath:      fontPath,
 	}
 }
 

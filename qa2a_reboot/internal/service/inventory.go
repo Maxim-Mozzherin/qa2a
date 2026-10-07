@@ -152,11 +152,16 @@ func (s *InventoryService) WriteOff(
 // EditWriteoff позволяет скорректировать операцию списания до ее отправки в iiko.
 func (s *InventoryService) EditWriteoff(
 	userID, companyID, opID int,
+	posName string,
 	qty float64,
 	locID int,
 	comment, accountID string,
 	opDate time.Time,
 ) error {
+	posName = strings.TrimSpace(posName)
+	if posName == "" {
+		return fmt.Errorf("наименование товара не может быть пустым")
+	}
 	if qty <= 0 {
 		return fmt.Errorf("количество товара должно быть больше нуля")
 	}
@@ -183,18 +188,42 @@ func (s *InventoryService) EditWriteoff(
 		if oldOp.Status == "approved" {
 			return fmt.Errorf("данное списание уже утверждено и заблокировано для редактирования")
 		}
+		if oldOp.UserID != userID {
+			m, errMem := s.repo.GetMembership(companyID, userID)
+			if errMem != nil {
+				return fmt.Errorf("нет прав на редактирование чужого списания")
+			}
+			role := strings.ToLower(strings.TrimSpace(m.Role))
+			if role != "owner" && role != "admin" && role != "manager" {
+				return fmt.Errorf("редактировать списание может только его автор или руководство заведения")
+			}
+		}
 
+		// 1. Возвращаем старый объем на прежний склад (если позиция была учтенной)
 		if !oldOp.IsUnlisted {
-			// 1. Возвращаем старый объем на прежний склад
 			if err = s.repo.UpdateBalanceTx(tx, companyID, oldOp.LocationID, oldOp.PositionName, oldOp.Quantity, oldOp.Unit); err != nil {
 				return fmt.Errorf("ошибка отката прежнего остатка: %w", err)
 			}
-			// 2. Списываем новый объем с нового выбранного склада
-			if err = s.repo.UpdateBalanceTx(tx, companyID, locID, oldOp.PositionName, -qty, oldOp.Unit); err != nil {
+		}
+
+		// 2. Ищем новую позицию в справочнике номенклатуры
+		newPos, errPos := s.repo.GetPositionByNameTx(tx, companyID, posName)
+		isNewUnlisted := false
+		newUnit := oldOp.Unit
+		if errPos != nil || newPos == nil {
+			isNewUnlisted = true
+		} else {
+			isNewUnlisted = false
+			newUnit = newPos.Unit
+			// 3. Списываем новый объем с выбранного склада для учтенной позиции
+			if err = s.repo.UpdateBalanceTx(tx, companyID, locID, posName, -qty, newUnit); err != nil {
 				return fmt.Errorf("ошибка списания нового остатка: %w", err)
 			}
 		}
 
+		oldOp.PositionName = posName
+		oldOp.Unit = newUnit
+		oldOp.IsUnlisted = isNewUnlisted
 		oldOp.Quantity = qty
 		oldOp.LocationID = locID
 		oldOp.Comment = strings.TrimSpace(comment)
