@@ -171,6 +171,14 @@ func main() {
 		http.ServeFile(w, req, "web/templates/landing.html")
 	}).Methods("GET", "HEAD")
 
+	// Политика конфиденциальности (152-ФЗ)
+	r.HandleFunc("/privacy", func(w http.ResponseWriter, req *http.Request) {
+		http.ServeFile(w, req, "web/templates/privacy.html")
+	}).Methods("GET", "HEAD")
+	r.HandleFunc("/privacy.html", func(w http.ResponseWriter, req *http.Request) {
+		http.ServeFile(w, req, "web/templates/privacy.html")
+	}).Methods("GET", "HEAD")
+
 	// Раздача статики Mini App с защитой от листинга директорий (neuteredFileSystem)
 	staticDir := http.Dir("web/static")
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(neuteredFileSystem{fs: staticDir})))
