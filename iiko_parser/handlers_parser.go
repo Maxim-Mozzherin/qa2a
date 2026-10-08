@@ -817,22 +817,9 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 				              updated_at = now()`,
 				req.CompanyID, req.VendorName, item.Name, item.MappedUUID, item.MappedName, effectiveMult)
 			if err != nil {
-				log.Printf("⚠️ Ошибка сохранения маппинга: %v", err)
-			}
-
-			// Ретроактивное обогащение: если ранее позиции из синхронизации iiko сохранились с названием из iiko,
-			// обогащаем их реальным названием из подтвержденного маппинга накладной
-			if item.Name != "" {
-				_, _ = tx.Exec(`
-					UPDATE purchase_history
-					SET product_name_in_invoice = $1,
-					    clean_category = CASE WHEN clean_category = '' OR clean_category = 'Прочее' THEN $2 ELSE clean_category END,
-					    brand = CASE WHEN brand = '' THEN $3 ELSE brand END,
-					    multiplier = CASE WHEN $4 > 0 AND multiplier = 1.0 THEN $4 ELSE multiplier END
-					WHERE company_id = $5 
-					  AND iiko_product_uuid = $6 
-					  AND (product_name_in_invoice = iiko_product_name OR product_name_in_invoice = '')`,
-					item.Name, item.CleanCategory, item.Brand, effectiveMult, req.CompanyID, item.MappedUUID)
+				log.Printf("❌ [Import] Ошибка сохранения маппинга: %v", err)
+				http.Error(w, fmt.Sprintf("Ошибка сохранения маппинга товаров: %v", err), http.StatusInternalServerError)
+				return
 			}
 
 			pricePerUnit := 0.0
@@ -840,12 +827,11 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 				pricePerUnit = item.Sum / finalQty
 			}
 
-
 			unit := strings.TrimSpace(item.Unit)
 			if isNumericOrInvalidUnit(unit) {
 				// 1. Попытаться взять эталонную единицу измерения из таблицы positions
 				var posUnit string
-				_ = tx.QueryRow(`
+				_ = db.QueryRow(`
 					SELECT unit FROM positions 
 					WHERE company_id = $1 AND external_id = $2 AND unit IS NOT NULL AND unit != '' 
 					LIMIT 1`, req.CompanyID, item.MappedUUID).Scan(&posUnit)
@@ -866,28 +852,18 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 				item.MappedUUID, item.MappedName, item.Name, item.CleanCategory, item.Brand, item.Quantity, unit, effectiveMult, item.Sum, pricePerUnit,
 				req.Consignee, req.Shipper)
 			if err != nil {
-				log.Printf("⚠️ Ошибка записи purchase_history: %v", err)
-			}
-
-			// Retroactive Unit Auto-healing (исправляет пустые или числовые артикулы на реальную единицу)
-			if !isNumericOrInvalidUnit(unit) {
-				_, healErr := tx.Exec(`
-					UPDATE purchase_history 
-					SET unit = $1 
-					WHERE company_id = $2 
-					  AND iiko_product_uuid = $3 
-					  AND (unit IN ('ед.', 'кг/шт', '') OR unit ~ '^[0-9]+$')
-				`, unit, req.CompanyID, item.MappedUUID)
-				
-				if healErr != nil {
-					log.Printf("⚠️ Ошибка ретроспективного обновления единиц измерения для %s: %v", item.MappedUUID, healErr)
-				}
+				log.Printf("❌ [Import] Ошибка записи purchase_history: %v", err)
+				http.Error(w, fmt.Sprintf("Ошибка сохранения позиции в истории: %v", err), http.StatusInternalServerError)
+				return
 			}
 		}
 	}
 
 	if req.SupplierUUID != "" && req.VendorName != "" {
 		cleanINN := strings.TrimSpace(req.VendorINN)
+		if len(cleanINN) > 20 {
+			cleanINN = cleanINN[:20]
+		}
 		_, _ = tx.Exec(`
 			INSERT INTO supplier_mappings (company_id, vendor_name, iiko_supplier_uuid, inn)
 			VALUES ($1, $2, $3, $4)
@@ -910,6 +886,45 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 		log.Printf("❌ [Import] Error committing transaction for company %d: %v", req.CompanyID, err)
 		http.Error(w, "Ошибка фиксации истории накладной в базе данных", http.StatusInternalServerError)
 		return
+	}
+
+	// 6. Фоновое ретроспективное обогащение истории (выполняется после успешной фиксации накладной)
+	for _, item := range req.Items {
+		if item.MappedUUID == "" {
+			continue
+		}
+		finalQty := item.FinalQuantity
+		if finalQty <= 0 {
+			finalQty = item.Quantity * item.Multiplier
+		}
+		effectiveMult := item.Multiplier
+		if item.Quantity > 0 && finalQty > 0 {
+			effectiveMult = finalQty / item.Quantity
+		}
+
+		if item.Name != "" {
+			_, _ = db.Exec(`
+				UPDATE purchase_history
+				SET product_name_in_invoice = $1,
+				    clean_category = CASE WHEN clean_category = '' OR clean_category = 'Прочее' THEN $2 ELSE clean_category END,
+				    brand = CASE WHEN brand = '' THEN $3 ELSE brand END,
+				    multiplier = CASE WHEN $4::numeric > 0 AND multiplier = 1.0 THEN $4::numeric ELSE multiplier END
+				WHERE company_id = $5 
+				  AND iiko_product_uuid = $6 
+				  AND (product_name_in_invoice = iiko_product_name OR product_name_in_invoice = '')`,
+				item.Name, item.CleanCategory, item.Brand, effectiveMult, req.CompanyID, item.MappedUUID)
+		}
+
+		unit := strings.TrimSpace(item.Unit)
+		if !isNumericOrInvalidUnit(unit) {
+			_, _ = db.Exec(`
+				UPDATE purchase_history 
+				SET unit = $1 
+				WHERE company_id = $2 
+				  AND iiko_product_uuid = $3 
+				  AND (unit IN ('ед.', 'кг/шт', '') OR unit ~ '^[0-9]+$')
+			`, unit, req.CompanyID, item.MappedUUID)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
