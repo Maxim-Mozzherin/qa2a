@@ -701,10 +701,10 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 			unit,
 			COALESCE(SUM(amount), 0) as total_amount,
 			COALESCE(SUM(cost), 0) as total_cost,
-			COALESCE(NULLIF(comment, ''), 'Ручное списание') as reason
+			COALESCE(NULLIF(MAX(comment), ''), 'Ручное списание') as reason
 		FROM analytics_writeoff_items
 		WHERE restaurant_id = $1 AND doc_date >= $2
-		GROUP BY product_name, unit, reason
+		GROUP BY product_name, unit
 	`, restID, startDate)
 	if errW == nil {
 		type woAgg struct {
