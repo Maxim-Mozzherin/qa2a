@@ -70,3 +70,26 @@ func TestRealigner_UpdPriceWithoutVat(t *testing.T) {
 		t.Errorf("Expected Cheese Quantity to remain 2.0, got %.3f", realigned.Items[0].Quantity)
 	}
 }
+
+func TestRealigner_BlueberryFormats(t *testing.T) {
+	raw := &AiResponse{
+		Items: []AiItem{
+			{Name: "Голубика свежая", Quantity: 5.0, Price: 250.00, Sum: 1250.00, Unit: "шт", AiMultiplier: 1.0},
+			{Name: "Голубика весовая", Quantity: 2.5, Price: 1800.00, Sum: 4500.00, Unit: "кг", AiMultiplier: 1.0},
+		},
+	}
+	realigned := realignAndValidateInvoice(raw)
+
+	// 1. Голубика в шт должна получить фасовку 0.125
+	if realigned.Items[0].AiMultiplier != 0.125 {
+		t.Errorf("Expected Blueberry in pcs to have multiplier 0.125, got %.3f", realigned.Items[0].AiMultiplier)
+	}
+	if realigned.Items[0].BaseUnit != "кг" {
+		t.Errorf("Expected Blueberry in pcs to have base_unit 'кг', got %s", realigned.Items[0].BaseUnit)
+	}
+
+	// 2. Голубика в кг должна остаться с фасовкой 1.0
+	if realigned.Items[1].AiMultiplier != 1.0 {
+		t.Errorf("Expected Blueberry in kg to have multiplier 1.0, got %.3f", realigned.Items[1].AiMultiplier)
+	}
+}

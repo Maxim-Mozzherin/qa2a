@@ -137,9 +137,26 @@ func realignAndValidateInvoice(aiData *AiResponse) *AiResponse {
 }
 
 // cleanWeightMultipliers сбрасывает ошибочные коэффициенты фасовки для чисто весовых товаров
+// и гарантирует точную фасовку для специальных позиций (например, голубика)
 func cleanWeightMultipliers(item *AiItem) {
 	unitNorm := strings.ToLower(strings.TrimSpace(item.Unit))
 	baseNorm := strings.ToLower(strings.TrimSpace(item.BaseUnit))
+	nameLower := strings.ToLower(item.Name)
+
+	// Специальное правило для голубики (и ягод в лотках)
+	if strings.Contains(nameLower, "голубик") {
+		if unitNorm == "шт" || unitNorm == "уп" || unitNorm == "упак" || unitNorm == "лот" || unitNorm == "лоток" {
+			item.AiMultiplier = 0.125
+			item.BaseUnit = "кг"
+			item.AiTip = "1 шт = 0.125 кг (125г)"
+			return
+		} else if unitNorm == "кг" {
+			item.AiMultiplier = 1.0
+			item.BaseUnit = "кг"
+			item.AiTip = "1 шт = 1 кг"
+			return
+		}
+	}
 
 	// Если товар пришел в кг или л и базовая единица тоже кг/л
 	if (unitNorm == "кг" || unitNorm == "л") && (baseNorm == "" || baseNorm == "кг" || baseNorm == "л") {

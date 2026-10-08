@@ -170,22 +170,28 @@ func pingModel(model string) bool {
 	if err != nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
+	currentKey := globalKeyManager.GetAvailableKey()
 	req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return false
 	}
-	req.Header.Set("Authorization", "Bearer "+aiApiKey)
+	req.Header.Set("Authorization", "Bearer "+currentKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := llmHTTPClient.Do(req)
 	if err != nil {
 		return false
 	}
+	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		globalKeyManager.MarkFailed(currentKey, 3*time.Minute)
+		log.Printf("⏳ [HealthCheck] Ключ ...%s вернул HTTP 429 при пинге. Отправлен в кулдаун.", maskKey(currentKey))
+		return true // Не выключаем саму модель из-за квоты отдельного ключа
+	}
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -302,92 +308,122 @@ func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter
 
 		payload["model"] = normalizeModelForEndpoint(modelToUse)
 		chosenModel = modelToUse
-		startTime := time.Now()
 
-		jsonData, err := json.Marshal(payload)
-		if err != nil {
-			return "", "", fmt.Errorf("ошибка сериализации JSON для AI: %w", err)
+		maxKeyAttempts := globalKeyManager.TotalKeys()
+		if maxKeyAttempts <= 0 {
+			maxKeyAttempts = 1
 		}
 
-		attemptTimeout := 100 * time.Second
-		ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
+		modelSucceeded := false
+		for keyAttempt := 0; keyAttempt < maxKeyAttempts; keyAttempt++ {
+			currentKey := globalKeyManager.GetAvailableKey()
+			maskedKey := maskKey(currentKey)
+			startTime := time.Now()
 
-		req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
-		if err != nil {
-			cancel()
-			return "", "", fmt.Errorf("ошибка формирования HTTP запроса к AI: %w", err)
-		}
-		req.Header.Set("Authorization", "Bearer "+aiApiKey)
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := llmHTTPClient.Do(req)
-		if err != nil {
-			cancel()
-			globalModelHealth.markFailed(modelToUse, 100*time.Second)
-			lastErr = fmt.Errorf("модель %s не ответила за %v или сбой сети: %w", modelToUse, attemptTimeout, err)
-			log.Printf("⚠️ Модель %s не ответила за %v (%v). Переход к следующей модели Gemini...", modelToUse, attemptTimeout, err)
-			continue
-		}
-
-		respBody, err = io.ReadAll(io.LimitReader(resp.Body, 10<<20))
-		resp.Body.Close()
-		cancel()
-
-		if err != nil {
-			globalModelHealth.markFailed(modelToUse, 100*time.Second)
-			lastErr = fmt.Errorf("ошибка чтения ответа AI (%s): %w", modelToUse, err)
-			log.Printf("⚠️ Ошибка чтения ответа модели %s: %v. Переход к следующей модели Gemini...", modelToUse, err)
-			continue
-		}
-
-		// Если провайдер/модель возвращает 400 Bad Request из-за неподдерживаемых параметров thinking,
-		// автоматически удаляем thinking-параметры и повторяем запрос без падения
-		if resp.StatusCode == http.StatusBadRequest && (payload["thinking"] != nil || payload["reasoning_effort"] != nil) {
-			log.Printf("⚠️ Модель %s не поддерживает параметры thinking/reasoning_effort (HTTP 400). Повторяем без CoT...", modelToUse)
-			delete(payload, "thinking")
-			delete(payload, "reasoning_effort")
-			jsonDataRetry, _ := json.Marshal(payload)
-			ctxRetry, cancelRetry := context.WithTimeout(context.Background(), attemptTimeout)
-			reqRetry, _ := http.NewRequestWithContext(ctxRetry, "POST", aiBaseUrl, bytes.NewBuffer(jsonDataRetry))
-			reqRetry.Header.Set("Authorization", "Bearer "+aiApiKey)
-			reqRetry.Header.Set("Content-Type", "application/json")
-			respRetry, errRetry := llmHTTPClient.Do(reqRetry)
-			if errRetry == nil {
-				respBody, err = io.ReadAll(io.LimitReader(respRetry.Body, 10<<20))
-				respRetry.Body.Close()
-				resp.StatusCode = respRetry.StatusCode
+			jsonData, err := json.Marshal(payload)
+			if err != nil {
+				return "", "", fmt.Errorf("ошибка сериализации JSON для AI: %w", err)
 			}
-			cancelRetry()
-		}
 
-		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError || resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadGateway {
-			globalModelHealth.markFailed(modelToUse, 100*time.Second)
-			lastErr = fmt.Errorf("модель %s вернула HTTP %d: %s", modelToUse, resp.StatusCode, string(respBody))
-			log.Printf("⚠️ Модель %s вернула HTTP %d — немедленный переход к следующей модели Gemini...", modelToUse, resp.StatusCode)
+			attemptTimeout := 100 * time.Second
+			ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
+
+			req, err := http.NewRequestWithContext(ctx, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
+			if err != nil {
+				cancel()
+				return "", "", fmt.Errorf("ошибка формирования HTTP запроса к AI: %w", err)
+			}
+			req.Header.Set("Authorization", "Bearer "+currentKey)
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := llmHTTPClient.Do(req)
+			if err != nil {
+				cancel()
+				globalModelHealth.markFailed(modelToUse, 100*time.Second)
+				lastErr = fmt.Errorf("модель %s не ответила за %v или сбой сети: %w", modelToUse, attemptTimeout, err)
+				log.Printf("⚠️ Модель %s не ответила за %v (%v). Переход к следующей модели Gemini...", modelToUse, attemptTimeout, err)
+				break // Сетевой сбой — пробуем следующую модель
+			}
+
+			respBody, err = io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+			resp.Body.Close()
+			cancel()
+
+			if err != nil {
+				globalModelHealth.markFailed(modelToUse, 100*time.Second)
+				lastErr = fmt.Errorf("ошибка чтения ответа AI (%s): %w", modelToUse, err)
+				log.Printf("⚠️ Ошибка чтения ответа модели %s: %v. Переход к следующей модели Gemini...", modelToUse, err)
+				break
+			}
+
+			// Если провайдер/модель возвращает 400 Bad Request из-за неподдерживаемых параметров thinking,
+			// автоматически удаляем thinking-параметры и повторяем запрос без падения
+			if resp.StatusCode == http.StatusBadRequest && (payload["thinking"] != nil || payload["reasoning_effort"] != nil) {
+				log.Printf("⚠️ Модель %s не поддерживает параметры thinking/reasoning_effort (HTTP 400). Повторяем без CoT...", modelToUse)
+				delete(payload, "thinking")
+				delete(payload, "reasoning_effort")
+				jsonDataRetry, _ := json.Marshal(payload)
+				ctxRetry, cancelRetry := context.WithTimeout(context.Background(), attemptTimeout)
+				reqRetry, _ := http.NewRequestWithContext(ctxRetry, "POST", aiBaseUrl, bytes.NewBuffer(jsonDataRetry))
+				reqRetry.Header.Set("Authorization", "Bearer "+currentKey)
+				reqRetry.Header.Set("Content-Type", "application/json")
+				respRetry, errRetry := llmHTTPClient.Do(reqRetry)
+				if errRetry == nil {
+					respBody, err = io.ReadAll(io.LimitReader(respRetry.Body, 10<<20))
+					respRetry.Body.Close()
+					resp.StatusCode = respRetry.StatusCode
+				}
+				cancelRetry()
+			}
+
+			// Проверка на исчерпание лимита квоты (HTTP 429) или ошибку доступа квоты:
+			if resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode == http.StatusForbidden && strings.Contains(string(respBody), "RESOURCE_EXHAUSTED")) {
+				log.Printf("⏳ [KeyManager] Ключ ...%s вернул HTTP 429 (исчерпан лимит квоты). Отправлен в кулдаун на 3 мин. (Попытка ключа %d/%d)",
+					maskedKey, keyAttempt+1, maxKeyAttempts)
+				globalKeyManager.MarkFailed(currentKey, 3*time.Minute)
+				if report != nil {
+					report("🔄", fmt.Sprintf("Ключ ...%s исчерпал лимит (429). Ротация на следующий ключ...", maskedKey), 35)
+				}
+				lastErr = fmt.Errorf("модель %s (ключ ...%s) вернула HTTP 429: %s", modelToUse, maskedKey, string(respBody))
+				// Пробуем следующий ключ для этой же модели!
+				continue
+			}
+
+			if resp.StatusCode >= http.StatusInternalServerError || resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadGateway {
+				globalModelHealth.markFailed(modelToUse, 100*time.Second)
+				lastErr = fmt.Errorf("модель %s вернула HTTP %d: %s", modelToUse, resp.StatusCode, string(respBody))
+				log.Printf("⚠️ Модель %s вернула HTTP %d — немедленный переход к следующей модели Gemini...", modelToUse, resp.StatusCode)
+				if report != nil {
+					report("⏳", fmt.Sprintf("Модель %s вернула HTTP %d, переключение на следующую...", cleanName, resp.StatusCode), 35)
+				}
+				break // переходим к следующей модели
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				globalModelHealth.markFailed(modelToUse, 60*time.Second)
+				lastErr = fmt.Errorf("модель %s вернула ошибку (HTTP %d): %s", modelToUse, resp.StatusCode, string(respBody))
+				log.Printf("⚠️ Модель %s вернула ошибку (HTTP %d): %s. Переход к следующей модели Gemini...", modelToUse, resp.StatusCode, string(respBody))
+				break
+			}
+
+			durationSec := int(time.Since(startTime).Seconds())
+			globalModelHealth.markHealthy(modelToUse)
+			globalKeyManager.MarkHealthy(currentKey)
+			lastErr = nil
+			modelSucceeded = true
+			log.Printf("✅ AI ответ: %s [ключ ...%s] (попытка модели %d/%d, время: %dс)", cleanName, maskedKey, idx+1, len(orderedModels), durationSec)
 			if report != nil {
-				report("⏳", fmt.Sprintf("Модель %s вернула HTTP %d, переключение на следующую...", cleanName, resp.StatusCode), 35)
+				report("✅", fmt.Sprintf("AI ответ: %s (время: %dс)", cleanName, durationSec), 70)
 			}
-			continue
+			break
 		}
 
-		if resp.StatusCode != http.StatusOK {
-			globalModelHealth.markFailed(modelToUse, 60*time.Second)
-			lastErr = fmt.Errorf("модель %s вернула ошибку (HTTP %d): %s", modelToUse, resp.StatusCode, string(respBody))
-			log.Printf("⚠️ Модель %s вернула ошибку (HTTP %d): %s. Переход к следующей модели Gemini...", modelToUse, resp.StatusCode, string(respBody))
-			continue
+		if modelSucceeded {
+			break
 		}
-
-		durationSec := int(time.Since(startTime).Seconds())
-		globalModelHealth.markHealthy(modelToUse)
-		lastErr = nil
-		log.Printf("✅ AI ответ: %s (попытка %d/%d, время: %dс)", cleanName, idx+1, len(orderedModels), durationSec)
-		if report != nil {
-			report("✅", fmt.Sprintf("AI ответ: %s (попытка %d/%d, время: %dс)", cleanName, idx+1, len(orderedModels), durationSec), 70)
-		}
-		break
 	}
 
-	// 4. Если все модели были в кулдауне или сбоили — аварийный вызов последней легкой модели напрямую
+	// 4. Если все модели были в кулдауне или сбоили — аварийный вызов последней легкой модели напрямую с ротацией ключей
 	if respBody == nil || lastErr != nil {
 		fallbackLite := orderedModels[len(orderedModels)-1]
 		cleanLite := formatCleanModelName(fallbackLite)
@@ -397,30 +433,45 @@ func callLLM(contentParts []map[string]interface{}, progress ...ProgressReporter
 		}
 		payload["model"] = normalizeModelForEndpoint(fallbackLite)
 		chosenModel = fallbackLite
-		startTime := time.Now()
-		jsonData, _ := json.Marshal(payload)
-		ctxEmergency, cancelEmergency := context.WithTimeout(context.Background(), 50*time.Second)
-		reqEmergency, _ := http.NewRequestWithContext(ctxEmergency, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
-		reqEmergency.Header.Set("Authorization", "Bearer "+aiApiKey)
-		reqEmergency.Header.Set("Content-Type", "application/json")
-		respEmergency, errEmerg := llmHTTPClient.Do(reqEmergency)
-		if errEmerg == nil {
-			respBody, _ = io.ReadAll(io.LimitReader(respEmergency.Body, 10<<20))
-			respEmergency.Body.Close()
-			if respEmergency.StatusCode == http.StatusOK {
-				lastErr = nil
-				durationSec := int(time.Since(startTime).Seconds())
-				globalModelHealth.markHealthy(fallbackLite)
-				if report != nil {
-					report("✅", fmt.Sprintf("AI ответ: %s (аварийный режим, время: %dс)", cleanLite, durationSec), 70)
+
+		maxEmergKeys := globalKeyManager.TotalKeys()
+		if maxEmergKeys <= 0 {
+			maxEmergKeys = 1
+		}
+
+		for kTry := 0; kTry < maxEmergKeys; kTry++ {
+			emergKey := globalKeyManager.GetAvailableKey()
+			startTime := time.Now()
+			jsonData, _ := json.Marshal(payload)
+			ctxEmergency, cancelEmergency := context.WithTimeout(context.Background(), 50*time.Second)
+			reqEmergency, _ := http.NewRequestWithContext(ctxEmergency, "POST", aiBaseUrl, bytes.NewBuffer(jsonData))
+			reqEmergency.Header.Set("Authorization", "Bearer "+emergKey)
+			reqEmergency.Header.Set("Content-Type", "application/json")
+			respEmergency, errEmerg := llmHTTPClient.Do(reqEmergency)
+			if errEmerg == nil {
+				respBody, _ = io.ReadAll(io.LimitReader(respEmergency.Body, 10<<20))
+				respEmergency.Body.Close()
+				if respEmergency.StatusCode == http.StatusOK {
+					lastErr = nil
+					durationSec := int(time.Since(startTime).Seconds())
+					globalModelHealth.markHealthy(fallbackLite)
+					globalKeyManager.MarkHealthy(emergKey)
+					if report != nil {
+						report("✅", fmt.Sprintf("AI ответ: %s (аварийный режим, время: %dс)", cleanLite, durationSec), 70)
+					}
+					cancelEmergency()
+					break
+				} else if respEmergency.StatusCode == http.StatusTooManyRequests {
+					globalKeyManager.MarkFailed(emergKey, 3*time.Minute)
+					lastErr = fmt.Errorf("аварийный вызов %s (ключ ...%s) вернул HTTP %d: %s", fallbackLite, maskKey(emergKey), respEmergency.StatusCode, string(respBody))
+				} else {
+					lastErr = fmt.Errorf("аварийный вызов %s вернул HTTP %d: %s", fallbackLite, respEmergency.StatusCode, string(respBody))
 				}
 			} else {
-				lastErr = fmt.Errorf("аварийный вызов %s вернул HTTP %d: %s", fallbackLite, respEmergency.StatusCode, string(respBody))
+				lastErr = fmt.Errorf("аварийный вызов %s не удался: %w", fallbackLite, errEmerg)
 			}
-		} else {
-			lastErr = fmt.Errorf("аварийный вызов %s не удался: %w", fallbackLite, errEmerg)
+			cancelEmergency()
 		}
-		cancelEmergency()
 	}
 
 	if lastErr != nil {
@@ -798,6 +849,10 @@ func detectDocumentType(text string, firstImageBase64 string, report func(string
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10240))
 	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			globalKeyManager.MarkFailed(currentKey, 3*time.Minute)
+			log.Printf("⏳ [KeyManager] Ключ ...%s вернул HTTP 429 при классификации, отправлен в кулдаун", maskKey(currentKey))
+		}
 		log.Printf("⚠️ Классификатор вернул HTTP %d (фоллбэк)", resp.StatusCode)
 		return "TORG12"
 	}
