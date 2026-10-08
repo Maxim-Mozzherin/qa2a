@@ -931,7 +931,9 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 			return nil, err
 		}
 		singleResp = mergePageResponses([]*AiResponse{singleResp})
-		return applyAutoReflection(singleResp, imagesBase64, text, report), nil
+		singleResp = realignAndValidateInvoice(singleResp)
+		singleResp = applyAutoReflection(singleResp, imagesBase64, text, report)
+		return realignAndValidateInvoice(singleResp), nil
 	}
 
 	// Многостраничный режим: обработка страниц параллельными горутинами
@@ -1028,8 +1030,9 @@ func parseMultiPageChunked(text string, imagesBase64 []string, customPrompt stri
 	merged := mergePageResponses(pageResponses)
 	log.Printf("🎉 Чанкинг завершен: суммарно объединено %d позиций со всех %d страниц", len(merged.Items), numPages)
 	report("🎉", fmt.Sprintf("Чанкинг завершен: объединено %d позиций", len(merged.Items)), 82)
+	merged = realignAndValidateInvoice(merged)
 	merged = applyAutoReflection(merged, imagesBase64, text, report)
-	return merged, nil
+	return realignAndValidateInvoice(merged), nil
 }
 
 // calculateTotalSum вычисляет арифметическую сумму всех распознанных позиций с округлением до копеек.

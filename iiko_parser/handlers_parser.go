@@ -254,10 +254,10 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 				textBytes = append(textBytes, tb...)
 				textBytes = append(textBytes, []byte("\n\n")...)
 
-				sendProgress("⚙️", "Рендеринг PDF страниц (pdftoppm, 2048px Crisp)...", 15)
+				sendProgress("⚙️", "Рендеринг PDF страниц (pdftoppm, 2400px Crisp Ultra)...", 15)
 
 				imgPrefix := filepath.Join(tmpDir, "img")
-				cmdImg := exec.CommandContext(ctxCmd, "pdftoppm", "-jpeg", "-jpegopt", "quality=80", "-scale-to-x", "1600", "-scale-to-y", "-1", "-f", "1", "-l", "30", filePath, imgPrefix)
+				cmdImg := exec.CommandContext(ctxCmd, "pdftoppm", "-jpeg", "-jpegopt", "quality=95", "-scale-to-x", "2400", "-scale-to-y", "-1", "-f", "1", "-l", "30", filePath, imgPrefix)
 				if err := cmdImg.Run(); err != nil {
 					log.Printf("pdftoppm error: %v", err)
 				}
@@ -331,6 +331,8 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Сбой распознавания AI: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	aiData = realignAndValidateInvoice(aiData)
 
 	sendProgress("🔍", "Сопоставление товаров с номенклатурой iiko...", 95)
 
@@ -440,13 +442,6 @@ func handleParse(w http.ResponseWriter, r *http.Request) {
 
 	var resultItems []EnrichedItem
 	for _, item := range aiData.Items {
-		// Нормализация цены с НДС, если модель вернула цену без НДС из колонки 4
-		if item.Quantity > 0 && item.Sum > 0 {
-			expectedSum := item.Quantity * item.Price
-			if math.Abs(expectedSum-item.Sum) > 0.05 {
-				item.Price = math.Round((item.Sum/item.Quantity)*10000) / 10000
-			}
-		}
 
 		// Перепроверка ставки НДС: если ставка 0, но сумма без НДС меньше итоговой суммы
 		if item.NdsPercent == 0 && item.SumWithoutNds > 0 && item.Sum > item.SumWithoutNds {
