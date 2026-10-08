@@ -139,18 +139,20 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 		}
 	}
 
-	// Параллельная загрузка накладных, контрагентов и каталога номенклатуры
+	// Параллельная загрузка накладных, контрагентов, каталога номенклатуры и снимка остатков на начало периода
 	var (
 		wg          sync.WaitGroup
 		invoicesXML *iiko.ExportedInvoicesXML
 		suppliers   map[string]string
 		catalog     map[string]string
+		balances    []iiko.StoreBalanceItem
 		errInv      error
 		errSup      error
 		errCat      error
+		errBal      error
 	)
 
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		invoicesXML, errInv = s.iikoClient.FetchIncomingInvoices(host, token, from, to, "")
@@ -162,6 +164,11 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 	go func() {
 		defer wg.Done()
 		catalog, errCat = s.iikoClient.FetchCatalog(host, token)
+	}()
+	go func() {
+		defer wg.Done()
+		balanceTimestamp := from + "T00:00:00"
+		balances, errBal = s.iikoClient.FetchStoreBalances(host, token, balanceTimestamp)
 	}()
 	wg.Wait()
 
@@ -440,6 +447,39 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 			}
 		}
 		log.Printf("📥 [Analytics Sync] Заведение %d: синхронизировано %d актов списания", restID, importedWriteoffs)
+	}
+
+	// 4. Сохранение снимка складских остатков на начало периода (analytics_store_balances)
+	if errBal != nil {
+		log.Printf("⚠️ [Sync Balances] Заведение %d: снимок остатков на %s не получен: %v", restID, from, errBal)
+	} else if len(balances) > 0 {
+		_, _ = s.db.Exec(`DELETE FROM analytics_store_balances WHERE restaurant_id = $1 AND balance_date = $2`, restID, from)
+		balanceTimestamp := from + "T00:00:00"
+		importedBalances := 0
+		for _, b := range balances {
+			if b.Amount == 0 && b.Sum == 0 {
+				continue
+			}
+			pName := catalog[b.Product]
+			if pName == "" {
+				if len(b.Product) >= 8 {
+					pName = "Товар " + b.Product[:8]
+				} else {
+					pName = "Товар " + b.Product
+				}
+			}
+
+			_, errBIns := s.db.Exec(`
+				INSERT INTO analytics_store_balances (
+					restaurant_id, balance_date, timestamp_str, store_uuid, product_uuid, product_name, amount, cost_rub
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+				restID, from, balanceTimestamp, b.Store, b.Product, pName, b.Amount, b.Sum,
+			)
+			if errBIns == nil {
+				importedBalances++
+			}
+		}
+		log.Printf("📥 [Analytics Sync] Заведение %d: сохранено %d позиций остатков на дату %s", restID, importedBalances, from)
 	}
 
 	log.Printf("📥 [Analytics Sync] Заведение %d (company %d): синхронизировано %d накладных, %d позиций (включая Godmode)", restID, targetCompanyID, importedInvoices, importedItems)

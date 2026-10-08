@@ -632,7 +632,69 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 	audit.TopPriceHikes = topPriceHikes
 	audit.TotalInflationLossRub = math.Round(totalInflationLoss*100) / 100
 
-	// 6. Сбор и расчет ручных списаний (Write-offs)
+	// 6. Сбор и расчет ручных списаний (Write-offs) с учетом остатков на начало периода
+	// 6.1. Поиск ближайшего снимка остатков на начало периода
+	var openingBalanceDate string
+	_ = db.QueryRowContext(ctx, `
+		SELECT balance_date::text 
+		FROM analytics_store_balances 
+		WHERE restaurant_id = $1 AND balance_date <= $2 
+		ORDER BY balance_date DESC 
+		LIMIT 1`, restID, startDate).Scan(&openingBalanceDate)
+
+	if openingBalanceDate == "" {
+		_ = db.QueryRowContext(ctx, `
+			SELECT balance_date::text 
+			FROM analytics_store_balances 
+			WHERE restaurant_id = $1 
+			ORDER BY ABS(balance_date - $2::date) ASC 
+			LIMIT 1`, restID, startDate).Scan(&openingBalanceDate)
+	}
+
+	type stockInfo struct {
+		amount float64
+		cost   float64
+	}
+	openingStocks := make(map[string]stockInfo)
+	var totalOpeningStockCost float64
+
+	if openingBalanceDate != "" {
+		rowsBal, errBal := db.QueryContext(ctx, `
+			SELECT product_name, COALESCE(SUM(amount), 0), COALESCE(SUM(cost_rub), 0)
+			FROM analytics_store_balances
+			WHERE restaurant_id = $1 AND balance_date = $2 AND cost_rub > 0
+			GROUP BY product_name`, restID, openingBalanceDate)
+		if errBal == nil {
+			for rowsBal.Next() {
+				var pName string
+				var amt, cst float64
+				if errScan := rowsBal.Scan(&pName, &amt, &cst); errScan == nil {
+					openingStocks[pName] = stockInfo{amount: amt, cost: cst}
+					totalOpeningStockCost += cst
+				}
+			}
+			rowsBal.Close()
+		}
+	}
+
+	// 6.2. Суммарный объем и стоимость приходов (закупок) по каждой позиции за период
+	purchasesByProduct := make(map[string]stockInfo)
+	rowsPurch, errPurch := db.QueryContext(ctx, `
+		SELECT product_name, COALESCE(SUM(quantity), 0), COALESCE(SUM(total_sum), 0)
+		FROM analytics_invoice_items
+		WHERE restaurant_id = $1 AND doc_date >= $2
+		GROUP BY product_name`, restID, startDate)
+	if errPurch == nil {
+		for rowsPurch.Next() {
+			var pName string
+			var amt, cst float64
+			if errScan := rowsPurch.Scan(&pName, &amt, &cst); errScan == nil {
+				purchasesByProduct[pName] = stockInfo{amount: amt, cost: cst}
+			}
+		}
+		rowsPurch.Close()
+	}
+
 	rowsWriteoffs, errW := db.QueryContext(ctx, `
 		SELECT 
 			product_name,
@@ -673,14 +735,34 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 			if totalWriteoffsCost > 0 {
 				share = math.Round((rawWOs[i].cost/totalWriteoffsCost)*1000) / 10
 			}
+			pName := rawWOs[i].productName
+			opStock := openingStocks[pName]
+			purch := purchasesByProduct[pName]
+
+			resAmount := opStock.amount + purch.amount
+			resCost := opStock.cost + purch.cost
+			lossOfResourcePct := 0.0
+			if resAmount > 0 {
+				lossOfResourcePct = math.Round((rawWOs[i].amount/resAmount)*1000) / 10
+			} else if resCost > 0 {
+				lossOfResourcePct = math.Round((rawWOs[i].cost/resCost)*1000) / 10
+			}
+
 			topWOCost = append(topWOCost, engine.WriteoffLossItem{
-				Rank:         i + 1,
-				ProductName:  rawWOs[i].productName,
-				Unit:         rawWOs[i].unit,
-				TotalAmount:  math.Round(rawWOs[i].amount*100) / 100,
-				TotalCostRub: math.Round(rawWOs[i].cost*100) / 100,
-				SharePct:     share,
-				Reason:       rawWOs[i].reason,
+				Rank:                   i + 1,
+				ProductName:            pName,
+				Unit:                   rawWOs[i].unit,
+				TotalAmount:            math.Round(rawWOs[i].amount*100) / 100,
+				TotalCostRub:           math.Round(rawWOs[i].cost*100) / 100,
+				OpeningAmount:          math.Round(opStock.amount*100) / 100,
+				OpeningCostRub:         math.Round(opStock.cost*100) / 100,
+				PurchasedAmount:        math.Round(purch.amount*100) / 100,
+				PurchasedCostRub:       math.Round(purch.cost*100) / 100,
+				TotalResourceAmount:    math.Round(resAmount*100) / 100,
+				TotalResourceCostRub:   math.Round(resCost*100) / 100,
+				LossShareOfResourcePct: lossOfResourcePct,
+				SharePct:               share,
+				Reason:                 rawWOs[i].reason,
 			})
 		}
 		audit.TopWriteoffsByCost = topWOCost
@@ -691,20 +773,54 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 		})
 		var topWOAmount []engine.WriteoffLossItem
 		for i := 0; i < len(rawWOs) && i < 5; i++ {
+			share := 0.0
+			if totalWriteoffsCost > 0 {
+				share = math.Round((rawWOs[i].cost/totalWriteoffsCost)*1000) / 10
+			}
+			pName := rawWOs[i].productName
+			opStock := openingStocks[pName]
+			purch := purchasesByProduct[pName]
+
+			resAmount := opStock.amount + purch.amount
+			resCost := opStock.cost + purch.cost
+			lossOfResourcePct := 0.0
+			if resAmount > 0 {
+				lossOfResourcePct = math.Round((rawWOs[i].amount/resAmount)*1000) / 10
+			} else if resCost > 0 {
+				lossOfResourcePct = math.Round((rawWOs[i].cost/resCost)*1000) / 10
+			}
+
 			topWOAmount = append(topWOAmount, engine.WriteoffLossItem{
-				Rank:         i + 1,
-				ProductName:  rawWOs[i].productName,
-				Unit:         rawWOs[i].unit,
-				TotalAmount:  math.Round(rawWOs[i].amount*100) / 100,
-				TotalCostRub: math.Round(rawWOs[i].cost*100) / 100,
-				Reason:       rawWOs[i].reason,
+				Rank:                   i + 1,
+				ProductName:            pName,
+				Unit:                   rawWOs[i].unit,
+				TotalAmount:            math.Round(rawWOs[i].amount*100) / 100,
+				TotalCostRub:           math.Round(rawWOs[i].cost*100) / 100,
+				OpeningAmount:          math.Round(opStock.amount*100) / 100,
+				OpeningCostRub:         math.Round(opStock.cost*100) / 100,
+				PurchasedAmount:        math.Round(purch.amount*100) / 100,
+				PurchasedCostRub:       math.Round(purch.cost*100) / 100,
+				TotalResourceAmount:    math.Round(resAmount*100) / 100,
+				TotalResourceCostRub:   math.Round(resCost*100) / 100,
+				LossShareOfResourcePct: lossOfResourcePct,
+				SharePct:               share,
+				Reason:                 rawWOs[i].reason,
 			})
 		}
 		audit.TopWriteoffsByAmount = topWOAmount
 		audit.TotalWriteoffsCostRub = math.Round(totalWriteoffsCost*100) / 100
+		audit.OpeningStockCostRub = math.Round(totalOpeningStockCost*100) / 100
+		audit.TotalPurchasesPeriodRub = math.Round(totalSpendPeriod*100) / 100
+
+		totalCommodityResource := totalOpeningStockCost + totalSpendPeriod
+		audit.TotalCommodityResourceRub = math.Round(totalCommodityResource*100) / 100
+
 		if monthlyPurchases > 0 {
 			monthlyWOCost := (totalWriteoffsCost / float64(days)) * 30.0
 			audit.WriteoffsSpendSharePct = math.Round((monthlyWOCost/monthlyPurchases)*1000) / 10
+		}
+		if totalCommodityResource > 0 {
+			audit.WriteoffsResourceSharePct = math.Round((totalWriteoffsCost/totalCommodityResource)*1000) / 10
 		}
 	}
 

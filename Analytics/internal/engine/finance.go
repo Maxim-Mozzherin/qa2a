@@ -209,11 +209,15 @@ type ExecutiveFinancialAudit struct {
 	TopPriceHikes         []PriceInflationItem `json:"top_price_hikes,omitempty"`
 	TotalInflationLossRub float64              `json:"total_inflation_loss_rub"`
 
-	// Внутренние списания (потери кухни и бара)
-	TopWriteoffsByCost     []WriteoffLossItem `json:"top_writeoffs_by_cost,omitempty"`
-	TopWriteoffsByAmount   []WriteoffLossItem `json:"top_writeoffs_by_amount,omitempty"`
-	TotalWriteoffsCostRub  float64            `json:"total_writeoffs_cost_rub"`
-	WriteoffsSpendSharePct float64            `json:"writeoffs_spend_share_pct"`
+	// Внутренние списания (потери кухни и бара) с учетом остатков на начало
+	OpeningStockCostRub          float64            `json:"opening_stock_cost_rub"`           // Остатки на складе на начало периода
+	TotalPurchasesPeriodRub      float64            `json:"total_purchases_period_rub"`       // Закупки за анализируемый период
+	TotalCommodityResourceRub    float64            `json:"total_commodity_resource_rub"`     // Совокупный товарный ресурс (Остатки + Закупки)
+	TopWriteoffsByCost           []WriteoffLossItem `json:"top_writeoffs_by_cost,omitempty"`
+	TopWriteoffsByAmount         []WriteoffLossItem `json:"top_writeoffs_by_amount,omitempty"`
+	TotalWriteoffsCostRub        float64            `json:"total_writeoffs_cost_rub"`
+	WriteoffsSpendSharePct       float64            `json:"writeoffs_spend_share_pct"`        // Доля списаний в закупках (%)
+	WriteoffsResourceSharePct    float64            `json:"writeoffs_resource_share_pct"`     // Доля списаний в совокупном ресурсе (%)
 
 	// AI Заключение управленческого аудитора
 	AuditorSummary string `json:"auditor_summary,omitempty"`
@@ -240,13 +244,20 @@ type PriceInflationItem struct {
 }
 
 type WriteoffLossItem struct {
-	Rank         int     `json:"rank"`
-	ProductName  string  `json:"product_name"`
-	Unit         string  `json:"unit"`
-	TotalAmount  float64 `json:"total_amount"`
-	TotalCostRub float64 `json:"total_cost_rub"`
-	SharePct     float64 `json:"share_pct"`
-	Reason       string  `json:"reason,omitempty"`
+	Rank                   int     `json:"rank"`
+	ProductName            string  `json:"product_name"`
+	Unit                   string  `json:"unit"`
+	TotalAmount            float64 `json:"total_amount"`               // Списано (объем)
+	TotalCostRub           float64 `json:"total_cost_rub"`             // Списано (себестоимость в руб)
+	OpeningAmount          float64 `json:"opening_amount"`             // Остаток на начало периода (объем)
+	OpeningCostRub         float64 `json:"opening_cost_rub"`           // Остаток на начало периода (руб)
+	PurchasedAmount        float64 `json:"purchased_amount"`           // Поступило в закупках за период (объем)
+	PurchasedCostRub       float64 `json:"purchased_cost_rub"`         // Поступило в закупках за период (руб)
+	TotalResourceAmount    float64 `json:"total_resource_amount"`      // Совокупный товарный ресурс (Остаток + Закупки, объем)
+	TotalResourceCostRub   float64 `json:"total_resource_cost_rub"`    // Совокупный товарный ресурс (руб)
+	LossShareOfResourcePct float64 `json:"loss_share_of_resource_pct"` // % списания от общего товарного ресурса
+	SharePct               float64 `json:"share_pct"`                  // Доля в общей сумме списаний (%)
+	Reason                 string  `json:"reason,omitempty"`
 }
 
 // CalculateExecutiveAudit производит полный финансово-управленческий аудит переплат ресторана

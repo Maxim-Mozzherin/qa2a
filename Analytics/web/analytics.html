@@ -977,8 +977,11 @@
                                 <p class="text-[9px] text-slate-500">Списания по актам iiko RMS в себестоимости. Контроль брака, порчи, истечения сроков и пересорта.</p>
                             </div>
                             <div id="rep-sheet-writeoffs-total" class="text-right">
-                                <span class="text-[8px] uppercase font-bold text-slate-400">Всего списано:</span>
-                                <span class="text-xs font-black text-amber-700 block font-mono" id="rep-sheet-writeoffs-total-val">0 ₽</span>
+                                <div class="flex items-center justify-end gap-2">
+                                    <span class="text-[8px] uppercase font-bold text-slate-400">Всего списано:</span>
+                                    <span class="text-xs font-black text-amber-700 font-mono" id="rep-sheet-writeoffs-total-val">0 ₽</span>
+                                </div>
+                                <div class="text-[7.5px] text-slate-500 font-medium mt-0.5" id="rep-sheet-writeoffs-sub-val"></div>
                             </div>
                         </div>
                         <div class="rounded-lg border border-slate-200 overflow-hidden">
@@ -987,9 +990,11 @@
                                     <tr>
                                         <th class="py-1 px-1.5 text-center">№</th>
                                         <th class="py-1 px-2 text-left">Списанная позиция</th>
-                                        <th class="py-1 px-2 text-right">Списанный объем</th>
+                                        <th class="py-1 px-2 text-right">Нач. остаток</th>
+                                        <th class="py-1 px-2 text-right">Поступило</th>
+                                        <th class="py-1 px-2 text-right">Списано</th>
                                         <th class="py-1 px-2 text-right">Себестоимость</th>
-                                        <th class="py-1 px-1.5 text-center">Доля</th>
+                                        <th class="py-1 px-1.5 text-center">% ресурса</th>
                                         <th class="py-1 px-2.5 text-left">Причина / статья</th>
                                     </tr>
                                 </thead>
@@ -2760,24 +2765,48 @@
             // 2. Отрисовка таблицы списаний
             const woTbody = document.getElementById('rep-sheet-writeoffs-tbody');
             const woTotalEl = document.getElementById('rep-sheet-writeoffs-total-val');
+            const woSubEl = document.getElementById('rep-sheet-writeoffs-sub-val');
             const topWOCost = currentAudit.top_writeoffs_by_cost || [];
 
             if (woTotalEl) {
                 woTotalEl.textContent = `${formatRub(currentAudit.total_writeoffs_cost_rub || 0)} ₽`;
             }
+            if (woSubEl) {
+                const resShare = currentAudit.writeoffs_resource_share_pct || 0;
+                const opCost = currentAudit.opening_stock_cost_rub || 0;
+                const purchCost = currentAudit.total_purchases_period_rub || 0;
+                if (opCost > 0) {
+                    woSubEl.innerHTML = `Потери: <strong class="text-amber-700 font-bold">${resShare > 0 ? resShare.toFixed(1) + '%' : '—'}</strong> от ресурса (остатки ${formatRub(opCost)} ₽ + закупки ${formatRub(purchCost)} ₽)`;
+                } else if (currentAudit.writeoffs_spend_share_pct > 0) {
+                    woSubEl.innerHTML = `Потери: <strong class="text-amber-700 font-bold">${currentAudit.writeoffs_spend_share_pct.toFixed(1)}%</strong> от закупок`;
+                } else {
+                    woSubEl.textContent = '';
+                }
+            }
 
             if (woTbody) {
                 if (topWOCost.length === 0) {
-                    woTbody.innerHTML = `<tr><td colspan="6" class="py-2.5 text-center text-slate-400 italic">Акты списания за период отсутствуют или не проведены</td></tr>`;
+                    woTbody.innerHTML = `<tr><td colspan="8" class="py-2.5 text-center text-slate-400 italic">Акты списания за период отсутствуют или не проведены</td></tr>`;
                 } else {
                     woTbody.innerHTML = topWOCost.map((w, i) => {
+                        const openingStr = w.opening_amount > 0 ? `${formatVol(w.opening_amount)} ${escapeHtml(w.unit)}` : '—';
+                        const purchStr = w.purchased_amount > 0 ? `${formatVol(w.purchased_amount)} ${escapeHtml(w.unit)}` : '—';
+                        let lossPctHtml = '—';
+                        if (w.loss_share_of_resource_pct > 0) {
+                            lossPctHtml = `<span class="inline-block bg-amber-50 text-amber-800 text-[8px] font-bold px-1.5 py-0.5 rounded border border-amber-200">${w.loss_share_of_resource_pct.toFixed(1)}%</span>`;
+                        } else if (w.share_pct > 0) {
+                            lossPctHtml = `<span class="inline-block bg-slate-100 text-slate-600 text-[8px] font-bold px-1 py-0.5 rounded">${w.share_pct.toFixed(1)}%</span>`;
+                        }
+
                         return `
                             <tr class="hover:bg-slate-50/80">
                                 <td class="py-1 px-1.5 text-center font-mono font-bold text-slate-400 text-[8.5px]">#${w.rank || (i+1)}</td>
                                 <td class="py-1 px-2 font-black text-slate-900">${escapeHtml(w.product_name)}</td>
-                                <td class="py-1 px-2 text-right text-slate-700 font-medium">${formatVol(w.total_amount)} ${escapeHtml(w.unit)}</td>
-                                <td class="py-1 px-2 text-right font-black text-amber-800 font-mono">${formatRub(w.total_cost_rub)} ₽</td>
-                                <td class="py-1 px-1.5 text-center whitespace-nowrap"><span class="inline-block bg-amber-50 text-amber-700 text-[8px] font-bold px-1.5 py-0.5 rounded border border-amber-200">${w.share_pct ? w.share_pct.toFixed(1) + '%' : '—'}</span></td>
+                                <td class="py-1 px-2 text-right text-slate-500 font-medium text-[8px] whitespace-nowrap">${openingStr}</td>
+                                <td class="py-1 px-2 text-right text-slate-700 font-medium text-[8px] whitespace-nowrap">${purchStr}</td>
+                                <td class="py-1 px-2 text-right text-slate-900 font-bold whitespace-nowrap">${formatVol(w.total_amount)} ${escapeHtml(w.unit)}</td>
+                                <td class="py-1 px-2 text-right font-black text-amber-800 font-mono whitespace-nowrap">${formatRub(w.total_cost_rub)} ₽</td>
+                                <td class="py-1 px-1.5 text-center whitespace-nowrap">${lossPctHtml}</td>
                                 <td class="py-1 px-2.5 text-left text-slate-600 text-[8.5px]">${escapeHtml(w.reason || 'Ручное списание')}</td>
                             </tr>
                         `;

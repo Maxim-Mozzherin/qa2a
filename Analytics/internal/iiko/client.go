@@ -294,3 +294,43 @@ func (c *Client) FetchWriteoffs(host, token, dateFrom, dateTo string) ([]Writeof
 	return data.Response, nil
 }
 
+// StoreBalanceItem представляет одну запись остатка товара на складе из iiko
+type StoreBalanceItem struct {
+	Store   string  `json:"store"`
+	Product string  `json:"product"`
+	Amount  float64 `json:"amount"`
+	Sum     float64 `json:"sum"`
+}
+
+// FetchStoreBalances запрашивает снимок остатков по складам на точный момент времени
+// через официальный эндпоинт отчетов по балансам iiko (/resto/api/v2/reports/balance/stores)
+func (c *Client) FetchStoreBalances(host, token, timestamp string) ([]StoreBalanceItem, error) {
+	cleanHost := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(host), "/"), "/resto")
+	urlStr := fmt.Sprintf("%s/resto/api/v2/reports/balance/stores?key=%s&timestamp=%s", cleanHost, url.QueryEscape(token), timestamp)
+	req, err := http.NewRequest("GET", urlStr, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Cookie", fmt.Sprintf("key=%s", token))
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка запроса остатков iiko: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("ошибка получения остатков iiko (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	var items []StoreBalanceItem
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		return nil, fmt.Errorf("ошибка парсинга JSON остатков iiko: %w", err)
+	}
+
+	return items, nil
+}
+
+
