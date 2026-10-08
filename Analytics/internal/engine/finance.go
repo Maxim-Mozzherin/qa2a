@@ -205,6 +205,16 @@ type ExecutiveFinancialAudit struct {
 	UnblurredPositionsCount      int     `json:"unblurred_positions_count"`
 	AuditMode                    string  `json:"audit_mode"` // "demo" | "full"
 
+	// Внутренняя динамика закупочных цен (инфляция за период)
+	TopPriceHikes         []PriceInflationItem `json:"top_price_hikes,omitempty"`
+	TotalInflationLossRub float64              `json:"total_inflation_loss_rub"`
+
+	// Внутренние списания (потери кухни и бара)
+	TopWriteoffsByCost     []WriteoffLossItem `json:"top_writeoffs_by_cost,omitempty"`
+	TopWriteoffsByAmount   []WriteoffLossItem `json:"top_writeoffs_by_amount,omitempty"`
+	TotalWriteoffsCostRub  float64            `json:"total_writeoffs_cost_rub"`
+	WriteoffsSpendSharePct float64            `json:"writeoffs_spend_share_pct"`
+
 	// AI Заключение управленческого аудитора
 	AuditorSummary string `json:"auditor_summary,omitempty"`
 
@@ -212,6 +222,31 @@ type ExecutiveFinancialAudit struct {
 	CohortConfig           CohortConfig  `json:"cohort_config"`
 	TotalAnalyzedPositions int           `json:"total_analyzed_positions"`
 	TotalInvoicesCount     int           `json:"total_invoices_count"`
+}
+
+type PriceInflationItem struct {
+	Rank                      int     `json:"rank"`
+	ProductName               string  `json:"product_name"`
+	SupplierName              string  `json:"supplier_name"`
+	Unit                      string  `json:"unit"`
+	FirstPrice                float64 `json:"first_price"`
+	FirstDocDate              string  `json:"first_doc_date"`
+	LastPrice                 float64 `json:"last_price"`
+	LastDocDate               string  `json:"last_doc_date"`
+	PriceDiffRub              float64 `json:"price_diff_rub"`
+	PriceDiffPercent          float64 `json:"price_diff_percent"`
+	PeriodVolume              float64 `json:"period_volume"`
+	EstimatedInflationLossRub float64 `json:"estimated_inflation_loss_rub"`
+}
+
+type WriteoffLossItem struct {
+	Rank         int     `json:"rank"`
+	ProductName  string  `json:"product_name"`
+	Unit         string  `json:"unit"`
+	TotalAmount  float64 `json:"total_amount"`
+	TotalCostRub float64 `json:"total_cost_rub"`
+	SharePct     float64 `json:"share_pct"`
+	Reason       string  `json:"reason,omitempty"`
 }
 
 // CalculateExecutiveAudit производит полный финансово-управленческий аудит переплат ресторана
@@ -391,6 +426,27 @@ func ApplyFreemiumMask(audit *ExecutiveFinancialAudit, mode string, unblurCount 
 			item.SuppliersBreakdown = nil
 			item.MarketPeers = nil
 			item.PriceTrendNote = "Доступно в полном отчете"
+		}
+	}
+
+	for i := range audit.TopPriceHikes {
+		if audit.TopPriceHikes[i].Rank > unblurCount {
+			audit.TopPriceHikes[i].ProductName = "[Скрыто в демо-версии]"
+			audit.TopPriceHikes[i].SupplierName = "Скрытый поставщик"
+		}
+	}
+
+	for i := range audit.TopWriteoffsByCost {
+		if audit.TopWriteoffsByCost[i].Rank > unblurCount {
+			audit.TopWriteoffsByCost[i].ProductName = "[Скрыто в демо-версии]"
+			audit.TopWriteoffsByCost[i].Reason = "Скрыто в демо"
+		}
+	}
+
+	for i := range audit.TopWriteoffsByAmount {
+		if audit.TopWriteoffsByAmount[i].Rank > unblurCount {
+			audit.TopWriteoffsByAmount[i].ProductName = "[Скрыто в демо-версии]"
+			audit.TopWriteoffsByAmount[i].Reason = "Скрыто в демо"
 		}
 	}
 

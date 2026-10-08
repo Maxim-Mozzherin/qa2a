@@ -327,7 +327,7 @@
                 <div class="flex flex-col lg:flex-row items-center lg:items-start justify-center gap-5 sm:gap-8">
                     
                     <!-- Кнопки переключения страниц (Сбоку на десктопе, сверху на мобиле) -->
-                    <div class="w-full lg:w-72 shrink-0 grid grid-cols-3 lg:flex lg:flex-col gap-1.5 sm:gap-2.5 sticky top-20 sm:top-24 z-20 bg-slate-100/90 lg:bg-transparent backdrop-blur-md lg:backdrop-blur-none p-1 lg:p-0 rounded-2xl border border-slate-200/80 lg:border-none">
+                    <div class="w-full lg:w-72 shrink-0 grid grid-cols-2 sm:grid-cols-4 lg:flex lg:flex-col gap-1.5 sm:gap-2.5 sticky top-20 sm:top-24 z-20 bg-slate-100/90 lg:bg-transparent backdrop-blur-md lg:backdrop-blur-none p-1 lg:p-0 rounded-2xl border border-slate-200/80 lg:border-none">
                         
                         <button type="button" onclick="switchReportPage(1)" id="report-tab-btn-1" class="report-tab-btn flex-1 lg:w-full text-left p-2 sm:p-3.5 lg:p-4 rounded-xl sm:rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 border border-indigo-600 transition-all flex flex-col justify-between group active:scale-95">
                             <div class="mb-1">
@@ -351,6 +351,14 @@
                             </div>
                             <div class="title-tag font-bold text-xs sm:text-sm leading-snug text-slate-900 truncate sm:overflow-visible">Скрытые строки</div>
                             <div class="desc-tag text-[11px] text-slate-500 mt-1 hidden lg:block">Позиции #4–#20 и резерв на 51 201 ₽/мес</div>
+                        </button>
+
+                        <button type="button" onclick="switchReportPage(4)" id="report-tab-btn-4" class="report-tab-btn flex-1 lg:w-full text-left p-2 sm:p-3.5 lg:p-4 rounded-xl sm:rounded-2xl bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 transition-all flex flex-col justify-between group active:scale-95">
+                            <div class="mb-1">
+                                <span class="page-tag text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold">Стр. 4</span>
+                            </div>
+                            <div class="title-tag font-bold text-xs sm:text-sm leading-snug text-slate-900 truncate sm:overflow-visible">Инфляция и списания</div>
+                            <div class="desc-tag text-[11px] text-slate-500 mt-1 hidden lg:block">Рост цен поставщиков и аудит кухни</div>
                         </button>
 
                         <!-- Кнопка быстрого вызова аудита под табами -->
@@ -925,6 +933,185 @@
                                 </div>
                             </div>
 
+                        </div>
+
+                        <!-- =================== СТРАНИЦА 4: ИНФЛЯЦИЯ И СПИСАНИЯ =================== -->
+                        <div id="report-page-4" class="report-page hidden space-y-4">
+                            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-200 pb-2.5 gap-2">
+                                <div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-[10px] font-black tracking-widest text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded font-mono">ВНУТРЕННИЙ АУДИТ</span>
+                                        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Данные накладных и актов iiko</span>
+                                    </div>
+                                    <h3 class="text-sm font-black text-slate-900 uppercase tracking-wider mt-1">Динамика цен поставщиков и списания сырья</h3>
+                                    <p class="text-[10px] text-slate-500">Анализ строится строго на ваших внутренних документах: скрытый рост цен от поставщиков и ручные списания кухни</p>
+                                </div>
+                                <span class="text-[10px] text-emerald-800 font-bold bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg shrink-0">100% твёрдые факты заведения</span>
+                            </div>
+
+                            <!-- Блок 1: Динамика цен поставщиков -->
+                            <div class="rounded-xl border border-slate-200 p-3 sm:p-4 bg-white space-y-2.5 shadow-xs">
+                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1 border-b border-slate-100 pb-2">
+                                    <div>
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
+                                            <h4 class="text-xs font-black text-slate-900 uppercase tracking-wide">Топ-5 подорожавших товаров за период</h4>
+                                        </div>
+                                        <p class="text-[9.5px] text-slate-500 mt-0.5">Сравнение цены первой и последней накладной за 60 дней. Где поставщики тихо подняли цены.</p>
+                                    </div>
+                                    <div class="text-left sm:text-right shrink-0">
+                                        <div class="text-[8px] uppercase font-bold text-slate-400">Ущерб от роста: <span class="text-xs font-black text-rose-600 font-mono">-42 800 ₽</span></div>
+                                    </div>
+                                </div>
+
+                                <div class="rounded-lg border border-slate-200 overflow-x-auto custom-scrollbar">
+                                    <table class="w-full text-left text-[9px] min-w-[560px]">
+                                        <thead class="bg-slate-100 text-[7.5px] uppercase font-bold text-slate-600 border-b border-slate-200">
+                                            <tr>
+                                                <th class="py-1 px-1.5 text-center">№</th>
+                                                <th class="py-1 px-2 text-left">Товар</th>
+                                                <th class="py-1 px-2 text-left">Поставщик</th>
+                                                <th class="py-1 px-2 text-right">Первая закупка</th>
+                                                <th class="py-1 px-2 text-right">Посл. закупка</th>
+                                                <th class="py-1 px-2 text-right">Рост цены</th>
+                                                <th class="py-1 px-2 text-right">Объем</th>
+                                                <th class="py-1 px-2.5 text-right">Ущерб за период</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-100">
+                                            <tr class="hover:bg-slate-50/80">
+                                                <td class="py-1.5 px-1.5 text-center font-bold text-slate-400">#1</td>
+                                                <td class="py-1.5 px-2 font-black text-slate-900">Сливки 33-35% для взбивания, 1 л</td>
+                                                <td class="py-1.5 px-2 text-slate-600 font-medium">Молочный комбинат (Дистрибьютор)</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-600">320.00 ₽ <span class="text-[7px] text-slate-400 block">04.08.2026</span></td>
+                                                <td class="py-1.5 px-2 text-right font-black text-slate-900">396.00 ₽ <span class="text-[7px] text-slate-400 block">28.09.2026</span></td>
+                                                <td class="py-1.5 px-2 text-right font-bold text-rose-600 font-mono">+23.8% (+76 ₽)</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-700 font-medium">240 л</td>
+                                                <td class="py-1.5 px-2.5 text-right font-black text-rose-600 font-mono">-18 240 ₽</td>
+                                            </tr>
+                                            <tr class="hover:bg-slate-50/80">
+                                                <td class="py-1.5 px-1.5 text-center font-bold text-slate-400">#2</td>
+                                                <td class="py-1.5 px-2 font-black text-slate-900">Филе куриной грудки охл., кг</td>
+                                                <td class="py-1.5 px-2 text-slate-600 font-medium">Мясной ТД Урал</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-600">310.00 ₽ <span class="text-[7px] text-slate-400 block">10.08.2026</span></td>
+                                                <td class="py-1.5 px-2 text-right font-black text-slate-900">368.00 ₽ <span class="text-[7px] text-slate-400 block">29.09.2026</span></td>
+                                                <td class="py-1.5 px-2 text-right font-bold text-rose-600 font-mono">+18.7% (+58 ₽)</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-700 font-medium">195 кг</td>
+                                                <td class="py-1.5 px-2.5 text-right font-black text-rose-600 font-mono">-11 310 ₽</td>
+                                            </tr>
+                                            <tr class="hover:bg-slate-50/80">
+                                                <td class="py-1.5 px-1.5 text-center font-bold text-slate-400">#3</td>
+                                                <td class="py-1.5 px-2 font-black text-slate-900">Лосось атлантический филе TRIM D</td>
+                                                <td class="py-1.5 px-2 text-slate-600 font-medium">Федеральный дистрибьютор (Рыба)</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-600">1 850.00 ₽ <span class="text-[7px] text-slate-400 block">12.08.2026</span></td>
+                                                <td class="py-1.5 px-2 text-right font-black text-slate-900">2 140.00 ₽ <span class="text-[7px] text-slate-400 block">25.09.2026</span></td>
+                                                <td class="py-1.5 px-2 text-right font-bold text-rose-600 font-mono">+15.7% (+290 ₽)</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-700 font-medium">32 кг</td>
+                                                <td class="py-1.5 px-2.5 text-right font-black text-rose-600 font-mono">-9 280 ₽</td>
+                                            </tr>
+                                            <tr class="hover:bg-slate-50/80 opacity-70">
+                                                <td class="py-1.5 px-1.5 text-center font-bold text-slate-400">#4</td>
+                                                <td class="py-1.5 px-2 font-black text-slate-900">Масло фритюрное специальное, 10 л</td>
+                                                <td class="py-1.5 px-2 text-slate-500 font-medium">ОптСнабжение [Скрыто]</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-600">1 420.00 ₽</td>
+                                                <td class="py-1.5 px-2 text-right font-black text-slate-900">1 590.00 ₽</td>
+                                                <td class="py-1.5 px-2 text-right font-bold text-rose-600 font-mono">+12.0% (+170 ₽)</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-700 font-medium">18 шт</td>
+                                                <td class="py-1.5 px-2.5 text-right font-black text-rose-600 font-mono">-3 060 ₽</td>
+                                            </tr>
+                                            <tr class="hover:bg-slate-50/80 opacity-60">
+                                                <td class="py-1.5 px-1.5 text-center font-bold text-slate-400">#5</td>
+                                                <td class="py-1.5 px-2 font-black text-slate-900">Сыр Моцарелла пицца 45% брус</td>
+                                                <td class="py-1.5 px-2 text-slate-500 font-medium">Сырная компания [Скрыто]</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-600">510.00 ₽</td>
+                                                <td class="py-1.5 px-2 text-right font-black text-slate-900">565.00 ₽</td>
+                                                <td class="py-1.5 px-2 text-right font-bold text-rose-600 font-mono">+10.8% (+55 ₽)</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-700 font-medium">16.5 кг</td>
+                                                <td class="py-1.5 px-2.5 text-right font-black text-rose-600 font-mono">-910 ₽</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Блок 2: Аудит ручных списаний -->
+                            <div class="rounded-xl border border-slate-200 p-3 sm:p-4 bg-white space-y-2.5 shadow-xs">
+                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1 border-b border-slate-100 pb-2">
+                                    <div>
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+                                            <h4 class="text-xs font-black text-slate-900 uppercase tracking-wide">Топ ручных списаний по себестоимости</h4>
+                                        </div>
+                                        <p class="text-[9.5px] text-slate-500 mt-0.5">Списания по актам iiko RMS в себестоимости. Утечки кухни: брак, порча, проработки и пересорт.</p>
+                                    </div>
+                                    <div class="text-left sm:text-right shrink-0">
+                                        <div class="text-[8px] uppercase font-bold text-slate-400">Всего списано: <span class="text-xs font-black text-amber-700 font-mono">68 780 ₽ (1.1% закупок)</span></div>
+                                    </div>
+                                </div>
+
+                                <div class="rounded-lg border border-slate-200 overflow-x-auto custom-scrollbar">
+                                    <table class="w-full text-left text-[9px] min-w-[560px]">
+                                        <thead class="bg-slate-100 text-[7.5px] uppercase font-bold text-slate-600 border-b border-slate-200">
+                                            <tr>
+                                                <th class="py-1 px-1.5 text-center">№</th>
+                                                <th class="py-1 px-2 text-left">Списанная позиция</th>
+                                                <th class="py-1 px-2 text-right">Объем</th>
+                                                <th class="py-1 px-2 text-right">Себестоимость</th>
+                                                <th class="py-1 px-1.5 text-center">Доля</th>
+                                                <th class="py-1 px-2.5 text-left">Причина / статья списания</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-100">
+                                            <tr class="hover:bg-slate-50/80">
+                                                <td class="py-1.5 px-1.5 text-center font-bold text-slate-400">#1</td>
+                                                <td class="py-1.5 px-2 font-black text-slate-900">Вырезка говяжья зачищенная, кг</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-700 font-medium">16.4 кг</td>
+                                                <td class="py-1.5 px-2 text-right font-black text-amber-800 font-mono">22 960 ₽</td>
+                                                <td class="py-1.5 px-1.5 text-center"><span class="inline-block bg-amber-50 text-amber-800 text-[8px] font-bold px-1.5 py-0.5 rounded border border-amber-200">33.4%</span></td>
+                                                <td class="py-1.5 px-2.5 text-left text-slate-600">Истечение срока хранения / заветривание</td>
+                                            </tr>
+                                            <tr class="hover:bg-slate-50/80">
+                                                <td class="py-1.5 px-1.5 text-center font-bold text-slate-400">#2</td>
+                                                <td class="py-1.5 px-2 font-black text-slate-900">Лосось охлажденный (обрезь/брак), кг</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-700 font-medium">7.8 кг</td>
+                                                <td class="py-1.5 px-2 text-right font-black text-amber-800 font-mono">16 380 ₽</td>
+                                                <td class="py-1.5 px-1.5 text-center"><span class="inline-block bg-amber-50 text-amber-800 text-[8px] font-bold px-1.5 py-0.5 rounded border border-amber-200">23.8%</span></td>
+                                                <td class="py-1.5 px-2.5 text-left text-slate-600">Брак разделки поварами / пересорт</td>
+                                            </tr>
+                                            <tr class="hover:bg-slate-50/80">
+                                                <td class="py-1.5 px-1.5 text-center font-bold text-slate-400">#3</td>
+                                                <td class="py-1.5 px-2 font-black text-slate-900">Сыр Пармезан 12 мес. колотый</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-700 font-medium">5.2 кг</td>
+                                                <td class="py-1.5 px-2 text-right font-black text-amber-800 font-mono">7 800 ₽</td>
+                                                <td class="py-1.5 px-1.5 text-center"><span class="inline-block bg-amber-50 text-amber-800 text-[8px] font-bold px-1.5 py-0.5 rounded border border-amber-200">11.3%</span></td>
+                                                <td class="py-1.5 px-2.5 text-left text-slate-600">Проработка сезонного меню шефом</td>
+                                            </tr>
+                                            <tr class="hover:bg-slate-50/80 opacity-70">
+                                                <td class="py-1.5 px-1.5 text-center font-bold text-slate-400">#4</td>
+                                                <td class="py-1.5 px-2 font-black text-slate-900">Соус Песто готовый п/ф [Скрыто]</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-700 font-medium">4.5 кг</td>
+                                                <td class="py-1.5 px-2 text-right font-black text-amber-800 font-mono">5 850 ₽</td>
+                                                <td class="py-1.5 px-1.5 text-center"><span class="inline-block bg-amber-50 text-amber-800 text-[8px] font-bold px-1.5 py-0.5 rounded border border-amber-200">8.5%</span></td>
+                                                <td class="py-1.5 px-2.5 text-left text-slate-600">Порча п/ф на заготовке</td>
+                                            </tr>
+                                            <tr class="hover:bg-slate-50/80 opacity-60">
+                                                <td class="py-1.5 px-1.5 text-center font-bold text-slate-400">#5</td>
+                                                <td class="py-1.5 px-2 font-black text-slate-900">Овощи свежие микс (томаты, черри)</td>
+                                                <td class="py-1.5 px-2 text-right text-slate-700 font-medium">18.0 кг</td>
+                                                <td class="py-1.5 px-2 text-right font-black text-amber-800 font-mono">4 140 ₽</td>
+                                                <td class="py-1.5 px-1.5 text-center"><span class="inline-block bg-amber-50 text-amber-800 text-[8px] font-bold px-1.5 py-0.5 rounded border border-amber-200">6.0%</span></td>
+                                                <td class="py-1.5 px-2.5 text-left text-slate-600">Потеря товарного вида</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Сноска внизу листа 4 -->
+                            <div class="rounded-lg bg-slate-50 border border-slate-200 p-2 text-[9px] text-slate-600 flex items-center justify-between">
+                                <span>Данные рассчитываются напрямую из вашей базы iiko RMS. Не требуют данных других ресторанов.</span>
+                                <span class="font-bold text-indigo-700 font-mono">QA2A RMS ENGINE</span>
+                            </div>
                         </div>
 
                     </div>
@@ -2041,7 +2228,7 @@
             }
 
             // Обновить визуальное состояние кнопок переключения
-            for (let i = 1; i <= 3; i++) {
+            for (let i = 1; i <= 4; i++) {
                 const btn = document.getElementById(`report-tab-btn-${i}`);
                 if (!btn) continue;
                 const pageSpan = btn.querySelector('.page-tag');

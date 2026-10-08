@@ -168,6 +168,84 @@
             </div>
         </div>
 
+        <!-- Разделитель страниц для печати -->
+        <div class="force-break-before pt-2"></div>
+
+        <!-- ТРЕТЬЯ СТРАНИЦА: ДИНАМИКА ЦЕН И СПИСАНИЯ СЫРЬЯ -->
+        <div class="space-y-3.5">
+            
+            <!-- Таблица 1: Динамика цен поставщиков (Инфляция сырья) -->
+            <div id="rep-sheet-inflation-section" class="space-y-2 avoid-break">
+                <div class="flex justify-between items-center border-b border-slate-200 pb-1.5">
+                    <div>
+                        <h4 class="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                            Динамика цен поставщиков (Топ-5 подорожавших товаров)
+                        </h4>
+                        <p class="text-[9px] text-slate-500">Сравнение цен первой и последней накладной за период. Скрытый рост цен от регулярных поставщиков.</p>
+                    </div>
+                    <div id="rep-sheet-inflation-total" class="text-right">
+                        <span class="text-[8px] uppercase font-bold text-slate-400">Ущерб от роста:</span>
+                        <span class="text-xs font-black text-rose-600 block font-mono" id="rep-sheet-inflation-total-val">0 ₽</span>
+                    </div>
+                </div>
+                <div class="rounded-lg border border-slate-200 overflow-hidden">
+                    <table class="w-full text-left text-[9px]">
+                        <thead class="bg-slate-100 text-[8px] uppercase font-bold text-slate-600 border-b border-slate-200">
+                            <tr>
+                                <th class="py-1 px-1.5 text-center">№</th>
+                                <th class="py-1 px-2 text-left">Товар</th>
+                                <th class="py-1 px-2 text-left">Поставщик</th>
+                                <th class="py-1 px-2 text-right">Первая закупка</th>
+                                <th class="py-1 px-2 text-right">Посл. закупка</th>
+                                <th class="py-1 px-2 text-right">Рост цены</th>
+                                <th class="py-1 px-2 text-right">Объем</th>
+                                <th class="py-1 px-2.5 text-right">Ущерб от роста</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rep-sheet-inflation-tbody" class="divide-y divide-slate-100">
+                            <!-- Заполняется JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Таблица 2: Внутренние списания сырья -->
+            <div id="rep-sheet-writeoffs-section" class="space-y-2 avoid-break mt-3">
+                <div class="flex justify-between items-center border-b border-slate-200 pb-1.5">
+                    <div>
+                        <h4 class="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                            Аудит списаний (Топ потерь кухни и бара)
+                        </h4>
+                        <p class="text-[9px] text-slate-500">Списания по актам iiko RMS в себестоимости. Контроль брака, порчи, истечения сроков и пересорта.</p>
+                    </div>
+                    <div id="rep-sheet-writeoffs-total" class="text-right">
+                        <span class="text-[8px] uppercase font-bold text-slate-400">Всего списано:</span>
+                        <span class="text-xs font-black text-amber-700 block font-mono" id="rep-sheet-writeoffs-total-val">0 ₽</span>
+                    </div>
+                </div>
+                <div class="rounded-lg border border-slate-200 overflow-hidden">
+                    <table class="w-full text-left text-[9px]">
+                        <thead class="bg-slate-100 text-[8px] uppercase font-bold text-slate-600 border-b border-slate-200">
+                            <tr>
+                                <th class="py-1 px-1.5 text-center">№</th>
+                                <th class="py-1 px-2 text-left">Списанная позиция</th>
+                                <th class="py-1 px-2 text-right">Списанный объем</th>
+                                <th class="py-1 px-2 text-right">Себестоимость</th>
+                                <th class="py-1 px-1.5 text-center">Доля</th>
+                                <th class="py-1 px-2.5 text-left">Причина / статья</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rep-sheet-writeoffs-tbody" class="divide-y divide-slate-100">
+                            <!-- Заполняется JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
         <!-- Блок «Методология и правила формирования финансового среза» -->
         <div id="rep-sheet-methodology" class="pt-3 border-t border-slate-200 space-y-2 text-slate-600 avoid-break mt-4">
             <div class="flex items-center justify-between">
@@ -440,6 +518,65 @@
                 `;
                 cardsContainer.appendChild(card);
             });
+
+            // 1. Отрисовка таблицы подорожавших товаров (Инфляция цен)
+            const inflTbody = document.getElementById('rep-sheet-inflation-tbody');
+            const inflTotalEl = document.getElementById('rep-sheet-inflation-total-val');
+            const topHikes = currentAudit.top_price_hikes || [];
+            
+            if (inflTotalEl) {
+                inflTotalEl.textContent = `-${formatRub(currentAudit.total_inflation_loss_rub || 0)} ₽`;
+            }
+
+            if (inflTbody) {
+                if (topHikes.length === 0) {
+                    inflTbody.innerHTML = `<tr><td colspan="8" class="py-2.5 text-center text-slate-400 italic">Подорожаний по регулярным позициям за период не выявлено</td></tr>`;
+                } else {
+                    inflTbody.innerHTML = topHikes.map((h, i) => {
+                        const diffPct = h.price_diff_percent || 0;
+                        return `
+                            <tr class="hover:bg-slate-50/80">
+                                <td class="py-1 px-1.5 text-center font-mono font-bold text-slate-400 text-[8.5px]">#${h.rank || (i+1)}</td>
+                                <td class="py-1 px-2 font-black text-slate-900">${escapeHtml(h.product_name)}</td>
+                                <td class="py-1 px-2 text-slate-600 font-medium">${escapeHtml(h.supplier_name)}</td>
+                                <td class="py-1 px-2 text-right font-medium text-slate-700">${h.first_price.toFixed(2)} ₽ <span class="text-[7.5px] text-slate-400 block">${h.first_doc_date || ''}</span></td>
+                                <td class="py-1 px-2 text-right font-black text-slate-900">${h.last_price.toFixed(2)} ₽ <span class="text-[7.5px] text-slate-400 block">${h.last_doc_date || ''}</span></td>
+                                <td class="py-1 px-2 text-right font-bold text-rose-600">+${diffPct.toFixed(1)}% <span class="text-[7.5px] block font-normal">(+${h.price_diff_rub.toFixed(2)} ₽)</span></td>
+                                <td class="py-1 px-2 text-right text-slate-700 font-medium">${formatVol(h.period_volume)} ${escapeHtml(h.unit)}</td>
+                                <td class="py-1 px-2.5 text-right font-black text-rose-600 font-mono">-${formatRub(h.estimated_inflation_loss_rub)} ₽</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+            }
+
+            // 2. Отрисовка таблицы списаний
+            const woTbody = document.getElementById('rep-sheet-writeoffs-tbody');
+            const woTotalEl = document.getElementById('rep-sheet-writeoffs-total-val');
+            const topWOCost = currentAudit.top_writeoffs_by_cost || [];
+
+            if (woTotalEl) {
+                woTotalEl.textContent = `${formatRub(currentAudit.total_writeoffs_cost_rub || 0)} ₽`;
+            }
+
+            if (woTbody) {
+                if (topWOCost.length === 0) {
+                    woTbody.innerHTML = `<tr><td colspan="6" class="py-2.5 text-center text-slate-400 italic">Акты списания за период отсутствуют или не проведены</td></tr>`;
+                } else {
+                    woTbody.innerHTML = topWOCost.map((w, i) => {
+                        return `
+                            <tr class="hover:bg-slate-50/80">
+                                <td class="py-1 px-1.5 text-center font-mono font-bold text-slate-400 text-[8.5px]">#${w.rank || (i+1)}</td>
+                                <td class="py-1 px-2 font-black text-slate-900">${escapeHtml(w.product_name)}</td>
+                                <td class="py-1 px-2 text-right text-slate-700 font-medium">${formatVol(w.total_amount)} ${escapeHtml(w.unit)}</td>
+                                <td class="py-1 px-2 text-right font-black text-amber-800 font-mono">${formatRub(w.total_cost_rub)} ₽</td>
+                                <td class="py-1 px-1.5 text-center whitespace-nowrap"><span class="inline-block bg-amber-50 text-amber-700 text-[8px] font-bold px-1.5 py-0.5 rounded border border-amber-200">${w.share_pct ? w.share_pct.toFixed(1) + '%' : '—'}</span></td>
+                                <td class="py-1 px-2.5 text-left text-slate-600 text-[8.5px]">${escapeHtml(w.reason || 'Ручное списание')}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+            }
         }
 
         function renderReportMarketChart() {

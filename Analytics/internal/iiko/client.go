@@ -1,6 +1,7 @@
 package iiko
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -234,3 +235,62 @@ func (c *Client) FetchCatalog(host, token string) (map[string]string, error) {
 	}
 	return res, nil
 }
+
+type WriteoffResponseDTO struct {
+	Result   string                `json:"result"`
+	Errors   []string              `json:"errors"`
+	Response []WriteoffDocumentDTO `json:"response"`
+	Revision int64                 `json:"revision"`
+}
+
+type WriteoffDocumentDTO struct {
+	ID             string                    `json:"id"`
+	DateIncoming   string                    `json:"dateIncoming"`
+	DocumentNumber string                    `json:"documentNumber"`
+	Status         string                    `json:"status"`
+	ConceptionID   string                    `json:"conceptionId"`
+	Comment        string                    `json:"comment"`
+	StoreID        string                    `json:"storeId"`
+	AccountID      string                    `json:"accountId"`
+	Items          []WriteoffDocumentItemDTO `json:"items"`
+}
+
+type WriteoffDocumentItemDTO struct {
+	Num           int      `json:"num"`
+	ProductID     string   `json:"productId"`
+	ProductSizeID *string  `json:"productSizeId"`
+	AmountFactor  float64  `json:"amountFactor"`
+	Amount        float64  `json:"amount"`
+	MeasureUnitID string   `json:"measureUnitId"`
+	Cost          *float64 `json:"cost"`
+}
+
+func (c *Client) FetchWriteoffs(host, token, dateFrom, dateTo string) ([]WriteoffDocumentDTO, error) {
+	cleanHost := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(host), "/"), "/resto")
+	urlStr := fmt.Sprintf("%s/resto/api/v2/documents/writeoff?key=%s&dateFrom=%s&dateTo=%s", cleanHost, url.QueryEscape(token), dateFrom, dateTo)
+	req, err := http.NewRequest("GET", urlStr, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Cookie", fmt.Sprintf("key=%s", token))
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка запроса актов списания: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("ошибка получения актов списания iiko (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	var data WriteoffResponseDTO
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("ошибка парсинга JSON актов списания: %w", err)
+	}
+
+	return data.Response, nil
+}
+

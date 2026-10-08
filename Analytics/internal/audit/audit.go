@@ -117,17 +117,27 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 		invoicesCount int
 	}
 
+	type rawInvoiceRecord struct {
+		price    float64
+		qty      float64
+		docDate  string
+		supplier string
+	}
+
 	type rawProductGroup struct {
-		name        string
-		brand       string
-		category    string
-		isCommodity bool
-		unit        string
-		totalQty    float64
-		totalSum    float64
-		lastPrice   float64
-		lastDocDate string
-		suppliers   map[string]*rawSupItem
+		name         string
+		brand        string
+		category     string
+		isCommodity  bool
+		unit         string
+		totalQty     float64
+		totalSum     float64
+		lastPrice    float64
+		lastDocDate  string
+		firstPrice   float64
+		firstDocDate string
+		suppliers    map[string]*rawSupItem
+		history      []rawInvoiceRecord
 	}
 
 	productMap := make(map[string]*rawProductGroup)
@@ -159,6 +169,13 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 			if pg.unit == "" && unit != "" {
 				pg.unit = unit
 			}
+
+			pg.history = append(pg.history, rawInvoiceRecord{
+				price:    price,
+				qty:      qty,
+				docDate:  docDate,
+				supplier: cleanSup,
+			})
 
 			sup, supExists := pg.suppliers[cleanSup]
 			if !supExists {
@@ -538,6 +555,158 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 		audit.OffContractSpendSharePct = math.Round((monthlyOffContract/monthlyPurchases)*10000) / 100
 	}
 	audit.OffContractAvgMarkupPct = 24.5
+
+	// 5. Расчет динамики цен (инфляция цен поставщиков за период)
+	var inflationCandidates []engine.PriceInflationItem
+	var totalInflationLoss float64
+
+	for _, pName := range orderedProductNames {
+		pg := productMap[pName]
+		if len(pg.history) < 2 {
+			continue
+		}
+
+		sort.Slice(pg.history, func(i, j int) bool {
+			if pg.history[i].docDate != pg.history[j].docDate {
+				return pg.history[i].docDate < pg.history[j].docDate
+			}
+			return pg.history[i].price < pg.history[j].price
+		})
+
+		firstRec := pg.history[0]
+		lastRec := pg.history[len(pg.history)-1]
+
+		if firstRec.price <= 0 || lastRec.price <= firstRec.price {
+			continue
+		}
+
+		priceDiffRub := lastRec.price - firstRec.price
+		priceDiffPct := (priceDiffRub / firstRec.price) * 100.0
+
+		// Сумма реального ущерба от роста цены
+		var lossRub float64
+		for _, rec := range pg.history {
+			if rec.price > firstRec.price {
+				lossRub += (rec.price - firstRec.price) * rec.qty
+			}
+		}
+		if lossRub <= 0 && priceDiffRub > 0 {
+			lossRub = priceDiffRub * (pg.totalQty / 2.0)
+		}
+
+		totalInflationLoss += lossRub
+
+		supName := lastRec.supplier
+		if supName == "" {
+			supName = "Не указан"
+		}
+
+		inflationCandidates = append(inflationCandidates, engine.PriceInflationItem{
+			ProductName:               pg.name,
+			SupplierName:              supName,
+			Unit:                      pg.unit,
+			FirstPrice:                math.Round(firstRec.price*100) / 100,
+			FirstDocDate:              firstRec.docDate,
+			LastPrice:                 math.Round(lastRec.price*100) / 100,
+			LastDocDate:               lastRec.docDate,
+			PriceDiffRub:              math.Round(priceDiffRub*100) / 100,
+			PriceDiffPercent:          math.Round(priceDiffPct*10) / 10,
+			PeriodVolume:              math.Round(pg.totalQty*100) / 100,
+			EstimatedInflationLossRub: math.Round(lossRub*100) / 100,
+		})
+	}
+
+	sort.Slice(inflationCandidates, func(i, j int) bool {
+		if inflationCandidates[i].EstimatedInflationLossRub != inflationCandidates[j].EstimatedInflationLossRub {
+			return inflationCandidates[i].EstimatedInflationLossRub > inflationCandidates[j].EstimatedInflationLossRub
+		}
+		return inflationCandidates[i].PriceDiffPercent > inflationCandidates[j].PriceDiffPercent
+	})
+
+	var topPriceHikes []engine.PriceInflationItem
+	for i := 0; i < len(inflationCandidates) && i < 5; i++ {
+		cand := inflationCandidates[i]
+		cand.Rank = i + 1
+		topPriceHikes = append(topPriceHikes, cand)
+	}
+	audit.TopPriceHikes = topPriceHikes
+	audit.TotalInflationLossRub = math.Round(totalInflationLoss*100) / 100
+
+	// 6. Сбор и расчет ручных списаний (Write-offs)
+	rowsWriteoffs, errW := db.QueryContext(ctx, `
+		SELECT 
+			product_name,
+			unit,
+			COALESCE(SUM(amount), 0) as total_amount,
+			COALESCE(SUM(cost), 0) as total_cost,
+			COALESCE(NULLIF(comment, ''), 'Ручное списание') as reason
+		FROM analytics_writeoff_items
+		WHERE restaurant_id = $1 AND doc_date >= $2
+		GROUP BY product_name, unit, reason
+	`, restID, startDate)
+	if errW == nil {
+		type woAgg struct {
+			productName string
+			unit        string
+			amount      float64
+			cost        float64
+			reason      string
+		}
+		var rawWOs []woAgg
+		var totalWriteoffsCost float64
+		for rowsWriteoffs.Next() {
+			var w woAgg
+			if errScan := rowsWriteoffs.Scan(&w.productName, &w.unit, &w.amount, &w.cost, &w.reason); errScan == nil {
+				totalWriteoffsCost += w.cost
+				rawWOs = append(rawWOs, w)
+			}
+		}
+		rowsWriteoffs.Close()
+
+		// Топ по стоимости
+		sort.Slice(rawWOs, func(i, j int) bool {
+			return rawWOs[i].cost > rawWOs[j].cost
+		})
+		var topWOCost []engine.WriteoffLossItem
+		for i := 0; i < len(rawWOs) && i < 5; i++ {
+			share := 0.0
+			if totalWriteoffsCost > 0 {
+				share = math.Round((rawWOs[i].cost/totalWriteoffsCost)*1000) / 10
+			}
+			topWOCost = append(topWOCost, engine.WriteoffLossItem{
+				Rank:         i + 1,
+				ProductName:  rawWOs[i].productName,
+				Unit:         rawWOs[i].unit,
+				TotalAmount:  math.Round(rawWOs[i].amount*100) / 100,
+				TotalCostRub: math.Round(rawWOs[i].cost*100) / 100,
+				SharePct:     share,
+				Reason:       rawWOs[i].reason,
+			})
+		}
+		audit.TopWriteoffsByCost = topWOCost
+
+		// Топ по объему
+		sort.Slice(rawWOs, func(i, j int) bool {
+			return rawWOs[i].amount > rawWOs[j].amount
+		})
+		var topWOAmount []engine.WriteoffLossItem
+		for i := 0; i < len(rawWOs) && i < 5; i++ {
+			topWOAmount = append(topWOAmount, engine.WriteoffLossItem{
+				Rank:         i + 1,
+				ProductName:  rawWOs[i].productName,
+				Unit:         rawWOs[i].unit,
+				TotalAmount:  math.Round(rawWOs[i].amount*100) / 100,
+				TotalCostRub: math.Round(rawWOs[i].cost*100) / 100,
+				Reason:       rawWOs[i].reason,
+			})
+		}
+		audit.TopWriteoffsByAmount = topWOAmount
+		audit.TotalWriteoffsCostRub = math.Round(totalWriteoffsCost*100) / 100
+		if monthlyPurchases > 0 {
+			monthlyWOCost := (totalWriteoffsCost / float64(days)) * 30.0
+			audit.WriteoffsSpendSharePct = math.Round((monthlyWOCost/monthlyPurchases)*1000) / 10
+		}
+	}
 
 	// Топ-категории переплат для AI аудитора
 	var topOverpaidCats []string

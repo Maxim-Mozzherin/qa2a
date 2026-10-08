@@ -351,6 +351,97 @@ func (s *Server) SyncRestaurant(restID int, from, to string) (int, int, error) {
 		}
 	}
 
+	// 3. Синхронизация актов списания iiko (Write-offs)
+	writeoffs, errW := s.iikoClient.FetchWriteoffs(host, token, from, to)
+	if errW != nil {
+		log.Printf("⚠️ [Sync Writeoffs] Заведение %d: акты списания не получены или не поддерживаются: %v", restID, errW)
+	} else if len(writeoffs) > 0 {
+		importedWriteoffs := 0
+		for _, wo := range writeoffs {
+			if wo.Status == "DELETED" {
+				continue
+			}
+			wDate, _ := time.Parse("2006-01-02T15:04", wo.DateIncoming)
+			if wDate.IsZero() {
+				wDate, _ = time.Parse("2006-01-02", wo.DateIncoming)
+			}
+			if wDate.IsZero() {
+				wDate = time.Now()
+			}
+
+			var totalCost float64
+			for _, itm := range wo.Items {
+				if itm.Cost != nil {
+					totalCost += *itm.Cost
+				}
+			}
+
+			var woDBID int
+			var storeUUIDVal, accountUUIDVal interface{}
+			if strings.TrimSpace(wo.StoreID) != "" {
+				storeUUIDVal = strings.TrimSpace(wo.StoreID)
+			}
+			if strings.TrimSpace(wo.AccountID) != "" {
+				accountUUIDVal = strings.TrimSpace(wo.AccountID)
+			}
+
+			errIns := s.db.QueryRow(`
+				INSERT INTO analytics_writeoffs (restaurant_id, iiko_doc_id, doc_number, doc_date, date_incoming, status, store_id, account_id, comment, total_cost)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+				ON CONFLICT (restaurant_id, iiko_doc_id) DO UPDATE
+				SET doc_number = EXCLUDED.doc_number,
+				    doc_date = EXCLUDED.doc_date,
+				    status = EXCLUDED.status,
+				    comment = EXCLUDED.comment,
+				    total_cost = EXCLUDED.total_cost
+				RETURNING id`,
+				restID, wo.ID, strings.TrimSpace(wo.DocumentNumber), wDate, wo.DateIncoming, wo.Status,
+				storeUUIDVal, accountUUIDVal, wo.Comment, totalCost,
+			).Scan(&woDBID)
+
+			if errIns != nil {
+				log.Printf("⚠️ [Sync Writeoffs] Ошибка сохранения акта списания %s: %v", wo.ID, errIns)
+				continue
+			}
+			importedWriteoffs++
+
+			_, _ = s.db.Exec(`DELETE FROM analytics_writeoff_items WHERE writeoff_id = $1`, woDBID)
+
+			for _, itm := range wo.Items {
+				if itm.Amount <= 0 {
+					continue
+				}
+				pName := catalog[itm.ProductID]
+				if pName == "" {
+					if len(itm.ProductID) >= 8 {
+						pName = "Товар " + itm.ProductID[:8]
+					} else {
+						pName = "Товар " + itm.ProductID
+					}
+				}
+
+				costVal := 0.0
+				if itm.Cost != nil {
+					costVal = *itm.Cost
+				}
+
+				unit := "кг"
+				if u, ok := posUnits[itm.ProductID]; ok && u != "" {
+					unit = u
+				}
+
+				_, _ = s.db.Exec(`
+					INSERT INTO analytics_writeoff_items (
+						writeoff_id, restaurant_id, doc_date, product_uuid, product_name, amount, unit, cost, store_id, account_id, comment
+					) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+					woDBID, restID, wDate, itm.ProductID, pName, itm.Amount, unit, costVal,
+					storeUUIDVal, accountUUIDVal, wo.Comment,
+				)
+			}
+		}
+		log.Printf("📥 [Analytics Sync] Заведение %d: синхронизировано %d актов списания", restID, importedWriteoffs)
+	}
+
 	log.Printf("📥 [Analytics Sync] Заведение %d (company %d): синхронизировано %d накладных, %d позиций (включая Godmode)", restID, targetCompanyID, importedInvoices, importedItems)
 	return importedInvoices, importedItems, nil
 }
