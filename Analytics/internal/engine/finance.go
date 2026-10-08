@@ -218,6 +218,11 @@ type ExecutiveFinancialAudit struct {
 	TotalWriteoffsCostRub        float64            `json:"total_writeoffs_cost_rub"`
 	WriteoffsSpendSharePct       float64            `json:"writeoffs_spend_share_pct"`        // Доля списаний в закупках (%)
 	WriteoffsResourceSharePct    float64            `json:"writeoffs_resource_share_pct"`     // Доля списаний в совокупном ресурсе (%)
+	TotalWriteoffsItemsCount     int                `json:"total_writeoffs_items_count"`      // Число уникальных списанных позиций
+	TopWriteoffsCostSum          float64            `json:"top_writeoffs_cost_sum"`           // Сумма потерь Топ-5
+	TopWriteoffsCostSharePct     float64            `json:"top_writeoffs_cost_share_pct"`      // Доля Топ-5 в списаниях (%)
+	OtherWriteoffsCostRub        float64            `json:"other_writeoffs_cost_rub"`         // Потери по остальным позициям
+	OtherWriteoffsItemsCount     int                `json:"other_writeoffs_items_count"`      // Число остальных позиций
 
 	// AI Заключение управленческого аудитора
 	AuditorSummary string `json:"auditor_summary,omitempty"`

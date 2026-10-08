@@ -968,20 +968,23 @@
 
                     <!-- Таблица 2: Внутренние списания сырья -->
                     <div id="rep-sheet-writeoffs-section" class="space-y-2 avoid-break mt-3">
-                        <div class="flex justify-between items-center border-b border-slate-200 pb-1.5">
-                            <div>
-                                <h4 class="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                                    <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-                                    Аудит списаний (Топ потерь кухни и бара)
-                                </h4>
-                                <p class="text-[9px] text-slate-500">Списания по актам iiko RMS в себестоимости. Контроль брака, порчи, истечения сроков и пересорта.</p>
-                            </div>
-                            <div id="rep-sheet-writeoffs-total" class="text-right">
-                                <div class="flex items-center justify-end gap-2">
-                                    <span class="text-[8px] uppercase font-bold text-slate-400">Всего списано:</span>
-                                    <span class="text-xs font-black text-amber-700 font-mono" id="rep-sheet-writeoffs-total-val">0 ₽</span>
+                        <div class="border-b border-slate-200 pb-2 space-y-1.5">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <h4 class="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                                        Аудит списаний (Топ потерь кухни и бара)
+                                    </h4>
+                                    <p class="text-[9px] text-slate-500">Списания по актам iiko RMS в себестоимости. Контроль брака, порчи, истечения сроков и пересорта.</p>
                                 </div>
-                                <div class="text-[7.5px] text-slate-500 font-medium mt-0.5" id="rep-sheet-writeoffs-sub-val"></div>
+                                <div id="rep-sheet-writeoffs-total" class="text-right whitespace-nowrap">
+                                    <span class="text-[8px] uppercase font-bold text-slate-400">Всего списано:</span>
+                                    <span class="text-xs font-black text-amber-700 font-mono ml-1" id="rep-sheet-writeoffs-total-val">0 ₽</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between text-[8px] bg-amber-50/70 border border-amber-200/60 rounded px-2 py-1">
+                                <span class="text-slate-700 font-semibold" id="rep-sheet-writeoffs-count-note"></span>
+                                <span class="text-amber-900 font-bold ml-2 text-right" id="rep-sheet-writeoffs-sub-val"></span>
                             </div>
                         </div>
                         <div class="rounded-lg border border-slate-200 overflow-hidden">
@@ -2766,19 +2769,32 @@
             const woTbody = document.getElementById('rep-sheet-writeoffs-tbody');
             const woTotalEl = document.getElementById('rep-sheet-writeoffs-total-val');
             const woSubEl = document.getElementById('rep-sheet-writeoffs-sub-val');
+            const countNoteEl = document.getElementById('rep-sheet-writeoffs-count-note');
             const topWOCost = currentAudit.top_writeoffs_by_cost || [];
 
             if (woTotalEl) {
                 woTotalEl.textContent = `${formatRub(currentAudit.total_writeoffs_cost_rub || 0)} ₽`;
+            }
+            if (countNoteEl) {
+                const totalCount = currentAudit.total_writeoffs_items_count || topWOCost.length;
+                const topSum = currentAudit.top_writeoffs_cost_sum || 0;
+                const topPct = currentAudit.top_writeoffs_cost_share_pct || 0;
+                const otherSum = currentAudit.other_writeoffs_cost_rub || 0;
+                const otherCount = currentAudit.other_writeoffs_items_count || 0;
+                if (totalCount > 5) {
+                    countNoteEl.textContent = `${totalCount} уникальных позиций за период: Топ-5 — ${formatRub(topSum)} ₽ (${topPct.toFixed(1)}%), остальные ${otherCount} поз. — ${formatRub(otherSum)} ₽`;
+                } else {
+                    countNoteEl.textContent = `${totalCount} списанных позиций`;
+                }
             }
             if (woSubEl) {
                 const resShare = currentAudit.writeoffs_resource_share_pct || 0;
                 const opCost = currentAudit.opening_stock_cost_rub || 0;
                 const purchCost = currentAudit.total_purchases_period_rub || 0;
                 if (opCost > 0) {
-                    woSubEl.innerHTML = `Потери: <strong class="text-amber-700 font-bold">${resShare > 0 ? resShare.toFixed(1) + '%' : '—'}</strong> от ресурса (остатки ${formatRub(opCost)} ₽ + закупки ${formatRub(purchCost)} ₽)`;
+                    woSubEl.innerHTML = `Потери: <strong class="text-amber-800 font-bold">${resShare > 0 ? resShare.toFixed(1) + '%' : '—'}</strong> от ресурса <span class="text-slate-400 font-normal">(остатки ${formatRub(opCost)} ₽ + закупки ${formatRub(purchCost)} ₽)</span>`;
                 } else if (currentAudit.writeoffs_spend_share_pct > 0) {
-                    woSubEl.innerHTML = `Потери: <strong class="text-amber-700 font-bold">${currentAudit.writeoffs_spend_share_pct.toFixed(1)}%</strong> от закупок`;
+                    woSubEl.innerHTML = `Потери: <strong class="text-amber-800 font-bold">${currentAudit.writeoffs_spend_share_pct.toFixed(1)}%</strong> от закупок`;
                 } else {
                     woSubEl.textContent = '';
                 }
@@ -2791,11 +2807,11 @@
                     woTbody.innerHTML = topWOCost.map((w, i) => {
                         const openingStr = w.opening_amount > 0 ? `${formatVol(w.opening_amount)} ${escapeHtml(w.unit)}` : '—';
                         const purchStr = w.purchased_amount > 0 ? `${formatVol(w.purchased_amount)} ${escapeHtml(w.unit)}` : '—';
-                        let lossPctHtml = '—';
+                        let lossPctHtml = '<span class="text-slate-400 font-normal">—</span>';
                         if (w.loss_share_of_resource_pct > 0) {
                             lossPctHtml = `<span class="inline-block bg-amber-50 text-amber-800 text-[8px] font-bold px-1.5 py-0.5 rounded border border-amber-200">${w.loss_share_of_resource_pct.toFixed(1)}%</span>`;
-                        } else if (w.share_pct > 0) {
-                            lossPctHtml = `<span class="inline-block bg-slate-100 text-slate-600 text-[8px] font-bold px-1 py-0.5 rounded">${w.share_pct.toFixed(1)}%</span>`;
+                        } else if (w.total_resource_amount === 0 && w.total_resource_cost_rub === 0) {
+                            lossPctHtml = `<span class="text-slate-400 text-[7.5px] italic">п/ф цеха</span>`;
                         }
 
                         return `

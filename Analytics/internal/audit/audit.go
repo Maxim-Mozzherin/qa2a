@@ -19,6 +19,11 @@ func cleanSupplierName(name string) string {
 	return name
 }
 
+type stockInfo struct {
+	amount float64
+	cost   float64
+}
+
 // ExecuteAudit выполняет полный расчет экономического управленческого аудита ресторана
 func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID int, days int, cohortCfg engine.CohortConfig) (*engine.ExecutiveFinancialAudit, error) {
 	if days <= 0 {
@@ -651,10 +656,6 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 			LIMIT 1`, restID, startDate).Scan(&openingBalanceDate)
 	}
 
-	type stockInfo struct {
-		amount float64
-		cost   float64
-	}
 	openingStocks := make(map[string]stockInfo)
 	var totalOpeningStockCost float64
 
@@ -730,14 +731,15 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 			return rawWOs[i].cost > rawWOs[j].cost
 		})
 		var topWOCost []engine.WriteoffLossItem
+		var topCostSum float64
 		for i := 0; i < len(rawWOs) && i < 5; i++ {
 			share := 0.0
 			if totalWriteoffsCost > 0 {
 				share = math.Round((rawWOs[i].cost/totalWriteoffsCost)*1000) / 10
 			}
 			pName := rawWOs[i].productName
-			opStock := openingStocks[pName]
-			purch := purchasesByProduct[pName]
+			opStock := findStockOrPurch(pName, openingStocks)
+			purch := findStockOrPurch(pName, purchasesByProduct)
 
 			resAmount := opStock.amount + purch.amount
 			resCost := opStock.cost + purch.cost
@@ -747,6 +749,8 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 			} else if resCost > 0 {
 				lossOfResourcePct = math.Round((rawWOs[i].cost/resCost)*1000) / 10
 			}
+
+			topCostSum += rawWOs[i].cost
 
 			topWOCost = append(topWOCost, engine.WriteoffLossItem{
 				Rank:                   i + 1,
@@ -762,10 +766,19 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 				TotalResourceCostRub:   math.Round(resCost*100) / 100,
 				LossShareOfResourcePct: lossOfResourcePct,
 				SharePct:               share,
-				Reason:                 rawWOs[i].reason,
+				Reason:                 cleanWriteoffReason(pName, rawWOs[i].reason),
 			})
 		}
 		audit.TopWriteoffsByCost = topWOCost
+		audit.TotalWriteoffsItemsCount = len(rawWOs)
+		audit.TopWriteoffsCostSum = math.Round(topCostSum*100) / 100
+		if totalWriteoffsCost > 0 {
+			audit.TopWriteoffsCostSharePct = math.Round((topCostSum/totalWriteoffsCost)*1000) / 10
+		}
+		if len(rawWOs) > 5 {
+			audit.OtherWriteoffsItemsCount = len(rawWOs) - 5
+			audit.OtherWriteoffsCostRub = math.Round((totalWriteoffsCost-topCostSum)*100) / 100
+		}
 
 		// Топ по объему
 		sort.Slice(rawWOs, func(i, j int) bool {
@@ -778,8 +791,8 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 				share = math.Round((rawWOs[i].cost/totalWriteoffsCost)*1000) / 10
 			}
 			pName := rawWOs[i].productName
-			opStock := openingStocks[pName]
-			purch := purchasesByProduct[pName]
+			opStock := findStockOrPurch(pName, openingStocks)
+			purch := findStockOrPurch(pName, purchasesByProduct)
 
 			resAmount := opStock.amount + purch.amount
 			resCost := opStock.cost + purch.cost
@@ -804,7 +817,7 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 				TotalResourceCostRub:   math.Round(resCost*100) / 100,
 				LossShareOfResourcePct: lossOfResourcePct,
 				SharePct:               share,
-				Reason:                 rawWOs[i].reason,
+				Reason:                 cleanWriteoffReason(pName, rawWOs[i].reason),
 			})
 		}
 		audit.TopWriteoffsByAmount = topWOAmount
@@ -858,4 +871,89 @@ func ExecuteAudit(ctx context.Context, db *sql.DB, llmClient *llm.Client, restID
 	}
 
 	return &audit, nil
+}
+
+func findStockOrPurch(name string, m map[string]stockInfo) stockInfo {
+	if v, ok := m[name]; ok && (v.amount > 0 || v.cost > 0) {
+		return v
+	}
+	norm := cleanItemNameForMatch(name)
+	if len(norm) >= 3 {
+		// 1. Поиск точного совпадения по очищенному имени
+		for k, v := range m {
+			if cleanItemNameForMatch(k) == norm && (v.amount > 0 || v.cost > 0) {
+				return v
+			}
+		}
+		// 2. Вхождение подстроки (например, "авокадо" в "авокадо зачищ.")
+		for k, v := range m {
+			kNorm := cleanItemNameForMatch(k)
+			if (strings.Contains(norm, kNorm) || strings.Contains(kNorm, norm)) && (v.amount > 0 || v.cost > 0) {
+				return v
+			}
+		}
+	}
+	return stockInfo{}
+}
+
+func cleanItemNameForMatch(name string) string {
+	s := strings.ToLower(name)
+	noises := []string{
+		"п/ф", "п/ф.", "зачищ.", "зачищ", "б/к", "охл.", "охл", "с/м", "1л", "перем.", "отвар.", "вар.",
+		"кусочки", "филе", "для лапши", "хаус",
+	}
+	for _, n := range noises {
+		s = strings.ReplaceAll(s, n, "")
+	}
+	return strings.TrimSpace(s)
+}
+
+func cleanWriteoffReason(productName, rawComment string) string {
+	raw := strings.TrimSpace(rawComment)
+	low := strings.ToLower(raw)
+	if strings.Contains(low, "брак") {
+		return "Брак / проработка"
+	}
+	if strings.Contains(low, "порч") || strings.Contains(low, "срок") || strings.Contains(low, "истек") {
+		return "Истечение срока / порча"
+	}
+	if strings.Contains(low, "пересорт") {
+		return "Пересорт"
+	}
+	if strings.Contains(low, "инвентар") {
+		return "По инвентаризации"
+	}
+	// Если комментарий - даты недели (например "7.09-13.09" или "31.08-6.09")
+	if strings.Contains(raw, "-") && len(raw) <= 15 {
+		if strings.Contains(strings.ToLower(productName), "п/ф") {
+			return "Списание заготовок (п/ф)"
+		}
+		if isBarItem(productName) {
+			return "Списание бара"
+		}
+		return "Списание кухни (порча/брак)"
+	}
+	if strings.Contains(low, "касса") || strings.Contains(low, "терминал") {
+		if isBarItem(productName) {
+			return "Списание бара"
+		}
+		return "Списание кухни"
+	}
+	if raw != "" && len(raw) < 25 && !strings.Contains(raw, "09") && !strings.Contains(raw, "08") {
+		return raw
+	}
+	if isBarItem(productName) {
+		return "Списание бара"
+	}
+	return "Списание кухни"
+}
+
+func isBarItem(name string) bool {
+	low := strings.ToLower(name)
+	for _, k := range []string{"водка", "коньяк", "вино", "пиво", "сироп", "ром", "виски", "джин", "ликёр", "ликер", "чай", "кофе", "сок", "морс", "тоник"} {
+		if strings.Contains(low, k) {
+			return true
+		}
+	}
+	return false
 }
